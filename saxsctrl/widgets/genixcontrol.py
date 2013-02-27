@@ -38,7 +38,9 @@ class GenixStatus(gtk.Frame):
                     ('Door sensor', None, 'DOOR_SENSOR_FAULT'),
                     ('Filament', None, 'FILAMENT_FAULT'),
                     ('Sensor 1', None, 'SENSOR1_FAULT'),
-                    ('Sensor 2', None, 'SENSOR2_FAULT')]
+                    ('Sensor 2', None, 'SENSOR2_FAULT'),
+                    
+                    ('Conditions auto OK', 'CONDITIONS_AUTO_OK', None, 'YES', 'NO'), ]
         
         num_cols = 6
         tab = gtk.Table()
@@ -57,20 +59,27 @@ class GenixStatus(gtk.Frame):
             tab.attach(self.labels[label[0]], i % num_cols, i % num_cols + 1, i / num_cols, i / num_cols + 1, gtk.FILL | gtk.EXPAND, gtk.FILL | gtk.EXPAND, 2, 3)
             self.labels[label[0]].connect('status-changed', self.on_changed_logger)
     def on_changed_logger(self, statlabel, status, statstr, color):
-        if status == 'ERROR' and statlabel.labelname not in ['Shutter', 'Remote', 'X-rays', 'Status']:
+        if status == 'ERROR' and statlabel.labelname not in ['Shutter', 'Remote', 'X-rays', 'Status', 'Conditions auto OK']:
             logger.error(statlabel.labelname + '; message: ' + statstr)
         else:
-            logger.info('Status changed: ' + statlabel.labelname + ', new status: ' + status + ', message: ' + statstr)
+            logger.debug('Status changed: ' + statlabel.labelname + ', new status: ' + status + ', message: ' + statstr)
         return False
     def get_genixstatus(self, status, genixconnection):
-        if status['CYCLE_TUBE_WARM_UP_ON']:
+        st = genixconnection.whichstate(status)
+        if st == genix.GENIX_FULLPOWER:
+            return 'Full power'
+        elif st == genix.GENIX_WARMUP:
             return 'Warm-up'
-        elif status['CYCLE_AUTO_ON']:
+        elif st == genix.GENIX_GO_FULLPOWER:
             return 'Ramping up'
-        elif status['CYCLE_RESET_ON']:
+        elif st == genix.GENIX_GO_POWERDOWN:
             return 'Powering off'
-        elif status['STANDBY_ON']:
+        elif st == genix.GENIX_GO_STANDBY:
             return 'Going to standby'
+        elif st == genix.GENIX_STANDBY:
+            return 'Low power'
+        elif st == genix.GENIX_POWERDOWN:
+            return 'Powered down'
         else:
             return 'Idle'
     def get_genix_HT(self, status, genixconnection):
@@ -114,7 +123,8 @@ class GenixStatus(gtk.Frame):
                     self.labels[label[0]].set_status('ERROR')
                 else:
                     self.labels[label[0]].set_status('UNKNOWN')
-        return True
+            
+        return status
                     
 class GenixControl(gtk.Dialog):
     _timeout_handler = None
@@ -165,10 +175,19 @@ class GenixControl(gtk.Dialog):
             self.connection = genix.GenixConnection('10.0.1.10')
         else:
             self.connection = connection
-        self._timeout_handler = gobject.timeout_add_seconds(1, self.status.update_status, self.connection)
+        self._timeout_handler = gobject.timeout_add_seconds(1, self.update_status)
         self.status.labels['X-rays'].connect('status-changed', self.on_xrays)
         self.status.labels['Shutter'].connect('status-changed', self.on_shutter)
         self.status.labels['Status'].connect('status-changed', self.on_warmup)
+    def update_status(self):
+        status = self.status.update_status(self.connection)
+        status = self.connection.whichstate(status)
+        self.powerdownbutton.set_sensitive(status in (genix.GENIX_FULLPOWER, genix.GENIX_STANDBY, genix.GENIX_IDLE))
+        self.xraybutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
+        self.standbybutton.set_sensitive(status in (genix.GENIX_FULLPOWER, genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
+        self.rampupbutton.set_sensitive(status in (genix.GENIX_STANDBY, genix.GENIX_IDLE))
+        self.warmupbutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
+        return True
     def finalize(self, *args, **kwargs):
         if self._timeout_handler is not None:
             gobject.source_remove(self._timeout_handler)
@@ -186,16 +205,7 @@ class GenixControl(gtk.Dialog):
             self.connection.do_warmup()
         except genix.GenixError:
             return
-        for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-            x.set_sensitive(False)
-        self._aux_timeout_handler = gobject.timeout_add_seconds(1, self.wait_for_warmup)
-    def wait_for_warmup(self):
-        if not self.connection.get_status()['CYCLE_TUBE_WARM_UP_ON']:
-            for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-                x.set_sensitive(True)
-            self._aux_timeout_handler = None
-            return False
-        return True
+        self.update_status()
     def on_powerdown(self, widget):
         if not self.connection.xrays_state():
             return
@@ -203,16 +213,7 @@ class GenixControl(gtk.Dialog):
             self.connection.do_poweroff()
         except genix.GenixError:
             return
-        for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-            x.set_sensitive(False)
-        self._aux_timeout_handler = gobject.timeout_add_seconds(1, self.wait_for_powerdown)
-    def wait_for_powerdown(self):
-        if self.connection.get_ht() == 0 and self.connection.get_current() == 0:
-            for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-                x.set_sensitive(True)
-            self._aux_timeout_handler = None
-            return False
-        return True
+        self.update_status()
     def on_standby(self, widget):
         if not self.connection.xrays_state():
             return
@@ -220,17 +221,7 @@ class GenixControl(gtk.Dialog):
             self.connection.do_standby()
         except genix.GenixError:
             return
-        for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-            x.set_sensitive(False)
-        self._aux_timeout_handler = gobject.timeout_add_seconds(1, self.wait_for_standby)
-    def wait_for_standby(self):
-        if self.connection.get_ht() == 30 and self.connection.get_current() == 0.30:
-            for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-                x.set_sensitive(True)
-            self._aux_timeout_handler = None
-            return False
-        return True
-        
+        self.update_status()
     def on_rampup(self, widget):
         if not self.connection.xrays_state():
             return
@@ -238,16 +229,7 @@ class GenixControl(gtk.Dialog):
             self.connection.do_rampup()
         except genix.GenixError:
             return
-        for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-            x.set_sensitive(False)
-        self._aux_timeout_handler = gobject.timeout_add_seconds(1, self.wait_for_rampup)
-    def wait_for_rampup(self):
-        if self.connection.get_ht() == 50 and self.connection.get_current() == 0.60:
-            for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-                x.set_sensitive(True)
-            self._aux_timeout_handler = None
-            return False
-        return True
+        self.update_status()
         
     def on_reset(self, widget):
         try:
@@ -268,12 +250,9 @@ class GenixControl(gtk.Dialog):
         else:
             if self.connection.xrays_state():
                 self.xraybutton.set_label('X-rays OFF')
-                for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-                    x.set_sensitive(True)
             else:
                 self.xraybutton.set_label('X-rays ON')
-                for x in [self.powerdownbutton, self.warmupbutton, self.standbybutton, self.rampupbutton]:
-                    x.set_sensitive(False)
+        self.update_status()
     def on_shutter(self, widget, status=None, statstr=None, color=None):
         if isinstance(widget, gtk.Button):
             try:

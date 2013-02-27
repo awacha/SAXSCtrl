@@ -148,6 +148,12 @@ class TimedScan(gtk.Dialog):
         tab.attach(self.dwelltime_entry, 1, 2, row, row + 1)
         row += 1
         
+        self.shutter_checkbutton = gtk.CheckButton('Open/close shutter on each exposure (SLOW!)')
+        self.shutter_checkbutton.set_alignment(0, 0.5)
+        tab.attach(self.shutter_checkbutton, 0, 2, row, row + 1)
+        self.shutter_checkbutton.set_active(False)
+        row += 1
+        
         self.byhand_checkbutton = gtk.CheckButton('Expose one-by-one')
         self.byhand_checkbutton.set_alignment(0, 0.5)
         tab.attach(self.byhand_checkbutton, 0, 2, row, row + 1)
@@ -203,7 +209,7 @@ class TimedScan(gtk.Dialog):
     def on_byhand_checkbutton(self, *args):
         self.dwelltime_entry.set_sensitive(not self.byhand_checkbutton.get_active())
         self.nimages_entry.set_sensitive(not self.byhand_checkbutton.get_active())
-    
+        self.shutter_checkbutton.set_sensitive(not self.byhand_checkbutton.get_active())
     def on_add_detector(self, *args):
         if self._dlg is None:
             self._dlg = AddDetectorDialog(parent=self)
@@ -234,14 +240,23 @@ class TimedScan(gtk.Dialog):
                 self.credo.set_fileformat('timedscan_%05d' % fsn)
                 self._scanfsn = fsn
                 self._scanresults = []
+                if self.shutter_checkbutton.get_active() and not self.byhand_checkbutton.get_active():
+                    self._scan_i = 1
+                    nimages = 1
+                    dwelltime = 0.003
+                else:
+                    self._scan_i = None
+                    nimages = self.nimages_entry.get_value_as_int()
+                    dwelltime = self.dwelltime_entry.get_value()
                 def _handler(imgdata):
                     gobject.idle_add(self.on_imagereceived, imgdata)
                     return False
                 self._timeoffirstpoint = datetime.datetime.now()
                 if not self.byhand_checkbutton.get_active():
+                    self.credo.freeze_callbacks('files-changed')
                     self.credo.expose(self.exptime_entry.get_value(),
-                                      self.nimages_entry.get_value_as_int(),
-                                      self.dwelltime_entry.get_value(), blocking=False, callback=_handler)
+                                      nimages,
+                                      dwelltime, blocking=False, callback=_handler)
                 self.get_widget_for_response(gtk.RESPONSE_OK).set_label(gtk.STOCK_STOP)
             else:
                 self.credo.killexposure()
@@ -253,6 +268,7 @@ class TimedScan(gtk.Dialog):
         def _handler(imgdata):
             gobject.idle_add(self.on_imagereceived, imgdata)
             return False
+        self.credo.freeze_callbacks('files-changed')
         self.credo.expose(self.exptime_entry.get_value(), blocking=False, callback=_handler)
     def readout_all(self, exposure):
         return [row[-1].readout(exposure) for row in self.detectors_liststore]
@@ -286,6 +302,9 @@ class TimedScan(gtk.Dialog):
         if exposure is None:  # exposure failed
             logger.debug('exposure broken.')
             broken = True
+            if hasattr(self, '_shuttered_exposure_timeout_handler'):
+                gobject.source_remove(self._shuttered_exposure_timeout_handler)
+                         
         else:
             logger.debug('image received.')
             data = [(exposure.header['CBF_Date'] - self._timeoffirstpoint).total_seconds()] + self.readout_all(exposure)
@@ -302,9 +321,25 @@ class TimedScan(gtk.Dialog):
                 f.write('\n')
                 
             gc.collect()
+            if self._scan_i is not None and self._scan_i < self.nimages_entry.get_value():
+                self._scan_i += 1
+                def _timeout():
+                    self.on_byhand_button()
+                    return False
+                timetowait = (self._timeoffirstpoint + datetime.timedelta(seconds=data[0]) + 
+                              datetime.timedelta(seconds=self.dwelltime_entry.get_value()) - 
+                              datetime.datetime.now()).total_seconds()
+                if timetowait < 0:
+                    logger.warning('Exposure lag, too short dwell time (%.2f sec)!' % timetowait)
+                    timetowait = 0
+                else:
+                    logger.debug('Waiting %.2f secs.' % timetowait)
+                self._shuttered_exposure_timeout_handler = gobject.timeout_add(int(timetowait * 1000), _timeout)
+            logger.debug('Timedscan processing time: %.2f secs' % ((datetime.datetime.now() - (self._timeoffirstpoint + datetime.timedelta(seconds=data[0]))).total_seconds()))
             if self.byhand_checkbutton.get_active() or (len(self._scanresults) < self.nimages_entry.get_value_as_int()):
                 return False
             broken = False
+        self.credo.thaw_callbacks('files-changed')
         logger.debug('last scan point received, saving log file.')
         self.detectorsframe.set_sensitive(True)
         self.entrytable.set_sensitive(True)

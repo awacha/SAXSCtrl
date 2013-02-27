@@ -100,6 +100,8 @@ class MovieMaker(gtk.Dialog):
         if respid == gtk.RESPONSE_CANCEL:
             self._userbreak = True
             return
+        elif respid == gtk.RESPONSE_DELETE_EVENT:
+            return
         else:
             self.on_run()
             return
@@ -122,7 +124,7 @@ class MovieMaker(gtk.Dialog):
         else:
             axis = None
         for i in range(1, len(scan) + 1):
-            ex = sastool.classes.SASExposure(fileformat % i, dirs=(self.credo.imagepath, self.credo.offlineimagepath, self.credo.parampath))
+            ex = sastool.classes.SASExposure(fileformat % i, dirs=self.credo.get_exploaddirs())
             fig.clf()
             ex.plot2d(**kwargs_for_plot2d)
             if axis is not None:

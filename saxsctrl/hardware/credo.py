@@ -11,14 +11,38 @@ import threading
 import uuid
 import time
 import logging
+import cPickle as pickle
+import gio
+import ConfigParser
 
+from . import sample
 logger = logging.getLogger('credo')
 # logger.setLevel(logging.DEBUG)
+
+class CredoError(Exception):
+    pass
+
+class CBFreeze(object):
+    def __init__(self, obj, name):
+        self.obj = obj
+        self.name = name
+    def __enter__(self):
+        self.obj.freeze_callbacks(self.name)
+    def __exit__(self, *args):
+        self.obj.thaw_callbacks(self.name)
 
 class Credo(object):
     _exposurethread = None
     # _recent_exposures = []
     _callbacks = {}
+    _filewatchers = None
+    _fileformat = None
+    _fileformat_re = None
+    _nextfsn_cache = None
+    _username = 'Anonymous'
+    _projectname = 'No project'
+    _pixelsize = 172
+    _dist = 1000
     def __init__(self, genixhost=None, pilatushost=None, genixport=502, pilatusport=41234, imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
         if isinstance(genixhost, genix.GenixConnection):
@@ -29,29 +53,106 @@ class Credo(object):
             self.pilatus = pilatushost
         elif pilatushost is not None:
             self.pilatus = pilatus.PilatusConnection(pilatushost, pilatusport)
-        self._username = 'Anonymous'
-        self._projectname = 'No project'
         self._filepath = filepath
         self._imagepath = imagepath
         self.set_fileformat(filebegin, digitsinfsn)
-        self._dist = 1000
-        self._pixelsize = 172
-        self._beamposx = 308.29815843244432
-        self._beamposy = 243.63065376104609
+        self._beamposx = 348.38
+        self._beamposy = 242.47
         self._wavelength = 1.54182
         self._filter = 'No filter'
         self._shuttercontrol = True
         self._callbacks = {}
         self._kill_exposure_notifier = threading.Event()
+        self._samples = []
+        self.sample = None
+        self.load_settings()
+        self.connect_callback('setup-changed', self.save_settings)
+        self.connect_callback('path-changed', self.load_samples)
+        self.connect_callback('setup-changed', self._setup_filewatchers)
+        self._setup_filewatchers()
+        self.load_samples()
+    def load_settings(self):
+        cp = ConfigParser.ConfigParser()
+        cp.read(os.path.expanduser('~/.config/credo/credorc'))
+        for attrname, option in [('_username', 'User'), ('_projectname', 'Project'), ('_filepath', 'File_path'), ('_imagepath', 'Image_path'),
+                                ('_filter', 'Filter')]:
+            if cp.has_option('CREDO', option):
+                self.__setattr__(attrname, cp.get('CREDO', option))
+        for attrname, option in [('_dist', 'Distance'), ('_pixelsize', 'Pixel_size'), ('_beamposx', 'Beam_X'), ('_beamposy', 'Beam_Y'),
+                                ('_wavelength', 'Wavelength')]:
+            if cp.has_option('CREDO', option):
+                self.__setattr__(attrname, cp.getfloat('CREDO', option))
+        for attrname, option in [('_shuttercontrol', 'Shutter_control')]:
+            if cp.has_option('CREDO', option):
+                self.__setattr__(attrname, cp.getboolean('CREDO', option))
+        del cp
+        self.emit('setup-changed')
+        self.emit('path-changed')
+    def save_settings(self, *args):
+        cp = ConfigParser.ConfigParser()
+        cp.read(os.path.expanduser('~/.config/credo/credorc'))
+        if not cp.has_section('CREDO'):
+            cp.add_section('CREDO')
+        for attrname, option in [('_username', 'User'), ('_projectname', 'Project'), ('_filepath', 'File_path'), ('_imagepath', 'Image_path'),
+                                ('_filter', 'Filter'), ('_dist', 'Distance'), ('_pixelsize', 'Pixel_size'), ('_beamposx', 'Beam_X'), ('_beamposy', 'Beam_Y'),
+                                ('_wavelength', 'Wavelength'), ('_shuttercontrol', 'Shutter_control')]:
+            cp.set('CREDO', option, self.__getattribute__(attrname))
+        if not os.path.exists(os.path.expanduser('~/.config/credo')):
+            os.makedirs(os.path.expanduser('~/.config/credo'))
+        with open(os.path.expanduser('~/.config/credo/credorc'), 'wt') as f:
+            cp.write(f)
+        del cp
+        return False
+    def _setup_filewatchers(self, *args):
+        if self._filewatchers is None:
+            self._filewatchers = []
+        for fw, cbid in self._filewatchers:
+            fw.disconnect(cbid)
+            fw.cancel()
+            self._filewatchers.remove((fw, cbid))
+            del fw
+        for folder in [self.imagepath] + sastool.misc.find_subdirs(self.filepath):
+            fw = gio.File(folder).monitor_directory()
+            self._filewatchers.append((fw, fw.connect('changed', self._on_filewatch)))
+    def _on_filewatch(self, monitor, filename, otherfilename, event):
+        if event in (gio.FILE_MONITOR_EVENT_CHANGED, gio.FILE_MONITOR_EVENT_CREATED, gio.FILE_MONITOR_EVENT_DELETED, gio.FILE_MONITOR_EVENT_MOVED):
+            self.emit('files-changed', filename, event)
+    def load_samples(self, *args):
+        try:
+            with open(os.path.join(self.configpath, 'samples.pickle'), 'r') as f:
+                for sam in pickle.load(f):
+                    self.add_sample(sam)
+        except IOError:
+            return
+        if self._samples:
+            self.set_sample(self._samples[0])
+        self.emit('samples-changed')
+        return False
+    def save_samples(self, *args):
+        with open(os.path.join(self.configpath, 'samples.pickle'), 'w') as f:
+            pickle.dump(self.get_samples(), f, 2)
+    def freeze_callbacks(self, name):
+        if name not in self._callbacks:
+            return
+        self._callbacks[name][1] = False
+    def thaw_callbacks(self, name):
+        if name not in self._callbacks:
+            return
+        self._callbacks[name][1] = True
+    def callbacks_frozen(self, name):
+        return CBFreeze(self, name)
     def connect_callback(self, name, func, *args):
         if name not in self._callbacks:
-            self._callbacks[name] = []
+            self._callbacks[name] = [[], True]
         u = uuid.uuid1()
-        self._callbacks[name].append((u, func, args))
+        self._callbacks[name][0].append((u, func, args))
+        return u
     def emit(self, name, *args):
         if name not in self._callbacks:
             return
-        for u, func, userargs in self._callbacks[name]:
+        if not self._callbacks[name][1]:
+            return
+        for u, func, userargs in self._callbacks[name][0]:
             ret = func.__call__(args, userargs)
             if bool(ret):
                 break
@@ -59,10 +160,10 @@ class Credo(object):
         if name not in self._callbacks:
             return
         try:
-            cb_to_delete = [x for x in self._callbacks[name] if x[0] == u][0]
+            cb_to_delete = [x for x in self._callbacks[name][0] if x[0] == u][0]
         except IndexError:
             raise
-        self._callbacks[name].remove(cb_to_delete)
+        self._callbacks[name][0].remove(cb_to_delete)
         
     def is_pilatus_connected(self):
         return self.pilatus is not None and self.pilatus.connected()
@@ -76,23 +177,60 @@ class Credo(object):
             else:
                 raise OSError('%s exists and is not a directory!' % pth)
         return pth
-    def set_sample(self, sample):
-        self.sample = sample
-        self.emit('sample-changed', sample)
+    def add_sample(self, sam):
+        if not isinstance(sam, sample.SAXSSample):
+            return
+        if not [s for s in self._samples if s == sam]:
+            self._samples.append(sam)
+            self._samples.sort()
+            self.emit('samples-changed')
+    def remove_sample(self, sam):
+        modified = False
+        for todelete in [s == sam for s in self._samples]:
+            self._samples.remove(todelete)
+            if self.sample == todelete:
+                self.sample = None
+            modified = True
+        if modified:
+            self._samples.sort()
+            self.emit('samples-changed')
+    def get_samples(self):
+        return self._samples[:]            
+    def set_sample(self, sam):
+        if not isinstance(sam, sample.SAXSSample):
+            return
+        # if not [s for s in self._samples if s == sam]:
+        #    self._samples.append(sam)
+        #    self.emit('samples-changed')
+        #    self._samples.sort()
+        if self.sample != sam:
+            self.sample = sam
+            self.emit('sample-changed', self.sample)
+    def clear_samples(self):
+        self.sample = None
+        self._samples = []
+        self.emit('samples-changed')
+    def get_exploaddirs(self):
+        return [self.imagepath, self.offlineimagepath, self.eval1dpath, self.eval2dpath, self.parampath, self.maskpath]
     @property
     def filter(self):
         return self._filter
     @filter.setter
     def filter(self, value):
-        self._filter = value
-        self.emit('setup-changed')
+        if self._filter != value:
+            self._filter = value
+            self.emit('setup-changed')
     @property
     def pixelsize(self):
         return self._pixelsize
     @pixelsize.setter
     def pixelsize(self, value):
-        self._pixelsize = value
-        self.emit('setup-changed')
+        if self._pixelsize != value:
+            self._pixelsize = value
+            self.emit('setup-changed')
+    @property
+    def configpath(self):
+        return self._get_subpath('config')
     @property
     def moviepath(self):
         return self._get_subpath('movie')
@@ -112,7 +250,7 @@ class Credo(object):
     def offlineimagepath(self):
         return self._get_subpath('images')
     @property
-    def eval1dimagepath(self):
+    def eval1dpath(self):
         return self._get_subpath('eval1d')
     
     @property
@@ -120,29 +258,33 @@ class Credo(object):
         return self._filepath
     @filepath.setter
     def filepath(self, value):
-        self._filepath = value
-        self.emit('setup-changed')
+        if self._filepath != value:
+            self._filepath = value
+            self.emit('path-changed')
     @property
     def imagepath(self):
         return self._imagepath
     @imagepath.setter
     def imagepath(self, value):
-        self._imagepath = value
-        self.emit('setup-changed')
+        if self._imagepath != value:
+            self._imagepath = value
+            self.emit('path-changed')
     @property
     def username(self):
         return self._username
     @username.setter
     def username(self, value):
-        self._username = value
-        self.emit('setup-changed')
+        if self._username != value:
+            self._username = value
+            self.emit('setup-changed')
     @property
     def projectname(self):
         return self._projectname
     @projectname.setter
     def projectname(self, value):
-        self._projectname = value
-        self.emit('setup-changed')
+        if self._projectname != value:
+            self._projectname = value
+            self.emit('setup-changed')
     @property
     def fileformat(self):
         return self._fileformat
@@ -164,29 +306,33 @@ class Credo(object):
         return self._wavelength
     @wavelength.setter
     def wavelength(self, value):
-        self._wavelength = value
-        self.emit('setup-changed')
+        if self._wavelength != value:
+            self._wavelength = value
+            self.emit('setup-changed')
     @property
     def beamposx(self):
         return self._beamposx
     @beamposx.setter
     def beamposx(self, value):
-        self._beamposx = value
-        self.emit('setup-changed')
+        if self._beamposx != value:
+            self._beamposx = value
+            self.emit('setup-changed')
     @property
     def beamposy(self):
         return self._beamposy
     @beamposy.setter
     def beamposy(self, value):
-        self._beamposy = value
-        self.emit('setup-changed')
+        if self._beamposy != value:
+            self._beamposy = value
+            self.emit('setup-changed')
     @property
     def dist(self):
         return self._dist
     @dist.setter
     def dist(self, value):
-        self._dist = value
-        self.emit('setup-changed')
+        if self._dist != value:
+            self._dist = value
+            self.emit('setup-changed')
     @property
     def shuttercontrol(self):
         return self._shuttercontrol
@@ -276,12 +422,14 @@ class Credo(object):
         if self._exposurethread is not None:
             self._exposurethread.join()
         # self._recent_exposures = []
+        if self.sample is None:
+            raise CredoError('No sample defined.')
         fsn = self.get_next_fsn()
         filename = (self.fileformat % fsn) + '.cbf'
         h = sastool.classes.SASHeader()
         h['__Origin__'] = 'CREDO'
         h['__particle__'] = 'photon'
-        h['Dist'] = self.dist
+        h['Dist'] = self.dist - self.sample.distminus
         h['BeamPosX'] = self.beamposx
         h['BeamPosY'] = self.beamposy
         h['PixelSize'] = self.pixelsize / 1000.
@@ -298,6 +446,11 @@ class Credo(object):
         h['Thickness'] = self.sample.thickness
         h['PosSample'] = self.sample.position
         h['Monitor'] = h['MeasTime']
+        h['Preparedby'] = self.sample.preparedby
+        h['Preparetime'] = self.sample.preparetime
+        h['Transm'] = float(self.sample.transmission)
+        if isinstance(self.sample.transmission, sastool.ErrorValue):
+            h['TransmError'] = self.sample.transmission.err
         headernameformat = self.fileformat + '.param'
         
         if callback is None:
@@ -335,17 +488,23 @@ class Credo(object):
         return self.pilatus.camstate == 'idle'
     def trim_detector(self, threshold=4024, gain='midg'):
         self.pilatus.setthreshold(threshold, gain)
-    def get_next_fsn(self):
+    def get_next_fsn(self, regex=None):
+        if regex is None:
+            regex = self.fileformat_re
         maxfsns = [0]
         for pth in [self.imagepath, self.offlineimagepath] + sastool.misc.find_subdirs(self.filepath):
-            fsns = [int(f.group(1)) for f in [self.fileformat_re.match(f) for f in os.listdir(pth)] if f is not None]
+            fsns = [int(f.group(1)) for f in [regex.match(f) for f in os.listdir(pth)] if f is not None]
             if fsns:
                 maxfsns.append(max(fsns))
         return max(maxfsns) + 1
     def set_fileformat(self, begin='crd', digitsinfsn=5):
-        self._fileformat = begin + '_' + '%%0%dd' % digitsinfsn
-        self._fileformat_re = re.compile(begin + '_' + '(\d{%d,%d})' % (digitsinfsn, digitsinfsn))
-        self.emit('setup-changed')
+        self._nextfsn_cache = None
+        ff = begin + '_' + '%%0%dd' % digitsinfsn
+        ff_re = re.compile(begin + '_' + '(\d{%d,%d})' % (digitsinfsn, digitsinfsn))
+        if (self._fileformat != ff) or (self._fileformat_re != ff_re):
+            self._fileformat = ff
+            self._fileformat_re = ff_re
+            self.emit('setup-changed')
     def __del__(self):
         self.pilatus.disconnect()
         if self.shuttercontrol:

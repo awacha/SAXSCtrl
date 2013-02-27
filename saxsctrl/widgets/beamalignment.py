@@ -204,7 +204,7 @@ class BeamAlignment(gtk.Dialog):
                                        '\nMean intensity: ' + str(np.mean(Imean)) + ' +/- ' + str(np.std(Imean)) + ' ( from ' + str(len(Imean)) + ' data)' + 
                                        '\nStddev intensity: ' + str(np.mean(Istd)) + ' +/- ' + str(np.std(Istd)) + ' ( from ' + str(len(Istd)) + ' data)' + 
                                        '\nFiles loaded: ' + str(len(self._images_pending)))
-            logger.info('BeamX: %f; BeamY: %f; Imax: %f; Isum: %f; Imean: %f; Istd: %f' % (np.mean(bcx), np.mean(bcy), np.mean(Imax), np.mean(Isum), np.mean(Imean), np.mean(Istd)))
+            logger.debug('BeamX: %f; BeamY: %f; Imax: %f; Isum: %f; Imean: %f; Istd: %f' % (np.mean(bcx), np.mean(bcy), np.mean(Imax), np.mean(Isum), np.mean(Imean), np.mean(Istd)))
         else:
             self.beamposlabel.set_text('Error in beam positioning, try to disable or tune threshold.')
         self._images_pending = []

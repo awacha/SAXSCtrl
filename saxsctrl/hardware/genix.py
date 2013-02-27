@@ -27,6 +27,16 @@ import time
 
 logger = logging.getLogger(__name__)
 
+GENIX_IDLE = 0
+GENIX_POWERDOWN = -1
+GENIX_STANDBY = -2
+GENIX_FULLPOWER = -3
+GENIX_WARMUP = -4
+GENIX_GO_POWERDOWN = -5
+GENIX_GO_STANDBY = -6
+GENIX_GO_FULLPOWER = -7
+
+
 class GenixError(StandardError):
     pass
 
@@ -35,11 +45,13 @@ class GenixConnection(object):
     _comm_lock = threading.Lock()
     _shutter_lock = threading.Lock()
     _shutter_timeout = 1
+    _prevstate = GENIX_IDLE
     def __init__(self, host, port=502):
         self.connection = modbus_tk.modbus_tcp.TcpMaster(host, port)
         self.connection.set_timeout(1)
         try:
             self.connection.open()
+            logger.debug('Connected to GeniX at %s:%d' % (host, port))
         except:
             raise GenixError('Cannot connect to GeniX at %s:%d' % (host, port))
     def _read_integer(self, regno):
@@ -69,9 +81,10 @@ class GenixConnection(object):
                     self.error_handler.__call__('error')
                 raise GenixError('Communication error')
             return coils
-    def get_status_int(self):
+    def get_status_int(self, tup=None):
         """Read the status bits of GeniX and return an integer from it."""
-        tup = self.get_status_bits()
+        if tup is None:
+            tup = self.get_status_bits()
         return int(''.join([str(x) for x in tup]), base=2)
     def get_status(self):
         """Read the status bits of GeniX and return a dict() of them.
@@ -106,6 +119,8 @@ class GenixConnection(object):
             SHUTTER_OPENED: if the shutter is open
             OVERRIDDEN_ON: if the safety circuits are overridden (expert mode, set with the key at the back) 
         """
+        tup = self.get_status_bits()
+        logger.debug('GeniX status: 0x' + hex(self.get_status_int(tup)))
         return dict(zip(('DISTANT_MODE', 'XRAY_ON', 'STANDBY_ON', 'CYCLE_AUTO_ON', 'CONDITIONS_AUTO_OK', 'CYCLE_RESET_ON', 'CYCLE_TUBE_WARM_UP_ON',
                      'CONFIGURATION_POWER_TUBE', 'UNKNOWN1', 'FAULTS', 'X-RAY_LIGHT_FAULT', 'SHUTTER_LIGHT_FAULT', 'SENSOR2_FAULT', 'TUBE_POSITION_FAULT',
                      'VACUUM_FAULT', 'WATERFLOW_FAULT', 'SAFETY_SHUTTER_FAULT', 'TEMPERATURE_FAULT', 'SENSOR1_FAULT', 'RELAY_INTERLOCK_FAULT',
@@ -117,7 +132,7 @@ class GenixConnection(object):
         with self._shutter_lock:
             if not self.isremote():
                 raise GenixError('Not in remote mode')
-            logger.info('Opening shutter.')
+            logger.debug('Opening shutter.')
             self._write_coil(248, 0)
             self._write_coil(247, 1)
             self._write_coil(247, 0)
@@ -127,7 +142,7 @@ class GenixConnection(object):
             while (self.shutter_state() != True) and (time.time() - t) < self._shutter_timeout:
                 pass
             if self.shutter_state():
-                logger.info('Shutter is open.')
+                logger.debug('Shutter is open.')
             else:
                 logger.error('Opening shutter timed out.')
                 raise GenixError('Shutter timeout!')
@@ -135,7 +150,7 @@ class GenixConnection(object):
         with self._shutter_lock:
             if not self.isremote():
                 raise GenixError('Not in remote mode')
-            logger.info('Closing shutter.')
+            logger.debug('Closing shutter.')
             self._write_coil(247, 0)
             self._write_coil(248, 1)
             self._write_coil(248, 0)
@@ -145,7 +160,7 @@ class GenixConnection(object):
             while (self.shutter_state() != False) and (time.time() - t) < self._shutter_timeout:
                 pass
             if not self.shutter_state():
-                logger.info('Shutter is closed.')
+                logger.debug('Shutter is closed.')
             else:
                 logger.error('Closing shutter timed out.')
                 raise GenixError('Shutter timeout!')
@@ -160,12 +175,12 @@ class GenixConnection(object):
     def xrays_on(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Turning X-rays on.')
+        logger.debug('Turning X-rays on.')
         self._write_coil(251, 1)
     def xrays_off(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Turning X-rays off.')
+        logger.debug('Turning X-rays off.')
         self._write_coil(251, 0)
     def xrays_state(self):
         return self.get_status()['XRAY_ON']
@@ -173,7 +188,7 @@ class GenixConnection(object):
         """Acknowledge all fault conditions"""
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Resetting faults.')
+        logger.debug('Resetting faults.')
         self._write_coil(249, 1)
     def get_faults(self):
         """Give a list of active fault conditions. 
@@ -187,33 +202,33 @@ class GenixConnection(object):
     def do_standby(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Going to standby mode.')
+        logger.debug('Going to standby mode.')
         self._write_coil(250, 1)
     def do_rampup(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Ramping up.')
+        logger.debug('Ramping up.')
         self._write_coil(250, 0)
         self._write_coil(252, 1)
         self._write_coil(252, 0)
     def do_poweroff(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Powering off.')
+        logger.debug('Powering off.')
         self._write_coil(250, 0)
         self._write_coil(244, 1)
         self._write_coil(244, 0)
     def do_warmup(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Warm-up procedure started.')
+        logger.debug('Warm-up procedure started.')
         self._write_coil(250, 0)
         self._write_coil(245, 1)
         self._write_coil(245, 0)
     def stop_warmup(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Stopping warm-up procedure.')
+        logger.debug('Stopping warm-up procedure.')
         self._write_coil(250, 0)
         self._write_coil(246, 1)
         self._write_coil(246, 0)
@@ -225,36 +240,62 @@ class GenixConnection(object):
     def increase_ht(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Increasing high tension.')
+        logger.debug('Increasing high tension.')
         self._write_coil(242, 1)
         self._write_coil(242, 0)
     def decrease_ht(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Decreasing high tension.')
+        logger.debug('Decreasing high tension.')
         self._write_coil(243, 1)
         self._write_coil(243, 0)
     def increase_current(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Increasing current.')
+        logger.debug('Increasing current.')
         self._write_coil(240, 1)
         self._write_coil(240, 0)
     def decrease_current(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Decreasing current.')
+        logger.debug('Decreasing current.')
         self._write_coil(241, 1)
         self._write_coil(241, 0)
     def set_ht(self, ht):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Setting high tension to %.2f kV.' % ht)
+        logger.debug('Setting high tension to %.2f kV.' % ht)
         self._write_integer(252, ht * 10)
     def set_current(self, current):
         if not self.isremote():
             raise GenixError('Not in remote mode')
-        logger.info('Setting current to %.2f mA.' % current)
+        logger.debug('Setting current to %.2f mA.' % current)
         self._write_integer(252, current * 100)
-        
+    def whichstate(self, status=None, ht=None, curr=None):
+        if status is None:
+            status = self.get_status()
+        if status['CYCLE_RESET_ON']:
+            self._prevstate = GENIX_GO_POWERDOWN
+            return GENIX_GO_POWERDOWN
+        elif status['CYCLE_AUTO_ON']:
+            self._prevstate = GENIX_GO_FULLPOWER
+            return GENIX_GO_FULLPOWER
+        elif status['STANDBY_ON']:
+            self._prevstate = GENIX_GO_STANDBY
+            return GENIX_GO_STANDBY
+        elif status['CYCLE_TUBE_WARM_UP_ON']:
+            self._prevstate = GENIX_WARMUP
+            return GENIX_WARMUP
+        if ht is None:
+            ht = self.get_ht()
+        if curr is None:
+            curr = self.get_current()
+        if ht == 0 and curr == 0:
+            return GENIX_POWERDOWN
+        elif ht == 30 and curr == 0.3:
+            return GENIX_STANDBY
+        elif ht == 50 and curr == 0.6:
+            return GENIX_FULLPOWER
+        else:
+            return self._prevstate
         
