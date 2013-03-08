@@ -13,7 +13,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-import gtk
+from gi.repository import Gtk
 
 class LogException(Exception):
     pass
@@ -78,9 +78,9 @@ if __name__ == '__main__':
         __IPYTHON__
     except NameError:
         def func(*args, **kwargs):
-            return gtk.main_quit()
+            return Gtk.main_quit()
         root.connect('delete-event', func)
-        gtk.main()
+        Gtk.main()
         root.destroy()
         del root
         gc.collect()

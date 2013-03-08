@@ -5,13 +5,13 @@ from sastool.misc.errorvalue import ErrorValue
 
 class SAXSSample(object):
     title = None
-    position = 0
-    thickness = 1
-    transmission = 1
-    temperature = 25
+    position = 0.0
+    thickness = 1.0
+    transmission = 1.0
+    temperature = 25.0
     preparedby = 'Anonymous'
     preparetime = None
-    distminus = 0
+    distminus = 0.0
     @classmethod
     def new_from_cfg(cls, *filenames):
         cp = ConfigParser.ConfigParser()
@@ -23,7 +23,7 @@ class SAXSSample(object):
             lis.append(obj)
         del cp
         return lis
-    def __init__(self, title, position=0, thickness=1, transmission=1, temperature=25, preparedby='Anonymous', preparetime=None, distminus=0):
+    def __init__(self, title, position=0.0, thickness=1.0, transmission=1.0, temperature=25.0, preparedby='Anonymous', preparetime=None, distminus=0.0):
         if isinstance(title, SAXSSample):
             self.title = title.title
             self.position = title.position

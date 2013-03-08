@@ -7,8 +7,8 @@ import ConfigParser
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-from sasgui import PyGTKCallback
 import functools
+from gi.repository import GObject
 
 class ExpSelector(object):
     """Select an exposure (using headers) which fulfills several criteria."""
@@ -65,8 +65,8 @@ class ExpSelector(object):
             lis.sort(key=lambda l:sort(hdr_to_compare, l), reverse=reversesort)
         return lis[0]
     
-@PyGTKCallback.PyGTKCallback        
-class DataReduction(object):
+class DataReduction(GObject.GObject):
+    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()), }
     _fileformat = 'crd_%05d.cbf'
     _headerformat = 'crd_%05d.param'
     _datadirs = None
@@ -112,6 +112,7 @@ class DataReduction(object):
     monitor_attr = property(functools.partial(get_property, 'monitor_attr'), functools.partial(set_property, 'monitor_attr'))            
     transmission_selfabsorption = property(functools.partial(get_property, 'transmission_selfabsorption'), functools.partial(set_property, 'transmission_selfabsorption'))            
     def __init__(self, **kwargs):
+        GObject.GObject.__init__(self)
         for k in kwargs:
             self.__setattr__(k, kwargs[k])
         if self.datadirs is None:

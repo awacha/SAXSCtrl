@@ -1,7 +1,8 @@
-import gtk
+from gi.repository import Gtk
 from ..hardware import genix
 import itertools
-import gobject
+from gi.repository import GObject
+from gi.repository import Gdk
 import logging
 
 
@@ -11,9 +12,9 @@ logger.setLevel(logging.INFO)
 
 
 
-class GenixStatus(gtk.Frame):
+class GenixStatus(Gtk.Frame):
     def __init__(self):
-        gtk.Frame.__init__(self, 'Status of the X-ray source')
+        Gtk.Frame.__init__(self, label='Status of the X-ray source')
         self.labels = {}
         
         self.labelsdict = [('Status', self.get_genixstatus, None),
@@ -43,7 +44,7 @@ class GenixStatus(gtk.Frame):
                     ('Conditions auto OK', 'CONDITIONS_AUTO_OK', None, 'YES', 'NO'), ]
         
         num_cols = 6
-        tab = gtk.Table()
+        tab = Gtk.Table()
         self.add(tab)
         
         for label, i in zip(self.labelsdict, itertools.count(0)):
@@ -56,7 +57,7 @@ class GenixStatus(gtk.Frame):
             except IndexError:
                 errlabel = 'ERROR'
             self.labels[label[0]] = StatusLabel(label[0], {'OK':oklabel, 'ERROR':errlabel, 'UNKNOWN':'inconsistent'})
-            tab.attach(self.labels[label[0]], i % num_cols, i % num_cols + 1, i / num_cols, i / num_cols + 1, gtk.FILL | gtk.EXPAND, gtk.FILL | gtk.EXPAND, 2, 3)
+            tab.attach(self.labels[label[0]], i % num_cols, i % num_cols + 1, i / num_cols, i / num_cols + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 2, 3)
             self.labels[label[0]].connect('status-changed', self.on_changed_logger)
     def on_changed_logger(self, statlabel, status, statstr, color):
         if status == 'ERROR' and statlabel.labelname not in ['Shutter', 'Remote', 'X-rays', 'Status', 'Conditions auto OK']:
@@ -80,6 +81,8 @@ class GenixStatus(gtk.Frame):
             return 'Low power'
         elif st == genix.GENIX_POWERDOWN:
             return 'Powered down'
+        elif st == genix.GENIX_XRAYS_OFF:
+            return 'X-rays off'
         else:
             return 'Idle'
     def get_genix_HT(self, status, genixconnection):
@@ -107,7 +110,7 @@ class GenixStatus(gtk.Frame):
         for label in self.labelsdict:
             if hasattr(label[1], '__call__'):
                 msg = label[1](status, genixconnection)
-                self.labels[label[0]].set_status('UNKNOWN', msg, gtk.gdk.color_parse('white'))
+                self.labels[label[0]].set_status('UNKNOWN', msg, Gdk.color_parse('white'))
             elif label[1] is not None and label[2] is None:
                 if status[label[1]]:
                     self.labels[label[0]].set_status('OK')
@@ -128,49 +131,49 @@ class GenixStatus(gtk.Frame):
             
         return status
                     
-class GenixControl(gtk.Dialog):
+class GenixControl(Gtk.Dialog):
     _timeout_handler = None
     _aux_timeout_handler = None
     error_handler = None
-    def __init__(self, credo=None, title='GeniX3D control', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=None):
-        gtk.Dialog.__init__(self, title, parent, flags, buttons)
+    def __init__(self, credo=None, title='GeniX3D control', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=None):
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_resizable(False)
         self.credo = credo
         vbox = self.get_content_area()
-        sw = gtk.ScrolledWindow()
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_NEVER)
-        vbox.pack_start(sw, False)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        vbox.pack_start(sw, False, True, 0)
         sw.set_size_request(-1, 50 * 4)
         self.status = GenixStatus()
         sw.add_with_viewport(self.status)
         
-        bb = gtk.HButtonBox()
-        vbox.pack_start(bb, False)        
-        self.xraybutton = gtk.Button('X-rays ON')
+        bb = Gtk.HButtonBox()
+        vbox.pack_start(bb, False, True, 0)        
+        self.xraybutton = Gtk.Button('X-rays ON')
         self.xraybutton.connect('clicked', self.on_xrays)
         bb.add(self.xraybutton)
         
-        self.shutterbutton = gtk.Button('Open shutter')
+        self.shutterbutton = Gtk.Button('Open shutter')
         self.shutterbutton.connect('clicked', self.on_shutter)
         bb.add(self.shutterbutton)
         
-        self.resetbutton = gtk.Button('Reset failures')
+        self.resetbutton = Gtk.Button('Reset failures')
         self.resetbutton.connect('clicked', self.on_reset)
         bb.add(self.resetbutton)
         
-        self.warmupbutton = gtk.Button('Warm up')
+        self.warmupbutton = Gtk.Button('Warm up')
         self.warmupbutton.connect('clicked', self.on_warmup)
         bb.add(self.warmupbutton)
         
-        self.powerdownbutton = gtk.Button('Power down')
+        self.powerdownbutton = Gtk.Button('Power down')
         self.powerdownbutton.connect('clicked', self.on_powerdown)
         bb.add(self.powerdownbutton)
         
-        self.standbybutton = gtk.Button('Stand by')
+        self.standbybutton = Gtk.Button('Stand by')
         self.standbybutton.connect('clicked', self.on_standby)
         bb.add(self.standbybutton)
         
-        self.rampupbutton = gtk.Button('Ramp up')
+        self.rampupbutton = Gtk.Button('Ramp up')
         self.rampupbutton.connect('clicked', self.on_rampup)
         bb.add(self.rampupbutton)
 
@@ -178,7 +181,7 @@ class GenixControl(gtk.Dialog):
         self.status.labels['Shutter'].connect('status-changed', self.on_shutter)
         self.status.labels['Status'].connect('status-changed', self.on_warmup)
         self.update_status()
-        self._timeout_handler = gobject.timeout_add_seconds(1, self.update_status)
+        self._timeout_handler = GObject.timeout_add_seconds(1, self.update_status)
     def update_status(self):
         if not self.credo.is_genix_connected():
             self.hide()
@@ -194,10 +197,10 @@ class GenixControl(gtk.Dialog):
         return True
     def finalize(self, *args, **kwargs):
         if self._timeout_handler is not None:
-            gobject.source_remove(self._timeout_handler)
+            GObject.source_remove(self._timeout_handler)
             self._timeout_handler = None
         if self._aux_timeout_handler is not None:
-            gobject.source_remove(self._aux_timeout_handler)
+            GObject.source_remove(self._aux_timeout_handler)
             self._aux_timeout_handler = None
             
     def __del__(self):
@@ -243,7 +246,7 @@ class GenixControl(gtk.Dialog):
         return True
     
     def on_xrays(self, widget, status=None, statstr=None, color=None):
-        if isinstance(widget, gtk.Button):
+        if isinstance(widget, Gtk.Button):
             try:
                 if self.credo.genix.xrays_state():
                     self.credo.genix.xrays_off()
@@ -258,7 +261,7 @@ class GenixControl(gtk.Dialog):
                 self.xraybutton.set_label('X-rays ON')
         self.update_status()
     def on_shutter(self, widget, status=None, statstr=None, color=None):
-        if isinstance(widget, gtk.Button):
+        if isinstance(widget, Gtk.Button):
             try:
                 if self.credo.genix.shutter_state():
                     self.credo.genix.shutter_close(wait_for_completion=False)
@@ -279,6 +282,6 @@ if __name__ == '__main__':
         __IPYTHON__
     except NameError:
         def func(*args, **kwargs):
-            gtk.main_quit()
+            Gtk.main_quit()
         gcont.connect('delete-event', func)
-        gtk.main()
+        Gtk.main()

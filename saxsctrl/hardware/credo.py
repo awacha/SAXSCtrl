@@ -12,7 +12,7 @@ import uuid
 import time
 import logging
 import cPickle as pickle
-import gio
+from gi.repository import Gio
 import ConfigParser
 
 from . import datareduction
@@ -121,18 +121,17 @@ class Credo(object):
             self._filewatchers.remove((fw, cbid))
             del fw
         for folder in [self.imagepath] + sastool.misc.find_subdirs(self.filepath):
-            fw = gio.File(folder).monitor_directory()
+            fw = Gio.file_new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.NONE, None)
             self._filewatchers.append((fw, fw.connect('changed', self._on_filewatch)))
     def _on_filewatch(self, monitor, filename, otherfilename, event):
-        if event in (gio.FILE_MONITOR_EVENT_CHANGED, gio.FILE_MONITOR_EVENT_CREATED) and self._nextfsn_cache is not None:
+        if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED) and self._nextfsn_cache is not None:
             basename = filename.get_basename()
             if basename:
                 for regex in self._nextfsn_cache.keys():
                     m = regex.match(basename)
                     if m is not None:
-                        print "Updating nextfsn cache. Pattern: ", regex.pattern, "Previous: ", self._nextfsn_cache[regex], "Current: ", int(m.group(1)) + 1
                         self._nextfsn_cache[regex] = int(m.group(1)) + 1
-        if event in (gio.FILE_MONITOR_EVENT_CHANGED, gio.FILE_MONITOR_EVENT_CREATED, gio.FILE_MONITOR_EVENT_DELETED, gio.FILE_MONITOR_EVENT_MOVED):
+        if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
             self.emit('files-changed', filename, event)
     def load_samples(self, *args):
         for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):

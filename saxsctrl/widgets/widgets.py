@@ -1,21 +1,23 @@
-import gtk
+from gi.repository import Gtk
+from gi.repository import GObject
+from gi.repository import Gdk
 import sasgui
 
-@sasgui.PyGTKCallback.PyGTKCallback
-class StatusLabel(gtk.VBox):
+class StatusLabel(Gtk.VBox):
+    __gsignals__ = {'status-changed':(GObject.SignalFlags.RUN_FIRST, None, (str, str, object)), }
     def __init__(self, name, names={'OK':'OK', 'WARNING':'WARNING', 'ERROR':'ERROR', 'UNKNOWN':'UNKNOWN'},
-                 colors={'OK':gtk.gdk.color_parse('green'),
-                         'WARNING':gtk.gdk.color_parse('orange'),
-                         'ERROR':gtk.gdk.color_parse('red'),
-                         'UNKNOWN':gtk.gdk.color_parse('lightgray'), },
+                 colors={'OK':Gdk.color_parse('green'),
+                         'WARNING':Gdk.color_parse('orange'),
+                         'ERROR':Gdk.color_parse('red'),
+                         'UNKNOWN':Gdk.color_parse('lightgray'), },
                  state='UNKNOWN'):
-        gtk.VBox.__init__(self, homogeneous=True, spacing=2)
-        self.namelabel = gtk.Label(name)
-        self.pack_start(self.namelabel)
-        self.statuslabel = gtk.Label()
-        self.statusevtbox = gtk.EventBox()
+        Gtk.VBox.__init__(self, homogeneous=True, spacing=2)
+        self.namelabel = Gtk.Label(label=name)
+        self.pack_start(self.namelabel, True, True, 0)
+        self.statuslabel = Gtk.Label()
+        self.statusevtbox = Gtk.EventBox()
         self.statusevtbox.add(self.statuslabel)
-        self.pack_start(self.statusevtbox)
+        self.pack_start(self.statusevtbox, True, True, 0)
         self.statusnames = names
         self.statuscolors = colors
         self.currentstatus = state
@@ -28,15 +30,9 @@ class StatusLabel(gtk.VBox):
         self.statuslabel.set_text(statstr)
         if color is None:
             color = self.statuscolors[status]
-        self.statusevtbox.modify_bg(gtk.STATE_NORMAL, color)
+        self.statusevtbox.modify_bg(Gtk.StateType.NORMAL, color)
         oldstatus = self.currentstatus
         self.currentstatus = status
         if status != oldstatus:
             self.emit('status-changed', status, statstr, color)
 
-class LabelWindow(gtk.Window):
-    def __init__(self, title):
-        gtk.Window.__init__()
-        self.frame = gtk.Frame(title)
-        self.label = gtk.Label()
-        self.label.set_

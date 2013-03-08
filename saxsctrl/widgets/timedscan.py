@@ -1,7 +1,7 @@
-import gtk
+from gi.repository import Gtk
 import matplotlib.pyplot as plt
 import sasgui
-import gobject
+from gi.repository import GObject
 import numpy as np
 import gc
 from ..hardware import sample
@@ -47,40 +47,40 @@ class VirtualPointDetector(object):
             
             
 
-class AddDetectorDialog(gtk.Dialog):
+class AddDetectorDialog(Gtk.Dialog):
     _filechooserdialogs = None
-    def __init__(self, title='Add detector', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT | gtk.DIALOG_MODAL, buttons=(gtk.STOCK_OK, gtk.RESPONSE_OK, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL)):
-        gtk.Dialog.__init__(self, title, parent, flags, buttons)
+    def __init__(self, title='Add detector', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         vb = self.get_content_area()
-        self.set_default_response(gtk.RESPONSE_OK)
+        self.set_default_response(Gtk.ResponseType.OK)
         if isinstance(parent, TimedScan):
             self.credo = parent.credo
         else:
             self.credo = None
-        tab = gtk.Table()
-        vb.pack_start(tab, False)
+        tab = Gtk.Table()
+        vb.pack_start(tab, False, True, 0)
         self.set_resizable(False)
         row = 0
         
-        l = gtk.Label('Detector name:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.name_entry = gtk.Entry()
+        l = Gtk.Label(label='Detector name:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.name_entry = Gtk.Entry()
         self.name_entry.set_text('-- please fill --')
         tab.attach(self.name_entry, 1, 3, row, row + 1)
         row += 1
 
-        l = gtk.Label('Mask file:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.maskfile_entry = gtk.Entry()
+        l = Gtk.Label(label='Mask file:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.maskfile_entry = Gtk.Entry()
         tab.attach(self.maskfile_entry, 1, 2, row, row + 1)
-        b = gtk.Button(stock=gtk.STOCK_OPEN)
+        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
         tab.attach(b, 2, 3, row, row + 1)
-        b.connect('clicked', self.on_loadmaskbutton, self.maskfile_entry, gtk.FILE_CHOOSER_ACTION_OPEN)
+        b.connect('clicked', self.on_loadmaskbutton, self.maskfile_entry, Gtk.FileChooserAction.OPEN)
         row += 1
 
-        l = gtk.Label('Mode of operation:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.mode_entry = gtk.combo_box_new_text()
+        l = Gtk.Label(label='Mode of operation:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.mode_entry = Gtk.ComboBoxText()
         self.mode_entry.append_text('max')
         self.mode_entry.append_text('min')
         self.mode_entry.append_text('sum')
@@ -96,109 +96,109 @@ class AddDetectorDialog(gtk.Dialog):
             self._filechooserdialogs = {}
         if entry not in self._filechooserdialogs:
             
-            self._filechooserdialogs[entry] = MaskChooserDialog('Select mask file...', None, action, buttons=(gtk.STOCK_OK, gtk.RESPONSE_OK, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL))
+            self._filechooserdialogs[entry] = MaskChooserDialog('Select mask file...', None, action, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
             if self.credo is not None:
                 self._filechooserdialogs[entry].set_current_folder(self.credo.maskpath)
         if entry.get_text():
             self._filechooserdialogs[entry].set_filename(entry.get_text())
         response = self._filechooserdialogs[entry].run()
-        if response == gtk.RESPONSE_OK:
+        if response == Gtk.ResponseType.OK:
             entry.set_text(self._filechooserdialogs[entry].get_filename())
         self._filechooserdialogs[entry].hide()
         return True
     def get_detector(self):
         return VirtualPointDetector(self.name_entry.get_text(), sastool.classes.SASMask(self.maskfile_entry.get_text()), self.mode_entry.get_active_text())
         
-class TimedScan(gtk.Dialog):
+class TimedScan(Gtk.Dialog):
     _scanresults = []
     _dlg = None
-    def __init__(self, credo, title='Timed scan', parent=None, flags=0, buttons=(gtk.STOCK_EXECUTE, gtk.RESPONSE_OK, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL)):
-        gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_default_response(gtk.RESPONSE_OK)
+    def __init__(self, credo, title='Timed scan', parent=None, flags=0, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+        self.set_default_response(Gtk.ResponseType.OK)
         self.credo = credo
         vb = self.get_content_area()
-        tab = gtk.Table()
+        tab = Gtk.Table()
         self.entrytable = tab
-        vb.pack_start(tab, False)
+        vb.pack_start(tab, False, True, 0)
         self.set_resizable(False)
         row = 0
         
-        l = gtk.Label('Sample name:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.samplename_entry = gtk.Entry()
+        l = Gtk.Label(label='Sample name:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.samplename_entry = Gtk.Entry()
         self.samplename_entry.set_text('-- please fill --')
         tab.attach(self.samplename_entry, 1, 2, row, row + 1)
         row += 1
 
-        l = gtk.Label('Exposure time (s):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.exptime_entry = gtk.SpinButton(gtk.Adjustment(0.1, 0, 100, 0.1, 1), digits=4)
+        l = Gtk.Label(label='Exposure time (s):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.1, 0, 100, 0.1, 1), digits=4)
         tab.attach(self.exptime_entry, 1, 2, row, row + 1)
         row += 1
 
-        l = gtk.Label('Number of exposures:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.nimages_entry = gtk.SpinButton(gtk.Adjustment(1, 1, 10000, 1, 10), digits=0)
+        l = Gtk.Label(label='Number of exposures:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 10000, 1, 10), digits=0)
         tab.attach(self.nimages_entry, 1, 2, row, row + 1)
         row += 1
         
-        l = gtk.Label('Delay between exposures (s):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.dwelltime_entry = gtk.SpinButton(gtk.Adjustment(0.003, 0.003, 10000, 1, 10), digits=4)
+        l = Gtk.Label(label='Delay between exposures (s):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.003, 0.003, 10000, 1, 10), digits=4)
         tab.attach(self.dwelltime_entry, 1, 2, row, row + 1)
         row += 1
         
-        self.shutter_checkbutton = gtk.CheckButton('Open/close shutter on each exposure (SLOW!)')
+        self.shutter_checkbutton = Gtk.CheckButton('Open/close shutter on each exposure (SLOW!)')
         self.shutter_checkbutton.set_alignment(0, 0.5)
         tab.attach(self.shutter_checkbutton, 0, 2, row, row + 1)
         self.shutter_checkbutton.set_active(False)
         row += 1
         
-        self.byhand_checkbutton = gtk.CheckButton('Expose one-by-one')
+        self.byhand_checkbutton = Gtk.CheckButton('Expose one-by-one')
         self.byhand_checkbutton.set_alignment(0, 0.5)
         tab.attach(self.byhand_checkbutton, 0, 2, row, row + 1)
         self.byhand_checkbutton.set_active(False)
         self.byhand_checkbutton.connect('toggled', self.on_byhand_checkbutton)
         row += 1
 
-        self.recordgenix_checkbutton = gtk.CheckButton('Record GeniX parameters')
+        self.recordgenix_checkbutton = Gtk.CheckButton('Record GeniX parameters')
         self.recordgenix_checkbutton.set_alignment(0, 0.5)
         tab.attach(self.recordgenix_checkbutton, 0, 2, row, row + 1)
         self.recordgenix_checkbutton.set_active(False)
         row += 1
 
 
-        self.byhand_button = gtk.Button('Expose now!')
-        self.get_action_area().pack_start(self.byhand_button)
+        self.byhand_button = Gtk.Button('Expose now!')
+        self.get_action_area().pack_start(self.byhand_button, True, True, 0)
         self.byhand_button.connect('clicked', self.on_byhand_button)
         self.byhand_button.set_sensitive(False)
         
-        self.detectorsframe = gtk.Frame('Detectors')
-        vb.pack_start(self.detectorsframe, False)
-        hb = gtk.HBox()
+        self.detectorsframe = Gtk.Frame(label='Detectors')
+        vb.pack_start(self.detectorsframe, False, True, 0)
+        hb = Gtk.HBox()
         self.detectorsframe.add(hb)
-        self.detectors_liststore = gtk.ListStore(gobject.TYPE_STRING, gobject.TYPE_STRING, gobject.TYPE_STRING, gobject.TYPE_PYOBJECT)
-        self.detectors_treeview = gtk.TreeView(self.detectors_liststore)
+        self.detectors_liststore = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_PYOBJECT)
+        self.detectors_treeview = Gtk.TreeView(self.detectors_liststore)
         self.detectors_treeview.set_headers_visible(True)
         self.detectors_treeview.set_rules_hint(True)
-        self.detectors_treeview.get_selection().set_mode(gtk.SELECTION_BROWSE)
-        cellrenderer = gtk.CellRendererText()
-        self.detectors_treeview.append_column(gtk.TreeViewColumn('Name', cellrenderer, text=0))
-        cellrenderer = gtk.CellRendererText()
-        self.detectors_treeview.append_column(gtk.TreeViewColumn('Mask file', cellrenderer, text=1))
-        cellrenderer = gtk.CellRendererText()
-        self.detectors_treeview.append_column(gtk.TreeViewColumn('Mode', cellrenderer, text=2))
-        self.detectors_treeview.set_grid_lines(gtk.TREE_VIEW_GRID_LINES_BOTH)
-        hb.pack_start(self.detectors_treeview, True)
-        vbb = gtk.VButtonBox()
-        hb.pack_start(vbb, False)
-        b = gtk.Button(stock=gtk.STOCK_ADD)
+        self.detectors_treeview.get_selection().set_mode(Gtk.SelectionMode.BROWSE)
+        cellrenderer = Gtk.CellRendererText()
+        self.detectors_treeview.append_column(Gtk.TreeViewColumn('Name', cellrenderer, text=0))
+        cellrenderer = Gtk.CellRendererText()
+        self.detectors_treeview.append_column(Gtk.TreeViewColumn('Mask file', cellrenderer, text=1))
+        cellrenderer = Gtk.CellRendererText()
+        self.detectors_treeview.append_column(Gtk.TreeViewColumn('Mode', cellrenderer, text=2))
+        self.detectors_treeview.set_grid_lines(Gtk.TreeViewGridLines.BOTH)
+        hb.pack_start(self.detectors_treeview, True, True, 0)
+        vbb = Gtk.VButtonBox()
+        hb.pack_start(vbb, False, True, 0)
+        b = Gtk.Button(stock=Gtk.STOCK_ADD)
         b.connect('clicked', self.on_add_detector)
         vbb.add(b)
-        b = gtk.Button(stock=gtk.STOCK_REMOVE)
+        b = Gtk.Button(stock=Gtk.STOCK_REMOVE)
         b.connect('clicked', self.on_remove_detector)
         vbb.add(b)
-        b = gtk.Button(stock=gtk.STOCK_CLEAR)
+        b = Gtk.Button(stock=Gtk.STOCK_CLEAR)
         b.connect('clicked', self.on_clear_detectors)
         vbb.add(b)
         self.connect('response', self.on_response)
@@ -214,7 +214,7 @@ class TimedScan(gtk.Dialog):
         if self._dlg is None:
             self._dlg = AddDetectorDialog(parent=self)
         ret = self._dlg.run()
-        if ret == gtk.RESPONSE_OK:
+        if ret == Gtk.ResponseType.OK:
             det = self._dlg.get_detector()
             self.detectors_liststore.append((det.name, det.mask.maskid, det.mode, det))
         self._dlg.hide()
@@ -227,11 +227,11 @@ class TimedScan(gtk.Dialog):
         self.detectors_liststore.clear()
         return True
     def on_response(self, dialog, respid):
-        if respid == gtk.RESPONSE_OK:
+        if respid == Gtk.ResponseType.OK:
             if self.detectorsframe.get_sensitive():
                 self.detectorsframe.set_sensitive(False)
                 self.entrytable.set_sensitive(False)
-                self.get_widget_for_response(gtk.RESPONSE_CANCEL).set_sensitive(False)
+                self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(False)
                 self.byhand_button.set_sensitive(self.byhand_checkbutton.get_active())
                 
                 self.credo.set_sample(sample.SAXSSample(self.samplename_entry.get_text()))
@@ -249,7 +249,7 @@ class TimedScan(gtk.Dialog):
                     nimages = self.nimages_entry.get_value_as_int()
                     dwelltime = self.dwelltime_entry.get_value()
                 def _handler(imgdata):
-                    gobject.idle_add(self.on_imagereceived, imgdata)
+                    GObject.idle_add(self.on_imagereceived, imgdata)
                     return False
                 self._timeoffirstpoint = datetime.datetime.now()
                 if not self.byhand_checkbutton.get_active():
@@ -257,7 +257,7 @@ class TimedScan(gtk.Dialog):
                     self.credo.expose(self.exptime_entry.get_value(),
                                       nimages,
                                       dwelltime, blocking=False, callback=_handler)
-                self.get_widget_for_response(gtk.RESPONSE_OK).set_label(gtk.STOCK_STOP)
+                self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             else:
                 self.credo.killexposure()
                 self.on_imagereceived(None)
@@ -266,7 +266,7 @@ class TimedScan(gtk.Dialog):
         return True
     def on_byhand_button(self, *args):
         def _handler(imgdata):
-            gobject.idle_add(self.on_imagereceived, imgdata)
+            GObject.idle_add(self.on_imagereceived, imgdata)
             return False
         self.credo.freeze_callbacks('files-changed')
         self.credo.expose(self.exptime_entry.get_value(), blocking=False, callback=_handler)
@@ -303,7 +303,7 @@ class TimedScan(gtk.Dialog):
             logger.debug('exposure broken.')
             broken = True
             if hasattr(self, '_shuttered_exposure_timeout_handler'):
-                gobject.source_remove(self._shuttered_exposure_timeout_handler)
+                GObject.source_remove(self._shuttered_exposure_timeout_handler)
                          
         else:
             logger.debug('image received.')
@@ -334,7 +334,7 @@ class TimedScan(gtk.Dialog):
                     timetowait = 0
                 else:
                     logger.debug('Waiting %.2f secs.' % timetowait)
-                self._shuttered_exposure_timeout_handler = gobject.timeout_add(int(timetowait * 1000), _timeout)
+                self._shuttered_exposure_timeout_handler = GObject.timeout_add(int(timetowait * 1000), _timeout)
             logger.debug('Timedscan processing time: %.2f secs' % ((datetime.datetime.now() - (self._timeoffirstpoint + datetime.timedelta(seconds=data[0]))).total_seconds()))
             if self.byhand_checkbutton.get_active() or (len(self._scanresults) < self.nimages_entry.get_value_as_int()):
                 return False
@@ -343,8 +343,8 @@ class TimedScan(gtk.Dialog):
         logger.debug('last scan point received, saving log file.')
         self.detectorsframe.set_sensitive(True)
         self.entrytable.set_sensitive(True)
-        self.get_widget_for_response(gtk.RESPONSE_CANCEL).set_sensitive(True)
-        self.get_widget_for_response(gtk.RESPONSE_OK).set_label(gtk.STOCK_EXECUTE)
+        self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(True)
+        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
         with open(os.path.join(self.credo.scanpath, 'timedscan_%05d.txt' % self._scanfsn), 'wt') as f:
             f.write('# Timed scan #' + str(self._scanfsn) + '\n')
             f.write('# Sample: %s\n' % self.samplename_entry.get_text())

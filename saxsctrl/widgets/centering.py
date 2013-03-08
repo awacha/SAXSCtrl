@@ -1,110 +1,110 @@
-import gtk
+from gi.repository import Gtk
 import sastool
 import sasgui
 import os
 from .spec_filechoosers import ExposureLoader
 
-class CenteringDialog(gtk.Dialog):
-    def __init__(self, credo, title='Centering image...', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=(gtk.STOCK_CLOSE, gtk.RESPONSE_CLOSE, gtk.STOCK_EXECUTE, gtk.RESPONSE_APPLY, gtk.STOCK_SAVE, gtk.RESPONSE_YES)):
-        gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_default_response(gtk.RESPONSE_CLOSE)
+class CenteringDialog(Gtk.Dialog):
+    def __init__(self, credo, title='Centering image...', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_SAVE, Gtk.ResponseType.YES)):
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+        self.set_default_response(Gtk.ResponseType.CLOSE)
         self.credo = credo
         vb = self.get_content_area()
-        f = gtk.Frame()
-        vb.pack_start(f, False)
-        hb = gtk.HBox()
+        f = Gtk.Frame()
+        vb.pack_start(f, False, True, 0)
+        hb = Gtk.HBox()
         f.add(hb)
-        l = gtk.Label('Exposure:'); l.set_alignment(0, 0.5)
-        hb.pack_start(l, False)
+        l = Gtk.Label(label='Exposure:'); l.set_alignment(0, 0.5)
+        hb.pack_start(l, False, True, 0)
         el = ExposureLoader(credo)
-        hb.pack_start(el, True)
+        hb.pack_start(el, True, True, 0)
         el.connect('exposure-loaded', self.on_exposure_loaded)
         
-        hb = gtk.HBox()
-        vb.pack_start(hb)
-        vb1 = gtk.VBox()
-        hb.pack_start(vb1, False)
+        hb = Gtk.HBox()
+        vb.pack_start(hb, True, True, 0)
+        vb1 = Gtk.VBox()
+        hb.pack_start(vb1, False, True, 0)
         
         self.plot2d = sasgui.plot2dsasimage.PlotSASImage()
-        hb.pack_start(self.plot2d, True)
+        hb.pack_start(self.plot2d, True, True, 0)
         
-        self.nb = gtk.Notebook()
-        vb1.pack_start(self.nb, True)
+        self.nb = Gtk.Notebook()
+        vb1.pack_start(self.nb, True, True, 0)
         
-        tab = gtk.Table()
-        self.nb.append_page(tab, gtk.Label('Barycenter'))
+        tab = Gtk.Table()
+        self.nb.append_page(tab, Gtk.Label(label='Barycenter'))
         row = 0
-        l = gtk.Label('Zoom to the beam area and press "Execute"!')
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, 0)
+        l = Gtk.Label(label='Zoom to the beam area and press "Execute"!')
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         row += 1
         
-        tab = gtk.Table()
-        self.nb.append_page(tab, gtk.Label('Radial peak'))
+        tab = Gtk.Table()
+        self.nb.append_page(tab, Gtk.Label(label='Radial peak'))
         row = 0
         
-        l = gtk.Label('R min (pixel):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, 0)
-        self.minpixel_entry = gtk.SpinButton(gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
-        tab.attach(self.minpixel_entry, 1, 2, row, row + 1, gtk.FILL | gtk.EXPAND, 0)
+        l = Gtk.Label(label='R min (pixel):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
+        self.minpixel_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
+        tab.attach(self.minpixel_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
-        l = gtk.Label('R max (pixel):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, 0)
-        self.maxpixel_entry = gtk.SpinButton(gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
-        tab.attach(self.maxpixel_entry, 1, 2, row, row + 1, gtk.FILL | gtk.EXPAND, 0)
+        l = Gtk.Label(label='R max (pixel):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
+        self.maxpixel_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
+        tab.attach(self.maxpixel_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
-        l = gtk.Label('Drive by:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, 0)
-        self.driveby_combo = gtk.combo_box_new_text()
-        tab.attach(self.driveby_combo, 1, 2, row, row + 1, gtk.FILL | gtk.EXPAND, 0)
+        l = Gtk.Label(label='Drive by:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
+        self.driveby_combo = Gtk.ComboBoxText()
+        tab.attach(self.driveby_combo, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         self.driveby_combo.append_text('amplitude')
         self.driveby_combo.append_text('hwhm')
         self.driveby_combo.set_active(0)
         row += 1
 
-        b = gtk.Button('Check radial average');
-        tab.attach(b, 0, 1, row, row + 1, gtk.FILL | gtk.EXPAND, 0)        
+        b = Gtk.Button('Check radial average');
+        tab.attach(b, 0, 1, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)        
         b.connect('clicked', self.on_radavg)
-        self.radavg_plotmode = gtk.combo_box_new_text()
-        tab.attach(self.radavg_plotmode, 1, 2, row, row + 1, gtk.FILL | gtk.EXPAND, 0)
+        self.radavg_plotmode = Gtk.ComboBoxText()
+        tab.attach(self.radavg_plotmode, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         self.radavg_plotmode.append_text('plot')
         self.radavg_plotmode.append_text('semilogx')
         self.radavg_plotmode.append_text('semilogy')
         self.radavg_plotmode.append_text('loglog')
         self.radavg_plotmode.set_active(2)
         
-        tab = gtk.Table()
-        self.nb.append_page(tab, gtk.Label('Manual'))
+        tab = Gtk.Table()
+        self.nb.append_page(tab, Gtk.Label(label='Manual'))
         row = 0
-        l = gtk.Label('Beam position X (vertical):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, 0)
-        self.beamposx_entry = gtk.SpinButton(gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
-        tab.attach(self.beamposx_entry, 1, 2, row, row + 1, gtk.FILL | gtk.EXPAND, 0)
+        l = Gtk.Label(label='Beam position X (vertical):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
+        self.beamposx_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
+        tab.attach(self.beamposx_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
-        l = gtk.Label('Beam position Y (horizontal):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, 0)
-        self.beamposy_entry = gtk.SpinButton(gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
-        tab.attach(self.beamposy_entry, 1, 2, row, row + 1, gtk.FILL | gtk.EXPAND, 0)
+        l = Gtk.Label(label='Beam position Y (horizontal):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
+        self.beamposy_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
+        tab.attach(self.beamposy_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
-        self.autosave_cb = gtk.CheckButton('Auto-save beam position')
-        vb1.pack_start(self.autosave_cb, False)
+        self.autosave_cb = Gtk.CheckButton('Auto-save beam position')
+        vb1.pack_start(self.autosave_cb, False, True, 0)
         self.autosave_cb.set_active(True)
         
-        f = gtk.Frame('Current position')
-        vb1.pack_start(f, False)
-        tab = gtk.Table()
+        f = Gtk.Frame(label='Current position')
+        vb1.pack_start(f, False, True, 0)
+        tab = Gtk.Table()
         f.add(tab)
-        l = gtk.Label('X (vertical):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, 0, 1, gtk.FILL, gtk.FILL)
-        self.beamposx_label = gtk.Label(); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='X (vertical):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.beamposx_label = Gtk.Label(); l.set_alignment(0, 0.5)
         tab.attach(self.beamposx_label, 1, 2, 0, 1, xpadding=10)
 
-        l = gtk.Label('Y (horizontal):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, 1, 2, gtk.FILL, gtk.FILL)
-        self.beamposy_label = gtk.Label(); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Y (horizontal):'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, 1, 2, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.beamposy_label = Gtk.Label(); l.set_alignment(0, 0.5)
         tab.attach(self.beamposy_label, 1, 2, 1, 2, xpadding=10)
         
         
@@ -151,8 +151,8 @@ class CenteringDialog(gtk.Dialog):
         ex.header.write(os.path.join(self.credo.eval2dpath, basename + '.param'))
         
     def on_response(self, dialog, respid):
-        if respid == gtk.RESPONSE_APPLY:  # execute
+        if respid == Gtk.ResponseType.APPLY:  # execute
             self.execute_findbeam()
-        if respid == gtk.RESPONSE_YES:  # save
+        if respid == Gtk.ResponseType.YES:  # save
             self.save_beampos()
             

@@ -5,11 +5,12 @@ pilatus_exposure.py
 Make exposures.
 """
 
-import gobject
-gobject.threads_init()
+from gi.repository import GObject
+from gi.repository import Gdk
+GObject.threads_init()
 import itertools
 import ConfigParser
-import gtk
+from gi.repository import Gtk
 from ..hardware import pilatus
 import collections
 import resource
@@ -24,20 +25,20 @@ from widgets import StatusLabel
 
 logger = logging.getLogger(__name__)
 
-class PilatusStatus(gtk.Frame):
+class PilatusStatus(Gtk.Frame):
     _monitor_timeout = 1
     _slowmonitor_timeout = 30
     timeouthandler_slow = None
     timeouthandler = None
     def __init__(self, controller):
-        gtk.Frame.__init__(self, 'Status monitor')
+        Gtk.Frame.__init__(self, label='Status monitor')
         self._controller = controller
-        sw = gtk.ScrolledWindow()
+        sw = Gtk.ScrolledWindow()
         self.add(sw)
-        tab = gtk.Table()
+        tab = Gtk.Table()
         tab_colnum = 6
         sw.add_with_viewport(tab)
-        sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_NEVER)
+        sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
         sw.set_size_request(700, -1)        
         self.statuslabels = collections.OrderedDict()
         self.statuslabels['t0'] = StatusLabel('P.board temp.')
@@ -53,20 +54,20 @@ class PilatusStatus(gtk.Frame):
                                                               'reading':'reading',
                                                               'preparing':'preparing',
                                                               'waiting':'waiting'},
-                                         {'exposing':gtk.gdk.color_parse('turquoise'),
-                                          'idle':gtk.gdk.color_parse('green'),
-                                          'error':gtk.gdk.color_parse('red'),
-                                          'UNKNOWN':gtk.gdk.color_parse('lightgray'),
-                                          'reading':gtk.gdk.color_parse('pink'),
-                                          'preparing':gtk.gdk.color_parse('magenta'),
-                                          'waiting':gtk.gdk.color_parse('yellow')}, 'UNKNOWN')
-        self.statuslabels['Timeleft'] = StatusLabel('Time left', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
-        self.statuslabels['Done'] = StatusLabel('Done %', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
-        self.statuslabels['Threshold'] = StatusLabel('Threshold', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
-        self.statuslabels['Gain'] = StatusLabel('Gain', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
-        self.statuslabels['Tau'] = StatusLabel('Tau', {'OK':'N/A', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')})
+                                         {'exposing':Gdk.color_parse('turquoise'),
+                                          'idle':Gdk.color_parse('green'),
+                                          'error':Gdk.color_parse('red'),
+                                          'UNKNOWN':Gdk.color_parse('lightgray'),
+                                          'reading':Gdk.color_parse('pink'),
+                                          'preparing':Gdk.color_parse('magenta'),
+                                          'waiting':Gdk.color_parse('yellow')}, 'UNKNOWN')
+        self.statuslabels['Timeleft'] = StatusLabel('Time left', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')}, 'UNKNOWN')
+        self.statuslabels['Done'] = StatusLabel('Done %', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')}, 'UNKNOWN')
+        self.statuslabels['Threshold'] = StatusLabel('Threshold', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')}, 'UNKNOWN')
+        self.statuslabels['Gain'] = StatusLabel('Gain', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')}, 'UNKNOWN')
+        self.statuslabels['Tau'] = StatusLabel('Tau', {'OK':'N/A', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')})
         for i, l in enumerate(self.statuslabels.itervalues()):
-            tab.attach(l, i % tab_colnum, i % tab_colnum + 1, i / tab_colnum, i / tab_colnum + 1, gtk.FILL | gtk.EXPAND, gtk.FILL | gtk.EXPAND, 2, 3)
+            tab.attach(l, i % tab_colnum, i % tab_colnum + 1, i / tab_colnum, i / tab_colnum + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 2, 3)
 
         self.show_all()
         for l in self.statuslabels.values():
@@ -147,16 +148,16 @@ class PilatusStatus(gtk.Frame):
     def start(self, pilatusconnection):
         if self.timeouthandler is None:
             self.updatemonitor(pilatusconnection)
-            self.timeouthandler = gobject.timeout_add_seconds(self._monitor_timeout, self.updatemonitor, pilatusconnection)
+            self.timeouthandler = GObject.timeout_add_seconds(self._monitor_timeout, self.updatemonitor, pilatusconnection)
         if self.timeouthandler_slow is None:
-            self.timeouthandler_slow = gobject.timeout_add_seconds(self._slowmonitor_timeout, self.updatemonitor_slow, pilatusconnection)
+            self.timeouthandler_slow = GObject.timeout_add_seconds(self._slowmonitor_timeout, self.updatemonitor_slow, pilatusconnection)
         self.updatemonitor_slow(pilatusconnection)
     def stop(self):
         if self.timeouthandler is not None:
-            gobject.source_remove(self.timeouthandler)
+            GObject.source_remove(self.timeouthandler)
             self.timeouthandler = None
         if self.timeouthandler_slow is not None:
-            gobject.source_remove(self.timeouthandler_slow)
+            GObject.source_remove(self.timeouthandler_slow)
             self.timeouthandler_slow = None
     def restart(self, pilatusconnection):
         self.stop()
@@ -169,29 +170,29 @@ def append_and_select_text_to_combo(combo, txt):
     combo.set_active(idx)
     
     
-class PilatusControl(gtk.Dialog):
-    def __init__(self, credo, title='Control the Pilatus detector', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=(gtk.STOCK_CLOSE, gtk.RESPONSE_CLOSE, gtk.STOCK_REFRESH, gtk.RESPONSE_APPLY)):
-        gtk.Dialog.__init__(self, title, parent, flags, buttons)
+class PilatusControl(Gtk.Dialog):
+    def __init__(self, credo, title='Control the Pilatus detector', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, Gtk.ResponseType.APPLY)):
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         vbox = self.get_content_area()
         self.statusmonitor = PilatusStatus(self)
-        vbox.pack_start(self.statusmonitor, False)
+        vbox.pack_start(self.statusmonitor, False, True, 0)
         self.credo = credo
         
-        tab = gtk.Table()
-        vbox.pack_start(tab, False)
+        tab = Gtk.Table()
+        vbox.pack_start(tab, False, True, 0)
 
         row = 0
-        l = gtk.Label('Threshold (eV):')
+        l = Gtk.Label(label='Threshold (eV):')
         l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.thresholdentry = gtk.SpinButton(gtk.Adjustment(4024, 4000, 18000, 100, 1000), digits=0)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.thresholdentry = Gtk.SpinButton(adjustment=Gtk.Adjustment(4024, 4000, 18000, 100, 1000), digits=0)
         tab.attach(self.thresholdentry, 1, 2, row, row + 1)
         row += 1
         
-        l = gtk.Label('Gain:')
+        l = Gtk.Label(label='Gain:')
         l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.gainselector = gtk.combo_box_new_text()
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.gainselector = Gtk.ComboBoxText()
         self.gainselector.append_text('lowG')
         self.gainselector.append_text('midG')
         self.gainselector.append_text('highG')
@@ -199,32 +200,32 @@ class PilatusControl(gtk.Dialog):
         tab.attach(self.gainselector, 1, 2, row, row + 1)
         row += 1
 
-        b = gtk.Button('Trim\ndetector')
-        tab.attach(b, 2, 3, 0, row, gtk.FILL, gtk.FILL)
+        b = Gtk.Button('Trim\ndetector')
+        tab.attach(b, 2, 3, 0, row, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         b.connect('clicked', self.on_trim)
         
-        l = gtk.Label('Tau:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.tau_entry = gtk.SpinButton(gtk.Adjustment(0, 0, 1000, 1, 10), digits=2)
+        l = Gtk.Label(label='Tau:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.tau_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1000, 1, 10), digits=2)
         tab.attach(self.tau_entry, 1, 2, row, row + 1)
-        b = gtk.Button('Set')
-        tab.attach(b, 2, 3, row, row + 1, gtk.FILL, gtk.FILL)
+        b = Gtk.Button('Set')
+        tab.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         b.connect('clicked', self.on_set_tau)
         row += 1
         
-        bb = gtk.HButtonBox()
-        tab.attach(bb, 0, 3, row, row + 1, gtk.FILL, gtk.FILL)
-        b = gtk.Button('Calibrate')
+        bb = Gtk.HButtonBox()
+        tab.attach(bb, 0, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        b = Gtk.Button('Calibrate')
         b.connect('clicked', self.on_calibrate)
         bb.add(b)
-        b = gtk.Button('Read back detector')
+        b = Gtk.Button('Read back detector')
         b.connect('clicked', self.on_rbd)
         bb.add(b)
         
         # --------------------------------------------------------------------------
         
 #        def _handler(arg, arg1):
-#            gobject.idle_add(self.on_disconnect_from_camserver, arg)
+#            GObject.idle_add(self.on_disconnect_from_camserver, arg)
 #        self.credo.pilatus.register_event_handler('disconnect_from_camserver', _handler)
         
         self.connect('response', self.on_response)
@@ -236,10 +237,10 @@ class PilatusControl(gtk.Dialog):
         self.credo.pilatus.tau = self.tau_entry.get_value() * 1e-9
         self.statusmonitor.updatemonitor_slow(self.credo.pilatus)
     def on_response(self, dialog, respid):
-        if respid in (gtk.RESPONSE_CLOSE, gtk.RESPONSE_DELETE_EVENT):
+        if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.stopmonitor()
             self.hide()
-        elif respid in (gtk.RESPONSE_APPLY,):
+        elif respid in (Gtk.ResponseType.APPLY,):
             self.statusmonitor.updatemonitor(self.credo.pilatus)
             self.statusmonitor.updatemonitor_slow(self.credo.pilatus)
         return True

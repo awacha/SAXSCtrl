@@ -1,21 +1,22 @@
-import gtk
+from gi.repository import Gtk
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_gtkagg import NavigationToolbar2GTKAgg, FigureCanvasGTKAgg
+from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
 import matplotlib.pyplot as plt
 import numpy as np
 
-class ScanGraph(gtk.Dialog):
+class ScanGraph(Gtk.Dialog):
     def __init__(self, title='Scan results', parent=None, flags=0, buttons=()):
-        gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_default_response(gtk.RESPONSE_OK)
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+        self.set_default_response(Gtk.ResponseType.OK)
         vb = self.get_content_area()
         self.fig = Figure()
-        self.figcanvas = FigureCanvasGTKAgg(self.fig)
-        vb.pack_start(self.figcanvas)
-        self.figtoolbar = NavigationToolbar2GTKAgg(self.figcanvas, self)
-        vb.pack_start(self.figtoolbar, False)
-        tab = gtk.Table()
-        vb.pack_start(tab, False)
+        self.figcanvas = FigureCanvasGTK3Agg(self.fig)
+        vb.pack_start(self.figcanvas, True, True, 0)
+        self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
+        vb.pack_start(self.figtoolbar, False, True, 0)
+        tab = Gtk.Table()
+        vb.pack_start(tab, False, True, 0)
         self.figcanvas.set_size_request(640, 480)
         row = 0
     def xlabel(self, *args, **kwargs):

@@ -1,18 +1,18 @@
-import gtk
+from gi.repository import Gtk
 
-class NextFSNMonitor(gtk.Frame):
+class NextFSNMonitor(Gtk.Frame):
     def __init__(self, credo, label=''):
-        gtk.Frame.__init__(self, label)
+        Gtk.Frame.__init__(self, label=label)
         self.credo = credo
-        tab = gtk.Table()
+        tab = Gtk.Table()
         self.add(tab)
-        l = gtk.Label('File format:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, 0, 1, gtk.FILL, gtk.FILL)
-        self.fileformat_label = gtk.Label(); self.fileformat_label.set_alignment(0, 0.5)
+        l = Gtk.Label(label='File format:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.fileformat_label = Gtk.Label(); self.fileformat_label.set_alignment(0, 0.5)
         tab.attach(self.fileformat_label, 1, 2, 0, 1, xpadding=10)
-        l = gtk.Label('Next FSN:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, 1, 2, gtk.FILL, gtk.FILL)
-        self.nextfsn_label = gtk.Label(); self.nextfsn_label.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Next FSN:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, 1, 2, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.nextfsn_label = Gtk.Label(); self.nextfsn_label.set_alignment(0, 0.5)
         tab.attach(self.nextfsn_label, 1, 2, 1, 2, xpadding=10)
         self.show_all()
         self._credo_conns = []
