@@ -98,6 +98,8 @@ class GenixStatus(gtk.Frame):
         except genix.GenixError:
             return 'ERROR'
     def update_status(self, genixconnection):
+        if genixconnection is None:
+            return
         try:
             status = genixconnection.get_status()
         except genix.GenixError:
@@ -130,9 +132,10 @@ class GenixControl(gtk.Dialog):
     _timeout_handler = None
     _aux_timeout_handler = None
     error_handler = None
-    def __init__(self, connection=None, title='GeniX3D control', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=None):
+    def __init__(self, credo=None, title='GeniX3D control', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=None):
         gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_resizable(False)
+        self.credo = credo
         vbox = self.get_content_area()
         sw = gtk.ScrolledWindow()
         sw.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_NEVER)
@@ -170,20 +173,21 @@ class GenixControl(gtk.Dialog):
         self.rampupbutton = gtk.Button('Ramp up')
         self.rampupbutton.connect('clicked', self.on_rampup)
         bb.add(self.rampupbutton)
-        
-        if connection is None:
-            self.connection = genix.GenixConnection('10.0.1.10')
-        else:
-            self.connection = connection
-        self._timeout_handler = gobject.timeout_add_seconds(1, self.update_status)
+
         self.status.labels['X-rays'].connect('status-changed', self.on_xrays)
         self.status.labels['Shutter'].connect('status-changed', self.on_shutter)
         self.status.labels['Status'].connect('status-changed', self.on_warmup)
+        self.update_status()
+        self._timeout_handler = gobject.timeout_add_seconds(1, self.update_status)
     def update_status(self):
-        status = self.status.update_status(self.connection)
-        status = self.connection.whichstate(status)
+        if not self.credo.is_genix_connected():
+            self.hide()
+            return False
+        status = self.status.update_status(self.credo.genix)
+        status = self.credo.genix.whichstate(status)
+        self.shutterbutton.set_sensitive(status != genix.GENIX_XRAYS_OFF)
         self.powerdownbutton.set_sensitive(status in (genix.GENIX_FULLPOWER, genix.GENIX_STANDBY, genix.GENIX_IDLE))
-        self.xraybutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
+        self.xraybutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE, genix.GENIX_XRAYS_OFF))
         self.standbybutton.set_sensitive(status in (genix.GENIX_FULLPOWER, genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
         self.rampupbutton.set_sensitive(status in (genix.GENIX_STANDBY, genix.GENIX_IDLE))
         self.warmupbutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
@@ -199,41 +203,41 @@ class GenixControl(gtk.Dialog):
     def __del__(self):
         self.finalize()
     def on_warmup(self, widget, status=None, statstr=None, color=None):
-        if not self.connection.xrays_state():
+        if not self.credo.genix.xrays_state():
             return
         try:
-            self.connection.do_warmup()
+            self.credo.genix.do_warmup()
         except genix.GenixError:
             return
         self.update_status()
     def on_powerdown(self, widget):
-        if not self.connection.xrays_state():
+        if not self.credo.genix.xrays_state():
             return
         try:
-            self.connection.do_poweroff()
+            self.credo.genix.do_poweroff()
         except genix.GenixError:
             return
         self.update_status()
     def on_standby(self, widget):
-        if not self.connection.xrays_state():
+        if not self.credo.genix.xrays_state():
             return
         try:
-            self.connection.do_standby()
+            self.credo.genix.do_standby()
         except genix.GenixError:
             return
         self.update_status()
     def on_rampup(self, widget):
-        if not self.connection.xrays_state():
+        if not self.credo.genix.xrays_state():
             return
         try:
-            self.connection.do_rampup()
+            self.credo.genix.do_rampup()
         except genix.GenixError:
             return
         self.update_status()
         
     def on_reset(self, widget):
         try:
-            self.connection.reset_faults()
+            self.credo.genix.reset_faults()
         except genix.GenixError:
             return True
         return True
@@ -241,14 +245,14 @@ class GenixControl(gtk.Dialog):
     def on_xrays(self, widget, status=None, statstr=None, color=None):
         if isinstance(widget, gtk.Button):
             try:
-                if self.connection.xrays_state():
-                    self.connection.xrays_off()
+                if self.credo.genix.xrays_state():
+                    self.credo.genix.xrays_off()
                 else:
-                    self.connection.xrays_on()
+                    self.credo.genix.xrays_on()
             except genix.GenixError:
                 pass
         else:
-            if self.connection.xrays_state():
+            if self.credo.genix.xrays_state():
                 self.xraybutton.set_label('X-rays OFF')
             else:
                 self.xraybutton.set_label('X-rays ON')
@@ -256,14 +260,14 @@ class GenixControl(gtk.Dialog):
     def on_shutter(self, widget, status=None, statstr=None, color=None):
         if isinstance(widget, gtk.Button):
             try:
-                if self.connection.shutter_state():
-                    self.connection.shutter_close(wait_for_completion=False)
+                if self.credo.genix.shutter_state():
+                    self.credo.genix.shutter_close(wait_for_completion=False)
                 else:
-                    self.connection.shutter_open(wait_for_completion=False)
+                    self.credo.genix.shutter_open(wait_for_completion=False)
             except genix.GenixError:
                 pass
         else:
-            if self.connection.shutter_state():
+            if self.credo.genix.shutter_state():
                 self.shutterbutton.set_label('Close shutter')
             else:
                 self.shutterbutton.set_label('Open shutter')

@@ -64,7 +64,7 @@ class PilatusStatus(gtk.Frame):
         self.statuslabels['Done'] = StatusLabel('Done %', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
         self.statuslabels['Threshold'] = StatusLabel('Threshold', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
         self.statuslabels['Gain'] = StatusLabel('Gain', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')}, 'UNKNOWN')
-        self.statuslabels['mem'] = StatusLabel('memory', {'OK':'N/A', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')})
+        self.statuslabels['Tau'] = StatusLabel('Tau', {'OK':'N/A', 'UNKNOWN':'UNKNOWN'}, {'OK':gtk.gdk.color_parse('white'), 'UNKNOWN':gtk.gdk.color_parse('lightgray')})
         for i, l in enumerate(self.statuslabels.itervalues()):
             tab.attach(l, i % tab_colnum, i % tab_colnum + 1, i / tab_colnum, i / tab_colnum + 1, gtk.FILL | gtk.EXPAND, gtk.FILL | gtk.EXPAND, 2, 3)
 
@@ -80,14 +80,13 @@ class PilatusStatus(gtk.Frame):
             logger.debug('Status changed: ' + statlabel.labelname + ', new status: ' + status + ', message: ' + statstr)
         return False
     def updatemonitor_slow(self, pc=None):
-        u = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-        self['mem'].set_status('OK', '%.2f MB' % (u / 1024))
         if pc is None or not pc.connected():
             for l in self.statuslabels:
                 if l != 'mem':
                     self[l] = 'UNKNOWN'
             return True
         try:
+            taudata = pc.tau
             thdata = pc.temphum()
             if not thdata:
                 thdata = pc.temphum(12)
@@ -113,6 +112,7 @@ class PilatusStatus(gtk.Frame):
                     hwidget.set_status('WARNING', u'%.1f%%' % data['Humidity'])
                 else:
                     hwidget.set_status('ERROR', u'%.1f%%' % data['Humidity'])
+            self['Tau'].set_status('OK', '%.1f ns' % (taudata['tau'] * 1e9))
         try:
             thresholddata = pc.getthreshold()
         except pilatus.PilatusError:
@@ -123,8 +123,8 @@ class PilatusStatus(gtk.Frame):
             self['Gain'].set_status('OK', '%s (vcmp=%.3f V)' % (thresholddata['gain'], thresholddata['vcmp']))
         return True
     def updatemonitor(self, pc=None):
-        u = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-        self['mem'].set_status('OK', '%.2f MB' % (u / 1024))
+        # u = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+        # self['mem'].set_status('OK', '%.2f MB' % (u / 1024))
         if not pc.connected():
             for l in self.statuslabels:
                 if l != 'mem':
@@ -170,7 +170,7 @@ def append_and_select_text_to_combo(combo, txt):
     
     
 class PilatusControl(gtk.Dialog):
-    def __init__(self, credo, title='Control the Pilatus detector', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=(gtk.STOCK_CLOSE, gtk.RESPONSE_CLOSE)):
+    def __init__(self, credo, title='Control the Pilatus detector', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=(gtk.STOCK_CLOSE, gtk.RESPONSE_CLOSE, gtk.STOCK_REFRESH, gtk.RESPONSE_APPLY)):
         gtk.Dialog.__init__(self, title, parent, flags, buttons)
         vbox = self.get_content_area()
         self.statusmonitor = PilatusStatus(self)
@@ -198,10 +198,19 @@ class PilatusControl(gtk.Dialog):
         self.gainselector.set_active(0)
         tab.attach(self.gainselector, 1, 2, row, row + 1)
         row += 1
-        
+
         b = gtk.Button('Trim\ndetector')
         tab.attach(b, 2, 3, 0, row, gtk.FILL, gtk.FILL)
         b.connect('clicked', self.on_trim)
+        
+        l = gtk.Label('Tau:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
+        self.tau_entry = gtk.SpinButton(gtk.Adjustment(0, 0, 1000, 1, 10), digits=2)
+        tab.attach(self.tau_entry, 1, 2, row, row + 1)
+        b = gtk.Button('Set')
+        tab.attach(b, 2, 3, row, row + 1, gtk.FILL, gtk.FILL)
+        b.connect('clicked', self.on_set_tau)
+        row += 1
         
         bb = gtk.HButtonBox()
         tab.attach(bb, 0, 3, row, row + 1, gtk.FILL, gtk.FILL)
@@ -223,9 +232,16 @@ class PilatusControl(gtk.Dialog):
         self.startmonitor()
         self.credo.pilatus.getthreshold()
         self.show_all()
+    def on_set_tau(self, *args):
+        self.credo.pilatus.tau = self.tau_entry.get_value() * 1e-9
+        self.statusmonitor.updatemonitor_slow(self.credo.pilatus)
     def on_response(self, dialog, respid):
-        self.stopmonitor()
-        self.hide()
+        if respid in (gtk.RESPONSE_CLOSE, gtk.RESPONSE_DELETE_EVENT):
+            self.stopmonitor()
+            self.hide()
+        elif respid in (gtk.RESPONSE_APPLY,):
+            self.statusmonitor.updatemonitor(self.credo.pilatus)
+            self.statusmonitor.updatemonitor_slow(self.credo.pilatus)
         return True
     def get_camstate(self):
         if self.credo.is_pilatus_connected():

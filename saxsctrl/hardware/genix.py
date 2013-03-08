@@ -35,7 +35,7 @@ GENIX_WARMUP = -4
 GENIX_GO_POWERDOWN = -5
 GENIX_GO_STANDBY = -6
 GENIX_GO_FULLPOWER = -7
-
+GENIX_XRAYS_OFF = -8
 
 class GenixError(StandardError):
     pass
@@ -274,6 +274,8 @@ class GenixConnection(object):
     def whichstate(self, status=None, ht=None, curr=None):
         if status is None:
             status = self.get_status()
+        if not status['XRAY_ON']:
+            return GENIX_XRAYS_OFF
         if status['CYCLE_RESET_ON']:
             self._prevstate = GENIX_GO_POWERDOWN
             return GENIX_GO_POWERDOWN

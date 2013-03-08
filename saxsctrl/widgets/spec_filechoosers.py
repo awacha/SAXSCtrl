@@ -38,6 +38,7 @@ class FileEntryWithButton(gtk.HBox):
         self.button.connect('clicked', self.on_button, self.entry, dialogaction)
     def get_path(self):
         return self.entry.get_text()
+    get_filename = get_path
     def on_button(self, button, entry, action):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}
@@ -55,6 +56,8 @@ class FileEntryWithButton(gtk.HBox):
             entry.set_text(self._filechooserdialogs[entry].get_filename())
         self._filechooserdialogs[entry].hide()
         return True
+    def set_filename(self, filename):
+        self.entry.set_text(filename)
 
 @PyGTKCallback    
 class ExposureOpenDialog(gtk.Dialog):
@@ -206,7 +209,6 @@ class ExposureOpenDialog(gtk.Dialog):
             if sel[1] is not None:
                 return self.on_load_exposure(None, sel[1], 0)
             # self.on_load_exposure()
-
 @PyGTKCallback
 class ExposureLoader(gtk.HBox):
     def __init__(self, credo, *args, **kwargs):
@@ -220,13 +222,18 @@ class ExposureLoader(gtk.HBox):
         self.credo = credo
         self._eod = None
         self._exposure = None
-    def on_openbutton(self, button):
+        self._filename = None
+    def _get_eod(self):
         if self._eod is None:
             self._eod = ExposureOpenDialog(self.credo, 'Open exposure', self.get_toplevel(), gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT)
             self._eod.connect('exposure-loaded', self.on_load_exposure)
-        while self._eod.run() not in (gtk.RESPONSE_CLOSE , RESPONSE_OPEN, gtk.RESPONSE_DELETE_EVENT):
+        return self._eod
+        
+    def on_openbutton(self, button):
+        eod = self._get_eod()
+        while eod.run() not in (gtk.RESPONSE_CLOSE , RESPONSE_OPEN, gtk.RESPONSE_DELETE_EVENT):
             pass
-        self._eod.hide()
+        eod.hide()
     def on_load_exposure(self, eod, ex):
         self.label.set_text(ex['FileName'] + ': ' + ex['Title'] + '(' + str(ex['MeasTime']) + ' s)')
         self._exposure = ex
@@ -237,3 +244,11 @@ class ExposureLoader(gtk.HBox):
         del self._exposure
         self.label.set_text('')
         self.exposure = None
+    def get_filename(self):
+        return self._exposure['FileName']
+    def set_filename(self, filename):
+        datadirs = self.credo.get_exploaddirs()
+        self.on_load_exposure(None, sastool.classes.SASExposure(filename, dirs=datadirs))
+        return
+            
+

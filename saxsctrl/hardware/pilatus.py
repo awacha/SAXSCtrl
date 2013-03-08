@@ -53,9 +53,9 @@ class PilatusConnection(object):
     _commthread = None
     host = None
     port = None
-    _commthread_iotimeout = 1  # time-out for select.select() in the receiving thread in seconds.
+    _commthread_iotimeout = 0.1  # time-out for select.select() in the receiving thread in seconds.
     _kill_commthread = None  # event signifying to the receiving thread to stop.
-    _eventnames = ['getthreshold', 'setackint', 'expperiod', 'nimages', 'disconnect_from_camserver', 'imgmode', 'setthreshold', 'mxsettings', 'camsetup', 'exptime', 'OK', 'exposure', 'expend', 'exposure_finished', 'imgpath', 'df', 'thread']
+    _eventnames = ['tau', 'getthreshold', 'setackint', 'expperiod', 'nimages', 'disconnect_from_camserver', 'imgmode', 'setthreshold', 'mxsettings', 'camsetup', 'exptime', 'OK', 'exposure', 'expend', 'exposure_finished', 'imgpath', 'df', 'thread']
     def __init__(self, host='localhost', port=41234):
         self._pilatus_lock = threading.Lock()
         self._sendqueue = Queue.PriorityQueue()
@@ -114,7 +114,7 @@ class PilatusConnection(object):
         cmd = message.split()[0]
         if cmd in ['camsetup', 'df', 'thread']:
             return self.auxsocket
-        elif cmd in ['exit', 'exposure', 'k', 'fillpix', 'resetcam', 'calibrate', 'expend', 'setthreshold']:
+        elif cmd in ['exit', 'exposure', 'k', 'fillpix', 'resetcam', 'calibrate', 'expend', 'setthreshold', 'tau']:
             return self.socket
         elif cmd in ['setackint', 'exptime', 'nimages', 'expperiod', 'imgpath', 'setthreshold', 'imgmode', 'mxsettings']:
             if len(message.split()) > 1:
@@ -213,6 +213,29 @@ class PilatusConnection(object):
             self.events['setackint'][1] = int(message[len('Acknowledgement interval is'):].strip())
             self._call_handlers('setackint')
             self.events['setackint'][0].set()
+        elif contextnumber == 15 and message.startswith('Set up rate correction'):
+            m = re.match('Set up rate correction: tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s', message)
+            m = m.groupdict()
+            m['tau'] = float(m['tau'])
+            self.events['tau'][1] = m
+            self._call_handlers('tau')
+            self.events['tau'][0].set()
+        elif contextnumber == 15 and message.startswith('Turn off rate correction'):
+            self.events['tau'][1] = {'tau':0}
+            self._call_handlers('tau')
+            self.events['tau'][0].set()
+        elif contextnumber == 15 and message.startswith('Rate correction'):
+            m = re.match('Rate correction is on; tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s, cutoff = (?P<cutoff>\d+) counts', message)
+            if m is None:
+                m = re.match('Rate correction is off, cutoff = (?P<cutoff>\d+) counts', message)
+            m = m.groupdict()
+            if 'tau' not in m:
+                m['tau'] = 0
+            m['tau'] = float(m['tau'])
+            m['cutoff'] = float(m['cutoff'])
+            self.events['tau'][1] = m
+            self._call_handlers('tau')
+            self.events['tau'][0].set()
         elif contextnumber == 15 and message.startswith('Settings: '):
             m = re.match('Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>\d+) eV; vcmp: (?P<vcmp>\d+(\.\d+)?) V\s*Trim file:\s*(?P<trimfile>.*)', message)
             if m is None:
@@ -234,8 +257,7 @@ class PilatusConnection(object):
             self._call_handlers('exposure_finished')
             self.events['exposure_finished'][0].set()
         else:
-            print "Unknown but valid message: ", contextnumber, status, message
-
+            logger.warn("Unknown but valid message: " + str(contextnumber) + ' ' + status + ' ' + message)
     def _comm_worker(self):
         """worker function for the receiving thread. This is responsible for all the communication over TCP/IP between
         camserver and this class."""
@@ -483,4 +505,11 @@ class PilatusConnection(object):
     def imgmode(self):
         self.send('imgmode')
         return self.wait_for_event('imgmode')[0]
-        
+    @property
+    def tau(self):
+        self.send('tau')
+        return self.wait_for_event('tau')[0]
+    @tau.setter
+    def tau(self, value):
+        self.send('tau %g' % value)
+        return self.wait_for_event('tau')[0]

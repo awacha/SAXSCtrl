@@ -4,12 +4,82 @@ import logging
 import sasgui
 import time
 import resource
-
+import sys
+import traceback
 
 from ..hardware import pilatus, genix, credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup
 logger = logging.getLogger('SAXSCtrl')
 
+def my_excepthook(type_, value, traceback_):
+    try:
+        logger.critical('Unhandled exception', exc_info=(type_, value, traceback_))
+    except:
+        raise
+    dialog = gtk.MessageDialog(None, gtk.DIALOG_MODAL, gtk.MESSAGE_ERROR, gtk.BUTTONS_OK,
+                               str(type_) + ': ' + str(value))
+    dialog.format_secondary_text('Traceback:')
+    msgarea = dialog.get_message_area()
+    sw = gtk.ScrolledWindow()
+    sw.set_size_request(200, 300)
+    msgarea.pack_start(sw)
+    tv = gtk.TextView()
+    sw.add(tv)
+    tv.get_buffer().set_text('\n'.join(traceback.format_tb(traceback_)))
+    tv.set_editable(False)
+    tv.set_wrap_mode(gtk.WRAP_WORD)
+    # tv.get_default_attributes().font = pango.FontDescription('serif,monospace')
+    tv.set_justification(gtk.JUSTIFY_LEFT)
+    msgarea.show_all()
+    dialog.set_title('Error!')
+    dialog.run()
+    dialog.destroy()
+    
+sys.excepthook = my_excepthook
+
+class Tool(object):
+    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', genixneeded=False, pilatusneeded=False):
+        self.credo = credo
+        self.buttonname = buttonname
+        self.windowname = windowname
+        self.windowclass = windowclass
+        self.genixneeded = genixneeded
+        self.pilatusneeded = pilatusneeded
+        self.toolsection = toolsection
+        self.window = None
+        self.button = None
+    def createwindow(self, button):
+        if self.window is None:
+            try:
+                self.window = self.windowclass(self.credo, self.windowname)
+            except:
+                del self.window
+                self.window = None
+                raise
+            else:
+                self.window.connect('delete-event', self.on_delete)
+                self.window.show_all()
+        if self.window is not None:
+            self.window.present()
+        return self.window
+    def createbutton(self):
+        if self.button is None:
+            self.button = gtk.Button(self.buttonname)
+            self.button.connect('clicked', self.createwindow)
+        return self.button
+    def set_sensitivity(self, genix=False, pilatus=False):
+        if self.window is not None:
+            if not (((not self.genixneeded) or genix) and 
+                    ((not self.pilatusneeded) or pilatus)):
+                self.window.hide()
+        if self.button is not None:
+            self.button.set_sensitive(((not self.genixneeded) or genix) and 
+                                      ((not self.pilatusneeded) or pilatus))
+    def on_delete(self, *args):
+        self.window.destroy()
+        del self.window
+        self.window = None
+                
 @sasgui.PyGTKCallback.PyGTKCallback
 class RootWindow(gtk.Window):
     pilatus = None
@@ -114,81 +184,31 @@ class RootWindow(gtk.Window):
         tab.attach(self.projectname_entry, 1, 3, row, row + 1)
         row += 1
         
-        f = gtk.Frame('Tools')
-        vb.pack_start(f, False)
-        vb1 = gtk.VBox()
-        tab = gtk.Table()
-        f.add(vb1)
-        vb1.pack_start(tab, False)
-
-        self.toolbutton_genixcontrol = gtk.Button('GeniX controller')
-        tab.attach(self.toolbutton_genixcontrol, 0, 1, 0, 1)
-        self.toolbutton_genixcontrol.connect('clicked', self.starttool)
-        self._genix_tools.append(self.toolbutton_genixcontrol)
-        self.toolbutton_genixcontrol.set_sensitive(False)
-
-        self.toolbutton_pilatuscontrol = gtk.Button('Pilatus controller')
-        tab.attach(self.toolbutton_pilatuscontrol, 1, 2, 0, 1)
-        self.toolbutton_pilatuscontrol.connect('clicked', self.starttool)
-        self._pilatus_tools.append(self.toolbutton_pilatuscontrol)
-        self.toolbutton_pilatuscontrol.set_sensitive(False)
-        
-        self.toolbutton_samplesetup = gtk.Button('Set-up sample')
-        tab.attach(self.toolbutton_samplesetup, 0, 1, 1, 2)
-        self.toolbutton_samplesetup.connect('clicked', self.starttool)
-
-        self.toolbutton_instrumentsetup = gtk.Button('Set-up instrument')
-        tab.attach(self.toolbutton_instrumentsetup, 1, 2, 1, 2)
-        self.toolbutton_instrumentsetup.connect('clicked', self.starttool)
-
-        self.toolbutton_beamalignment = gtk.Button('Beam alignment')
-        tab.attach(self.toolbutton_beamalignment, 0, 1, 2, 3)
-        self.toolbutton_beamalignment.connect('clicked', self.starttool)
-        self._genix_tools.append(self.toolbutton_beamalignment)
-        self._pilatus_tools.append(self.toolbutton_beamalignment)
-        self.toolbutton_beamalignment.set_sensitive(False)
-
-        self.toolbutton_timedscan = gtk.Button('Timed scan')
-        tab.attach(self.toolbutton_timedscan, 1, 2, 2, 3)
-        self.toolbutton_timedscan.connect('clicked', self.starttool)
-        self._genix_tools.append(self.toolbutton_timedscan)
-        self._pilatus_tools.append(self.toolbutton_timedscan)
-        self.toolbutton_timedscan.set_sensitive(False)
-
-        self.toolbutton_singleexposure = gtk.Button('Single exposure')
-        tab.attach(self.toolbutton_singleexposure, 0, 1, 3, 4)
-        self.toolbutton_singleexposure.connect('clicked', self.starttool)
-        self._genix_tools.append(self.toolbutton_singleexposure)
-        self._pilatus_tools.append(self.toolbutton_singleexposure)
-        self.toolbutton_singleexposure.set_sensitive(False)
-
-        self.toolbutton_transmission = gtk.Button('Transmission')
-        tab.attach(self.toolbutton_transmission, 1, 2, 3, 4)
-        self.toolbutton_transmission.connect('clicked', self.starttool)
-        self._genix_tools.append(self.toolbutton_transmission)
-        self._pilatus_tools.append(self.toolbutton_transmission)
-        self.toolbutton_transmission.set_sensitive(False)
-        
-        vb1.pack_start(gtk.HSeparator(), False)
-        tab = gtk.Table()
-        vb1.pack_start(tab, False)
-
-        self.toolbutton_dataviewer = gtk.Button('Data viewer')
-        tab.attach(self.toolbutton_dataviewer, 0, 1, 0, 1)
-        self.toolbutton_dataviewer.connect('clicked', self.starttool)
-    
-        self.toolbutton_scanviewer = gtk.Button('Scan viewer')
-        tab.attach(self.toolbutton_scanviewer, 1, 2, 0, 1)
-        self.toolbutton_scanviewer.connect('clicked', self.starttool)
-
-        
-        self.toolbutton_centering = gtk.Button('Centering')
-        tab.attach(self.toolbutton_centering, 0, 1, 1, 2)
-        self.toolbutton_centering.connect('clicked', self.starttool)
-
-        self.toolbutton_qcalib = gtk.Button('Q calibration')
-        tab.attach(self.toolbutton_qcalib, 1, 2, 1, 2)
-        self.toolbutton_qcalib.connect('clicked', self.starttool)
+        self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware control', genixneeded=True, pilatusneeded=False),
+                            Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware control', genixneeded=False, pilatusneeded=True),
+                            Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup & Calibration'),
+                            Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Setup & Calibration'),
+                            Tool(self.credo, 'Set-up data reduction', 'Data reduction setup', data_reduction_setup.DataRedSetup, 'Setup & Calibration'),
+                            Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Exposure', genixneeded=True, pilatusneeded=True),
+                            Tool(self.credo, 'Timed scan', 'Timed scan', timedscan.TimedScan, 'Scan', genixneeded=True, pilatusneeded=True),
+                            Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Exposure', genixneeded=True, pilatusneeded=True),
+                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Exposure', genixneeded=True, pilatusneeded=True),
+                            Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'Viewer'),
+                            Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'Viewer'),
+                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Setup & Calibration'),
+                            Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Setup & Calibration'),
+                            ]
+        toolsections = ['Hardware control', 'Scan', 'Setup & Calibration', 'Exposure', 'Viewer']
+        toolsections.extend(list(set([t.toolsection for t in self.toolbuttons]) - set(toolsections)))
+        for ts in toolsections:
+            f = gtk.Frame(ts)
+            vb.pack_start(f, False)
+            tab = gtk.Table()
+            f.add(tab)
+            for i, t in enumerate([t for t in self.toolbuttons if t.toolsection == ts]):
+                b = t.createbutton()
+                tab.attach(b, i % 2, i % 2 + 1, i / 2, i / 2 + 1)
+        self.update_sensitivities()
 
 
         gobject.timeout_add_seconds(1, self.update_statuslabels)
@@ -200,40 +220,6 @@ class RootWindow(gtk.Window):
         return True
     def on_entry_changed(self, entry, entrytext):
         self.credo.__setattr__(entrytext, entry.get_text())
-    def starttool(self, button=None):
-        if button not in self._tools:
-            if button is self.toolbutton_genixcontrol:
-                self._tools[button] = genixcontrol.GenixControl(self.genix, 'SAXSControl -- GeniX controller')
-            elif button is self.toolbutton_pilatuscontrol:
-                self._tools[button] = pilatuscontrol.PilatusControl(self.credo, 'SAXSControl -- Pilatus controller')
-            elif button is self.toolbutton_samplesetup:
-                self._tools[button] = samplesetup.SampleListDialog(self.credo, 'SAXSControl -- Sample parameters')
-            elif button is self.toolbutton_instrumentsetup:
-                self._tools[button] = instrumentsetup.InstrumentSetup(self.credo, 'SAXSControl -- Instrument parameters')
-            elif button is self.toolbutton_beamalignment:
-                self._tools[button] = beamalignment.BeamAlignment(self.credo, 'SAXSControl -- Beam alignment')
-            elif button is self.toolbutton_timedscan:
-                self._tools[button] = timedscan.TimedScan(self.credo, 'SAXSControl -- Timed scan')
-            elif button is self.toolbutton_dataviewer:
-                self._tools[button] = dataviewer.DataViewer(self.credo, 'SAXSControl -- Data viewer')
-            elif button is self.toolbutton_scanviewer:
-                self._tools[button] = scanviewer.ScanViewer(self.credo, 'SAXSControl -- Scan viewer')
-            elif button is self.toolbutton_singleexposure:
-                self._tools[button] = singleexposure.SingleExposure(self.credo, 'SAXSControl -- Single exposure')
-            elif button is self.toolbutton_transmission:
-                self._tools[button] = transmission.TransmissionMeasurement(self.credo, 'SAXSControl -- Transmission measurement')
-            elif button is self.toolbutton_centering:
-                self._tools[button] = centering.CenteringDialog(self.credo, 'SAXSControl -- Center finding')
-            elif button is self.toolbutton_qcalib:
-                self._tools[button] = qcalibration.QCalibrationDialog(self.credo, 'SAXSControl -- Q calibration')
-            else:
-                raise NotImplementedError('Tool button "%s" is not implemented' % button.get_label())
-            self._tools[button].connect('delete-event', self.stoptool, button)
-            self._tools[button].show_all()
-        else:
-            self._tools[button].present()
-    def stoptool(self, widget, event, button):
-        del self._tools[button]
 
     def on_camserver_connect(self, button):
         if self.is_pilatus_connected():
@@ -294,25 +280,8 @@ class RootWindow(gtk.Window):
             self.credo.pilatus = None
             self.pilatus = None
     def update_sensitivities(self):
-        pilatusonly = [p for p in self._pilatus_tools if p not in self._genix_tools]
-        genixonly = [p for p in self._genix_tools if p not in self._pilatus_tools]
-        both = [p for p in self._pilatus_tools if p in self._genix_tools]
-        
-        if not self.is_pilatus_connected():
-            for p in pilatusonly + both:
-                p.set_sensitive(False)
-        if not self.is_genix_connected():
-            for p in genixonly + both:
-                p.set_sensitive(False)
-        if self.is_pilatus_connected():
-            for p in pilatusonly:
-                p.set_sensitive(True)
-        if self.is_genix_connected():
-            for p in genixonly:
-                p.set_sensitive(True)
-        if self.is_pilatus_connected() and self.is_genix_connected():
-            for p in both:
-                p.set_sensitive(True)
+        for t in self.toolbuttons:
+            t.set_sensitivity(genix=self.is_genix_connected(), pilatus=self.is_pilatus_connected())
             
     def connect_to_camserver(self, host, port=41234):
         if not self.is_pilatus_connected():
@@ -376,5 +345,4 @@ class RootWindow(gtk.Window):
     def get_credo(self):
         return self.credo
     def __del__(self):
-        print "DEL ROOT"
         del self.credo

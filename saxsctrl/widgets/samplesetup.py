@@ -5,8 +5,9 @@ import datetime
 import dateutil.parser
 from ..hardware import sample
 import gobject
-import cPickle as pickle
+# import cPickle as pickle
 import os
+import ConfigParser
 
 RESPONSE_SAVE = 1
 RESPONSE_CLEAR = 2
@@ -17,6 +18,7 @@ RESPONSE_REMOVE = 6
 RESPONSE_DUPLICATE = 7
 RESPONSE_EDIT = 8
 RESPONSE_CLOSE = 9
+
 
 class SampleSetup(gtk.Dialog):
     def __init__(self, title='Define sample', parent=None, flags=gtk.DIALOG_DESTROY_WITH_PARENT, buttons=(gtk.STOCK_OK, gtk.RESPONSE_OK, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL)):
@@ -33,42 +35,49 @@ class SampleSetup(gtk.Dialog):
         self.samplename_entry = gtk.Entry()
         self.samplename_entry.set_text('-- please fill --')
         tab.attach(self.samplename_entry, 1, 2, row, row + 1)
+        self.samplename_entry.connect('changed', self.on_change_entry, 'title')
         row += 1
 
         l = gtk.Label('Thickness (cm):'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
         self.thickness_entry = gtk.SpinButton(gtk.Adjustment(0.1, 0, 100, 0.1, 1), digits=4)
         tab.attach(self.thickness_entry, 1, 2, row, row + 1)
+        self.thickness_entry.connect('value-changed', self.on_change_entry, 'thickness')
         row += 1
 
         l = gtk.Label('Position:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.position_entry = gtk.SpinButton(gtk.Adjustment(0, -100, 100, 0.1, 1), digits=2)
+        self.position_entry = gtk.SpinButton(gtk.Adjustment(0, -100, 100, 0.1, 1), digits=3)
         tab.attach(self.position_entry, 1, 2, row, row + 1)
+        self.position_entry.connect('value-changed', self.on_change_entry, 'position')
         row += 1
         
         l = gtk.Label('Distance decrease:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.distminus_entry = gtk.SpinButton(gtk.Adjustment(0, -1000, 1000, 0.1, 1), digits=2)
+        self.distminus_entry = gtk.SpinButton(gtk.Adjustment(0, -1000, 1000, 0.1, 1), digits=4)
         tab.attach(self.distminus_entry, 1, 2, row, row + 1)
+        self.distminus_entry.connect('value-changed', self.on_change_entry, 'distminus')
         row += 1
         
         l = gtk.Label(u'Temperature (°C):'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
         self.temperature_entry = gtk.SpinButton(gtk.Adjustment(25, -273, 1000, 0.1, 1), digits=2)
         tab.attach(self.temperature_entry, 1, 2, row, row + 1)
+        self.temperature_entry.connect('value-changed', self.on_change_entry, 'temperature')
         row += 1
 
         l = gtk.Label(u'Transmission:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
-        self.transmission_entry = gtk.SpinButton(gtk.Adjustment(0.5, 0, 1, 0.1, 1), digits=2)
+        self.transmission_entry = gtk.SpinButton(gtk.Adjustment(0.5, 0, 1, 0.1, 1), digits=4)
         tab.attach(self.transmission_entry, 1, 2, row, row + 1)
+        self.transmission_entry.connect('value-changed', self.on_change_entry, 'transmission')
         row += 1
 
         l = gtk.Label(u'Prepared by:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
         self.preparedby_entry = gtk.Entry()
         tab.attach(self.preparedby_entry, 1, 2, row, row + 1)
+        self.preparedby_entry.connect('changed', self.on_change_entry, 'preparedby')
         row += 1
         
         l = gtk.Label(u'Preparation time:'); l.set_alignment(0, 0.5)
@@ -78,13 +87,22 @@ class SampleSetup(gtk.Dialog):
         n = datetime.date.today()
         self.preparetime_entry.select_month(n.month - 1, n.year)
         self.preparetime_entry.select_day(n.day)
-        
+        self.preparetime_entry.connect('day-selected', self.on_change_entry, 'preparetime')
+        self.preparetime_entry.connect('day-selected-double-click', self.on_change_entry, 'preparetime')
+        self.preparetime_entry.connect('month-changed', self.on_change_entry, 'preparetime')
         tab.attach(self.preparetime_entry, 1, 2, row, row + 1)
         row += 1
-
+        
         
         self.connect('delete-event', self.hide_on_delete)
         vb.show_all()
+        self._changelist = []
+    def run(self, *args, **kwargs):
+        self._changelist = []
+        return gtk.Dialog.run(self, *args, **kwargs)
+    def on_change_entry(self, entry, attr):
+        if entry not in [x[0] for x in self._changelist]:
+            self._changelist.append((entry, attr))
     def get_sample(self):
         title = self.samplename_entry.get_text()
         temperature = self.temperature_entry.get_value()
@@ -95,18 +113,28 @@ class SampleSetup(gtk.Dialog):
         preparetime = self.preparetime_entry.get_date()
         distminus = self.distminus_entry.get_value()
         return sample.SAXSSample(title, position, thickness, transmission, temperature, preparedby, datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
-    def set_sample(self, sample):
-        self.samplename_entry.set_text(sample.title)
-        self.temperature_entry.set_text(str(sample.temperature))
-        self.thickness_entry.set_text(str(sample.thickness))
-        self.position_entry.set_text(str(sample.position))
-        self.transmission_entry.set_text(str(sample.transmission))
-        self.preparedby_entry.set_text(sample.preparedby)
-        self.preparetime_entry.select_month(sample.preparetime.month - 1, sample.preparetime.year)
-        self.preparetime_entry.select_day(sample.preparetime.day)
-        self.distminus_entry.set_value(sample.distminus)
+    def set_sample(self, sam):
+        self.samplename_entry.set_text(sam.title)
+        self.temperature_entry.set_value(sam.temperature)
+        self.thickness_entry.set_value(sam.thickness)
+        self.position_entry.set_value(sam.position)
+        self.transmission_entry.set_value(sam.transmission)
+        self.preparedby_entry.set_text(sam.preparedby)
+        self.preparetime_entry.select_month(sam.preparetime.month - 1, sam.preparetime.year)
+        self.preparetime_entry.select_day(sam.preparetime.day)
+        self.distminus_entry.set_value(sam.distminus)
         return True
-    
+    def update_sample(self, sam):
+        for widget, attr in self._changelist:
+            if isinstance(widget, gtk.SpinButton):
+                sam.__setattr__(attr, widget.get_value())
+            elif isinstance(widget, gtk.Entry):
+                sam.__setattr__(attr, widget.get_text())
+            elif isinstance(widget, gtk.Calendar):
+                sam.__setattr__(attr, datetime.datetime(widget.get_date()[0], widget.get_date()[1] + 1, widget.get_date()[2]))
+        self._changelist = []
+        return sam
+        
 class SampleListDialog(gtk.Dialog):
     def __init__(self, credo, title='Sample configuration', parent=None, flags=0, buttons=(
                                                                                            gtk.STOCK_SAVE, RESPONSE_SAVE,
@@ -183,15 +211,14 @@ class SampleListDialog(gtk.Dialog):
         if respid == RESPONSE_CLOSE:
             self.hide()
         elif respid == RESPONSE_SAVE:
-            with open(os.path.join(self.credo.configpath, 'samples.pickle'), 'w') as f:
-                pickle.dump([row[-1] for row in self.sampleliststore], f, 2)
+            cp = ConfigParser.ConfigParser()
+            for i, sam in enumerate(self.sampleliststore):
+                sam[-1].save_to_ConfigParser(cp, 'Sample_%03d' % i)
+            with open(os.path.expanduser('~/.config/credo/samplerc'), 'w+') as f:
+                cp.write(f)
         elif respid == RESPONSE_LOAD:
-            try:
-                with open(os.path.join(self.credo.configpath, 'samples.pickle'), 'r') as f:
-                    for sam in pickle.load(f):
-                        self.add_sample(sam)
-            except IOError:
-                pass
+            for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):
+                self.add_sample(sam)
         elif respid == RESPONSE_CLEAR:
             self.sampleliststore.clear()
         elif respid == RESPONSE_REFRESH:
@@ -216,7 +243,7 @@ class SampleListDialog(gtk.Dialog):
                 ssd.set_sample(sel[0][sel[1]][-1])
                 resp = ssd.run()
                 if resp == gtk.RESPONSE_OK:
-                    sel[0][sel[1]][-1] = ssd.get_sample()
+                    sel[0][sel[1]][-1] = ssd.update_sample(sel[0][sel[1]][-1])
                     self.update_liststore()
                 ssd.destroy()
             pass

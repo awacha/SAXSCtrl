@@ -1,4 +1,3 @@
-
 # coding: utf-8
 import gtk
 import logging
@@ -8,6 +7,7 @@ from .nextfsn_monitor import NextFSNMonitor
 logger = logging.getLogger('singleexposure')
 import gobject
 import sasgui
+import datetime
 
 class SingleExposure(gtk.Dialog):
     _filechooserdialogs = None
@@ -42,6 +42,10 @@ class SingleExposure(gtk.Dialog):
         hb.pack_start(b, False)
         b.connect('clicked', self.on_loadmaskbutton, self.maskfile_entry, gtk.FILE_CHOOSER_ACTION_OPEN)
         self.entrytab.attach(hb, 1, 2, row, row + 1)
+        row += 1
+        
+        self.datareduction_cb = gtk.CheckButton('Carry out data reduction'); self.datareduction_cb.set_alignment(0, 0.5)
+        self.entrytab.attach(self.datareduction_cb, 0, 2, row, row + 1)
         row += 1
         
         f = gtk.Frame('2D plot')
@@ -126,7 +130,11 @@ class SingleExposure(gtk.Dialog):
                     gobject.idle_add(self.on_imagereceived, imgdata)
                     return False
                 logger.debug('Calling credo.expose')
-                self.credo.expose(self.exptime_entry.get_value(), blocking=False, callback=_handler)
+                header_template = {'maskid':self.maskfile_entry.get_text()}
+                if isinstance(sam.thickness, sastool.misc.errorvalue.ErrorValue):
+                    header_template['ThicknessError'] = sam.thickness.err
+                
+                self.credo.expose(self.exptime_entry.get_value(), blocking=False, callback=_handler, header_template=header_template)
                 self.get_widget_for_response(gtk.RESPONSE_OK).set_label(gtk.STOCK_STOP)
             else:
                 # break the exposure
@@ -139,6 +147,8 @@ class SingleExposure(gtk.Dialog):
         if exposure is not None:
             mask = sastool.classes.SASMask(self.maskfile_entry.get_text())
             exposure.set_mask(mask)
+            if self.datareduction_cb.get_active():
+                exposure = self.credo.datareduction.do_reduction(exposure)
             if self.plot2D_checkbutton.get_active():
                 logger.debug('plotting received image')
                 if self.reuse2D_checkbutton.get_active():
@@ -147,7 +157,10 @@ class SingleExposure(gtk.Dialog):
                     win.show_all()
                     win.present()
                 else:
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow(exposure)
+                    def cbfunc(ex, fig, ax):
+                        ax.set_title(str(ex.header))
+                        fig.text(1, 0, self.credo.username + '@CREDO' + str(datetime.datetime.now()), ha='right', va='bottom')
+                    win = sasgui.plot2dsasimage.PlotSASImageWindow(exposure, cbfunc)
                     win.show_all()
             if self.plot1D_checkbutton.get_active():
                 if self.q_or_pixel_checkbutton.get_active():

@@ -57,8 +57,8 @@ class TransmissionMeasurement(gtk.Dialog):
         self.entrytab.attach(l, 0, 1, row, row + 1, gtk.FILL, gtk.FILL)
         self.method_combo = gtk.combo_box_new_text()
         self.entrytab.attach(self.method_combo, 1, 2, row, row + 1)
-        self.method_combo.append_text('sum')
         self.method_combo.append_text('max')
+        self.method_combo.append_text('sum')
         self.method_combo.set_active(0)
         row += 1
         

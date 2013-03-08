@@ -5,6 +5,7 @@ import sastool
 import re
 import os
 from .spec_filechoosers import MaskChooserDialog
+import datetime
 
 class DataViewer(gtk.Dialog):
     _filechooserdialogs = None
@@ -76,12 +77,15 @@ class DataViewer(gtk.Dialog):
          
 
         
-        self.plot2d = sasgui.PlotSASImage()
+        self.plot2d = sasgui.PlotSASImage(after_draw_cb=self.plot2d_after_draw_cb)
         vb.pack_start(self.plot2d, True)
         self.connect('response', self.on_response)
         self.connect('delete-event', self.hide_on_delete)
         
         vb.show_all()
+    def plot2d_after_draw_cb(self, exposure, fig, axes):
+        axes.set_title(str(exposure.header))
+        fig.text(1, 0, self.credo.username + '@CREDO ' + str(datetime.datetime.now()), ha='right', va='bottom')
     def on_loadmaskbutton(self, button, entry, action):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}

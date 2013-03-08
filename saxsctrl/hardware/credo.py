@@ -1,5 +1,5 @@
-import genix
-import pilatus
+from . import genix
+from . import pilatus
 import sastool
 import re
 import os
@@ -15,6 +15,7 @@ import cPickle as pickle
 import gio
 import ConfigParser
 
+from . import datareduction
 from . import sample
 logger = logging.getLogger('credo')
 # logger.setLevel(logging.DEBUG)
@@ -43,6 +44,7 @@ class Credo(object):
     _projectname = 'No project'
     _pixelsize = 172
     _dist = 1000
+    _exposure_user_break = None
     def __init__(self, genixhost=None, pilatushost=None, genixport=502, pilatusport=41234, imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
         if isinstance(genixhost, genix.GenixConnection):
@@ -66,11 +68,18 @@ class Credo(object):
         self._samples = []
         self.sample = None
         self.load_settings()
+        self.datareduction = datareduction.DataReduction(fileformat=self.fileformat, headerformat=self.fileformat.replace('.cbf', '.param'),
+                                                         datadirs=self.get_exploaddirs())
+        self.datareduction.load_state(keep=['fileformat', 'headerformat', 'datadirs'])
+        self.datareduction.save_state()
         self.connect_callback('setup-changed', self.save_settings)
-        self.connect_callback('path-changed', self.load_samples)
+        self.connect_callback('path-changed', self.on_path_changed)
         self.connect_callback('setup-changed', self._setup_filewatchers)
         self._setup_filewatchers()
         self.load_samples()
+    def on_path_changed(self, *args):
+        self.load_samples(*args)
+        self.datareduction.datadirs = self.get_exploaddirs()
     def load_settings(self):
         cp = ConfigParser.ConfigParser()
         cp.read(os.path.expanduser('~/.config/credo/credorc'))
@@ -115,22 +124,30 @@ class Credo(object):
             fw = gio.File(folder).monitor_directory()
             self._filewatchers.append((fw, fw.connect('changed', self._on_filewatch)))
     def _on_filewatch(self, monitor, filename, otherfilename, event):
+        if event in (gio.FILE_MONITOR_EVENT_CHANGED, gio.FILE_MONITOR_EVENT_CREATED) and self._nextfsn_cache is not None:
+            basename = filename.get_basename()
+            if basename:
+                for regex in self._nextfsn_cache.keys():
+                    m = regex.match(basename)
+                    if m is not None:
+                        print "Updating nextfsn cache. Pattern: ", regex.pattern, "Previous: ", self._nextfsn_cache[regex], "Current: ", int(m.group(1)) + 1
+                        self._nextfsn_cache[regex] = int(m.group(1)) + 1
         if event in (gio.FILE_MONITOR_EVENT_CHANGED, gio.FILE_MONITOR_EVENT_CREATED, gio.FILE_MONITOR_EVENT_DELETED, gio.FILE_MONITOR_EVENT_MOVED):
             self.emit('files-changed', filename, event)
     def load_samples(self, *args):
-        try:
-            with open(os.path.join(self.configpath, 'samples.pickle'), 'r') as f:
-                for sam in pickle.load(f):
-                    self.add_sample(sam)
-        except IOError:
-            return
+        for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):
+            self.add_sample(sam)
+        
         if self._samples:
             self.set_sample(self._samples[0])
         self.emit('samples-changed')
         return False
     def save_samples(self, *args):
-        with open(os.path.join(self.configpath, 'samples.pickle'), 'w') as f:
-            pickle.dump(self.get_samples(), f, 2)
+        cp = ConfigParser.ConfigParser()
+        for i, sam in enumerate(self.get_samples()):
+            sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
+        with open(os.path.expanduser('~/.config/credo/samplerc'), 'w+') as f:
+            cp.write(f)
     def freeze_callbacks(self, name):
         if name not in self._callbacks:
             return
@@ -342,6 +359,7 @@ class Credo(object):
         self.emit('setup-changed')
     def killexposure(self):
         self.pilatus.stopexposure()
+        self._exposure_user_break.set()
     def _exposure_notifier(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn, callback=None):
         logger.debug('Notifier thread starting. Exptime: %f; expnum: %d; dwelltime: %f; filenameformat: %s; headernameformat: %s; firstfsn: %d.' % (exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn))
         t0 = time.time()
@@ -350,7 +368,11 @@ class Credo(object):
             nextend = t0 + exptime * (i + 1) + dwelltime * i + 0.005
             logger.debug('Sleeping %f seconds' % (nextend - t1))
             if nextend > t1:
-                time.sleep(nextend - t1)
+                res = self._exposure_user_break.wait(nextend - t1)
+            if res is True:
+                # user break occurred
+                callback(None)
+                return
             filename = os.path.join(self.imagepath, filenameformat % (firstfsn + i))
             try:
                 f = open(filename, 'r')
@@ -372,6 +394,8 @@ class Credo(object):
                         callback(None)
                     return
                 time.sleep(0.01)
+            pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
+            header.update(pilatusheader)
             header['EndDate'] = datetime.datetime.now()
             header['GeniX_HT_end'] = self.genix.get_ht()
             header['GeniX_Current_end'] = self.genix.get_current()
@@ -395,6 +419,7 @@ class Credo(object):
                     del ex
         logger.debug('Notifier thread exiting cleanly.')
     def _exposurethread_worker(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, callback=None):
+        logger.debug('Exposure thread running.')
         expnotifier_thread = None
         try:
             firstfsn = header['FSN']
@@ -418,15 +443,24 @@ class Credo(object):
                 expnotifier_thread.join()
             self._exposurethread = None
         return
-    def expose(self, exptime, expnum=1, dwelltime=0.003, blocking=True, callback=None):
+    def expose(self, exptime, expnum=1, dwelltime=0.003, blocking=True, callback=None, header_template=None):
+        logger.debug('Credo.exposure running.')
+        if self._exposure_user_break is None:
+            self._exposure_user_break = threading.Event()
         if self._exposurethread is not None:
+            logger.warning('Another exposure is running, waiting for it to end.')
             self._exposurethread.join()
         # self._recent_exposures = []
         if self.sample is None:
             raise CredoError('No sample defined.')
+        logger.debug('Getting next FSN')
         fsn = self.get_next_fsn()
+        logger.debug('Next FSN is ' + str(fsn))
         filename = (self.fileformat % fsn) + '.cbf'
-        h = sastool.classes.SASHeader()
+        if header_template is None:
+            header_template = {}
+        header_template.update(self.sample.get_header())
+        h = sastool.classes.SASHeader(header_template)
         h['__Origin__'] = 'CREDO'
         h['__particle__'] = 'photon'
         h['Dist'] = self.dist - self.sample.distminus
@@ -434,36 +468,31 @@ class Credo(object):
         h['BeamPosY'] = self.beamposy
         h['PixelSize'] = self.pixelsize / 1000.
         h['Wavelength'] = self.wavelength
-        h['Title'] = self.sample.title
         h['Owner'] = self.username
         h['GeniX_HT'] = self.genix.get_ht()
         h['GeniX_Current'] = self.genix.get_current()
         h['MeasTime'] = exptime
         h['FSN'] = fsn
-        h['Temperature'] = self.sample.temperature
         h['Project'] = self.projectname
         h['Filter'] = self.filter
-        h['Thickness'] = self.sample.thickness
-        h['PosSample'] = self.sample.position
         h['Monitor'] = h['MeasTime']
-        h['Preparedby'] = self.sample.preparedby
-        h['Preparetime'] = self.sample.preparetime
-        h['Transm'] = float(self.sample.transmission)
-        if isinstance(self.sample.transmission, sastool.ErrorValue):
-            h['TransmError'] = self.sample.transmission.err
         headernameformat = self.fileformat + '.param'
+        logger.debug('Header prepared.')
         
         if callback is None:
             callback = self._default_expend_callback
+        self._exposure_user_break.clear()
         self._exposurethread = threading.Thread(name='Credo_exposure',
                                                 target=self._exposurethread_worker,
                                                 args=(h, exptime, expnum, dwelltime,
                                                       self.fileformat + '.cbf',
                                                       headernameformat, callback))
         self._exposurethread.setDaemon(True)
+        logger.debug('Launching exposure thread.')
         self._exposurethread.start()
         if not blocking:
             return
+        logger.debug('Waiting for exposure thread to finish')
         self._exposurethread.join()
         # data = self._recent_exposures
         # self._recent_exposures = []
@@ -489,16 +518,19 @@ class Credo(object):
     def trim_detector(self, threshold=4024, gain='midg'):
         self.pilatus.setthreshold(threshold, gain)
     def get_next_fsn(self, regex=None):
+        if self._nextfsn_cache is None:
+            self._nextfsn_cache = {}
         if regex is None:
             regex = self.fileformat_re
-        maxfsns = [0]
-        for pth in [self.imagepath, self.offlineimagepath] + sastool.misc.find_subdirs(self.filepath):
-            fsns = [int(f.group(1)) for f in [regex.match(f) for f in os.listdir(pth)] if f is not None]
-            if fsns:
-                maxfsns.append(max(fsns))
-        return max(maxfsns) + 1
+        if regex not in self._nextfsn_cache:
+            maxfsns = [0]
+            for pth in [self.imagepath, self.offlineimagepath] + sastool.misc.find_subdirs(self.filepath):
+                fsns = [int(f.group(1)) for f in [regex.match(f) for f in os.listdir(pth)] if f is not None]
+                if fsns:
+                    maxfsns.append(max(fsns))
+            self._nextfsn_cache[regex] = max(maxfsns) + 1
+        return self._nextfsn_cache[regex]
     def set_fileformat(self, begin='crd', digitsinfsn=5):
-        self._nextfsn_cache = None
         ff = begin + '_' + '%%0%dd' % digitsinfsn
         ff_re = re.compile(begin + '_' + '(\d{%d,%d})' % (digitsinfsn, digitsinfsn))
         if (self._fileformat != ff) or (self._fileformat_re != ff_re):
