@@ -19,6 +19,26 @@ class PleaseWaitDialog(Gtk.Dialog):
         self.label.set_text(msg)
         self.pbar.pulse()
         
+class PleaseWaitInfoBar(Gtk.InfoBar):
+    def __init__(self, buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+        Gtk.InfoBar.__init__(self)
+        for i in range(len(buttons) / 2):
+            self.add_button(buttons[2 * i], buttons[2 * i + 1])
+        self.set_message_type(Gtk.MessageType.INFO)
+        vb = self.get_content_area()
+        self.label = Gtk.Label('Data reduction running...')
+        self.pbar = Gtk.ProgressBar()
+        self.pbar.set_text('Working...')
+        vb.pack_start(self.label, False, True, 0)
+        vb.pack_start(self.pbar, False, True, 0)
+        self.show_all()
+    def set_label_text(self, msg):
+        self.pbar.set_text(msg)
+        self.pbar.pulse()
+    def set_n_jobs(self, n):
+        self.label.set_text('%d data reduction job(s) running...' % n)
+
+
     
 class DataRedSetup(Gtk.Dialog):
     def __init__(self, credo, title='Set-up on-line data reduction', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY)):

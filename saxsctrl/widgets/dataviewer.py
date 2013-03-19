@@ -11,6 +11,8 @@ from ..hardware.datareduction import DataReduction
 
 class DataViewer(Gtk.Dialog):
     _filechooserdialogs = None
+    _datared_jobidx = 0
+    _datared_connections = None
     def __init__(self, credo, title='Data display', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
@@ -97,12 +99,17 @@ class DataViewer(Gtk.Dialog):
     def plot2d_after_draw_cb(self, exposure, fig, axes):
         axes.set_title(str(exposure.header))
         fig.text(1, 0, self.credo.username + '@CREDO ' + str(datetime.datetime.now()), ha='right', va='bottom')
-    def on_data_reduction_callback(self, message_or_exposure):
+    def on_data_reduction_callback(self, datared, idx, message_or_exposure):
+        if idx != self._datared_jobidx:
+            return False
         if (not hasattr(self, '_pwd')) or (self._pwd is None):
             return False
         if isinstance(message_or_exposure, basestring):
             self._pwd.set_label_text(message_or_exposure)
             return False
+        for c in self._datared_connections:
+            self.datareduction.disconnect(c)
+        self._datared_connections = None
         self._pwd.destroy()
         del self._pwd
         message_or_exposure.write(os.path.join(self.credo.eval2dpath, 'crd_%05d.h5' % message_or_exposure['FSN']))
@@ -113,6 +120,12 @@ class DataViewer(Gtk.Dialog):
         self.plot2d.set_exposure(message_or_exposure)
         return False
     def do_data_reduction(self, button):
+        if self._datared_connections is not None:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Another data reduction procedure is running!')
+            md.run()
+            md.destroy()
+            del md
+            return
         if self.plot2d.exposure is None:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Please open a file first!')
             md.run()
@@ -130,7 +143,9 @@ class DataViewer(Gtk.Dialog):
             def cb(msg):
                 GObject.idle_add(self.on_data_reduction_callback, msg)
             self._pwd.show_all()
-            self.datareduction.do_reduction(self.plot2d.exposure, callback=cb, threaded=True)
+            self._datared_connections = (self.datareduction.connect('message', self.on_data_reduction_callback),
+                                       self.datareduction.connect('done', self.on_data_reduction_callback))
+            self._datared_jobidx = self.datareduction.do_reduction(self.plot2d.exposure)
         self._dataredsetup.hide()
     def on_loadmaskbutton(self, button, entry, action):
         if self._filechooserdialogs is None:

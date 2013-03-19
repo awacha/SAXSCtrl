@@ -14,6 +14,7 @@ import dateutil.parser
 import uuid
 import logging
 import Queue
+from gi.repository import GObject
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

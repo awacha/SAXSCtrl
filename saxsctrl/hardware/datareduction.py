@@ -9,8 +9,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 import functools
 from gi.repository import GObject
-import threading
-import Queue
+import multiprocessing
+from multiprocessing import Queue
+import uuid
 
 class ExpSelector(object):
     """Select an exposure (using headers) which fulfills several criteria."""
@@ -67,19 +68,168 @@ class ExpSelector(object):
             lis.sort(key=lambda l:sorting(hdr_to_compare, l), reverse=reversesort)
         return lis[0]
 
-class DataReductionSettings(GObject.GObject):
+class DataReductionSettings(object):
     def __init__(self, dr):
-        GObject.GObject.__init__(self)
-        self.props = dr.props
+        self.props = [{'name':p.name, 'default_value':p.default_value} for p in dr.props]
         self.vals = dr.__propvalues__
     def get_property(self, key):
         if key in self.vals:
             return self.vals[key]
         else:
-            return [p for p in self.props if p.name == key][0].default_value
+            return [p for p in self.props if p['name'] == key][0]['default_value']
+
+class ReductionWorker(multiprocessing.Process):
+    def __init__(self, group, name, killswitch, inqueue, outqueue):
+        multiprocessing.Process.__init__(self, group=group, name=name)
+        self.killswitch = killswitch
+        self.inqueue = inqueue
+        self.outqueue = outqueue
+        self.currentjob = None
+    def run(self):
+        while not self.killswitch.is_set():
+            try:
+                (exposure, self.currentjob, self.settings) = self.inqueue.get(block=True, timeout=1)
+            except multiprocessing.queues.Empty:
+                continue
+            self.exposureselector = ExpSelector(self.settings.get_property('headerformat'), self.settings.get_property('datadirs'))
+            logger.info('Data reduction of ' + str(exposure.header) + ' starting.')
+            exposure = self.do_step1(exposure)
+            exposure = self.do_step2(exposure)
+            exposure = self.do_step3(exposure)
+            self.sendmsg(exposure)
+        return
+    def sendmsg(self, msg):
+        if isinstance(msg, basestring):
+            logger.info(msg)
+        self.outqueue.put((self.currentjob, msg))
+    def do_step1(self, exposure):
+        self.sendmsg('Reductions step #1 (scaling & geometry) on ' + str(exposure.header) + ' starting.')
+        if self.settings.get_property('do-monitor'):
+            self.sendmsg('Normalizing intensities according to \'%s\'.' % self.settings.get_property('monitor-attr'))
+            exposure = exposure / exposure[self.settings.get_property('monitor-attr')]
+            exposure.header.add_history('Corrected for monitor: ' + self.settings.get_property('monitor-attr'))
+        if self.settings.get_property('do-solidangle'):
+            self.sendmsg('Doing solid angle correction.')
+            exposure = exposure * sastool.utils2d.corrections.solidangle(exposure.tth, exposure['DistCalibrated'])
+            exposure.header.add_history('Corrected for solid angle.')
+        if self.settings.get_property('do-transmission'):
+            self.sendmsg('Normalizing by transmission.')
+            exposure = exposure / sastool.misc.errorvalue.ErrorValue(exposure['Transm'], exposure['TransmError'])
+            exposure.header.add_history('Corrected for transmission')
+            if self.settings.get_property('transmission-selfabsorption'):
+                self.sendmsg('Self-absorption correction.')
+                exposure *= sastool.utils2d.corrections.angledependentabsorption(exposure.tth, exposure['Transm'])
+                exposure.header.add_history('Corrected for angle-dependent self-absorption.')
+        self.sendmsg('Reduction step #1 (scaling & geometry) on ' + str(exposure.header) + ' done.')
+        return exposure
+    def do_step2(self, exposure):
+        if self.settings.get_property('do-bgsub'):
+            if exposure['Title'] == self.settings.get_property('bg-name'):
+                self.sendmsg('Skipping background subtraction from background.')
+                return exposure
+            self.sendmsg('Reduction step #2 (background subtraction) on ' + str(exposure.header) + ' starting.')
+            if self.settings.get_property('bg-select-method') == 'nearest':
+                header = sastool.classes.SASHeader(exposure.header)
+                header['Title'] = self.settings.get_property('bg-name')
+                bgheader = self.exposureselector.select(header, equal=['Title'],
+                                     func=[lambda h0, h1: (abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < self.settings.get_property('bg-energy-tolerance')),
+                                           lambda h0, h1: (abs(h0['DistCalibrated'] - h1['DistCalibrated']) < self.settings.get_property('bg-dist-tolerance'))],
+                                     sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
+                bg = sastool.classes.SASExposure(self.settings.get_property('fileformat') % bgheader['FSN'], dirs=self.exposureselector.datadirs)
+            elif self.settings.get_property('bg-select-method') == 'prev':
+                header = sastool.classes.SASHeader(exposure.header)
+                header['Title'] = self.settings.get_property('bg-name')
+                bgheader = self.exposureselector.select(header, equal=['Title'], less=['Date'],
+                                     func=[lambda h0, h1: (abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < self.settings.get_property('bg-energy-tolerance')),
+                                           lambda h0, h1: (abs(h0['DistCalibrated'] - h1['DistCalibrated']) < self.settings.get_property('bg-dist-tolerance'))],
+                                     sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
+                bg = sastool.classes.SASExposure(self.settings.get_property('fileformat') % bgheader['FSN'], dirs=self.exposureselector.datadirs)
+            elif self.settings.get_property('bg-select-method') == 'next':
+                header = sastool.classes.SASHeader(exposure.header)
+                header['Title'] = self.settings.get_property('bg-name')
+                bgheader = self.exposureselector.select(header, equal=['Title'], greater=['Date'],
+                                     func=[lambda h0, h1: (abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < self.settings.get_property('bg-energy-tolerance')),
+                                           lambda h0, h1: (abs(h0['DistCalibrated'] - h1['DistCalibrated']) < self.settings.get_property('bg-dist-tolerance'))],
+                                     sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
+                bg = sastool.classes.SASExposure(self.settings.get_property('fileformat') % bgheader['FSN'], dirs=self.exposureselector.datadirs)
+            else:
+                bg = sastool.classes.SASExposure(self.settings.get_property('bg-select-method'), dirs=self.exposureselector.datadirs)
+            self.sendmsg('Found background: ' + str(bg.header))
+            bg = self.do_step1(bg)
+            exposure = exposure - bg
+            exposure.header.add_history('Subtracted background: ' + str(bg.header))
+            exposure.header['FSNempty'] = bg.header['FSN']
+            self.sendmsg('Reduction step #2 (background subtraction) on ' + str(exposure.header) + ' done.')
+        if self.settings.get_property('do-thickness'):
+            self.sendmsg('Normalizing by thickness.')
+            exposure /= exposure.header['Thickness']
+            exposure.header.add_history('Normalized by thickness.')
+        return exposure
+    def do_step3(self, exposure):
+        if exposure['Title'] == self.settings.get_property('bg-name'):
+            self.sendmsg('Skipping absolute normalization of a background measurement.')
+            return exposure
+        if self.settings.get_property('do-absint'):
+            self.sendmsg('Reduction step #3 (absolute intensity) on ' + str(exposure.header) + ' starting.')
+            if self.settings.get_property('absint-select-method') == 'nearest':
+                header = sastool.classes.SASHeader(exposure.header)
+                header['Title'] = self.settings.get_property('absint-name')
+                refheader = self.exposureselector.select(header, equal=['Title'],
+                                      func=[lambda h0, h1: abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < self.settings.get_property('absint-energy-tolerance'),
+                                            lambda h0, h1: abs(h0['DistCalibrated'] - h1['DistCalibrated']) < self.settings.get_property('absint-dist-tolerance')],
+                                      sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
+                ref = sastool.classes.SASExposure(self.settings.get_property('fileformat') % refheader['FSN'], dirs=self.exposureselector.datadirs)
+            elif self.settings.get_property('absint-select-method') == 'prev':
+                header = sastool.classes.SASHeader(exposure.header)
+                header['Title'] = self.settings.get_property('absint-name')
+                refheader = self.exposureselector.select(header, equal=['Title'], less=['Date'],
+                                      func=[lambda h0, h1: abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < self.settings.get_property('absint-energy-tolerance'),
+                                            lambda h0, h1: abs(h0['DistCalibrated'] - h1['DistCalibrated']) < self.settings.get_property('absint-dist-tolerance')],
+                                      sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
+                ref = sastool.classes.SASExposure(self.settings.get_property('fileformat') % refheader['FSN'], dirs=self.exposureselector.datadirs)
+            elif self.settings.get_property('absint-select-method') == 'next':
+                header = sastool.classes.SASHeader(exposure.header)
+                header['Title'] = self.settings.get_property('absint-name')
+                refheader = self.exposureselector.select(header, equal=['Title'], greater=['Date'],
+                                      func=[lambda h0, h1: abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < self.settings.get_property('absint-energy-tolerance'),
+                                            lambda h0, h1: abs(h0['DistCalibrated'] - h1['DistCalibrated']) < self.settings.get_property('absint-dist-tolerance')],
+                                      sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
+                ref = sastool.classes.SASExposure(self.settings.get_property('fileformat') % refheader['FSN'], dirs=self.exposureselector.datadirs)
+            else:
+                ref = sastool.classes.SASExposure(self.settings.get_property('absint-select-method'), dirs=self.exposureselector.datadirs)
+            ref = self.do_step1(ref)
+            ref = self.do_step2(ref)
+            qmin = self.settings.get_property('absint-qmin')
+            if qmin < 0:
+                qmin = None
+            qmax = self.settings.get_property('absint-qmax')
+            if qmax < 0:
+                qmax = None
+            reffile = sastool.classes.SASCurve(self.settings.get_property('absint-reffile')).trim(qmin, qmax)
+            self.sendmsg('Absolute intensity reference dataset loaded from %s; %g <= q <= %g; %d data points.' % (self.settings.get_property('absint-reffile'), reffile.q.min(), reffile.q.max(), len(reffile)))
+            self.sendmsg('Reference measurement loaded: ' + str(ref.header))
+            exposure.header.add_history('Absolute reference measurement: ' + str(ref.header))
+            exposure.header.add_history('Absolute reference dataset: ' + self.settings.get_property('absint-reffile'))
+            refq = ref.get_qrange()
+            self.sendmsg('Default q-range for reference measurement: %g <= q <= %g; %d data points.' % (refq.min(), refq.max(), len(refq)))
+            radref = ref.radial_average(reffile.q).sanitize(0, np.inf, 'Intensity')
+            self.sendmsg('Radial averaged reference measurement: %g <= q <= %g; %d data points.' % (radref.q.min(), radref.q.max(), len(radref)))
+            exposure.header.add_history('Absolute scaling interval: %g <= q <= %g; % data points.' % (radref.q.min(), radref.q.max(), len(radref)))
+            scalefactor = radref.scalefactor(reffile)
+            exposure.header.add_history('Absolute scaling factor: %s' % str(scalefactor))
+            self.sendmsg('Absolute scaling factor:' + str(scalefactor))
+            exposure = exposure * scalefactor
+            self.sendmsg('Reduction step #3 (absolute intensity) on ' + str(exposure.header) + ' done.')
+            exposure.header['FSNref1'] = ref.header['FSN']
+            exposure.header['NormFactor'] = float(scalefactor)
+            exposure.header['NormFactorRelativeError'] = scalefactor.err
+            exposure.header['Thicknessref1'] = ref.header['Thickness']
+        return exposure
     
 class DataReduction(GObject.GObject):
-    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()), }
+    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'message':(GObject.SignalFlags.RUN_FIRST, None, (long, str)),
+                    'done':(GObject.SignalFlags.RUN_FIRST, None, (long, object)), }
     __gproperties__ = {'fileformat' :(str, 'IO::File_format', '2d file format string including extension', 'crd_%05d.cbf', GObject.PARAM_READWRITE),
                        'headerformat':(str, 'IO::Header_format', 'header file format string including extension', 'crd_%05d.param', GObject.PARAM_READWRITE),
                        'datadirs': (object, 'IO::Dir*', 'search path for data to be loaded', GObject.PARAM_READWRITE),
@@ -119,19 +269,36 @@ class DataReduction(GObject.GObject):
         self.__propvalues__[prop.name] = value
     def __init__(self, *args, **kwargs):
         GObject.GObject.__init__(self)
-        self._inqueue = Queue.Queue()
-        self._kill_reduction_thread = threading.Event()
-        self._reduction_thread = threading.Thread(target=self._reduction_thread_worker)
-        self._reduction_thread.setDaemon(True)
+        self._inqueue = multiprocessing.Queue()
+        self._kill_reduction_thread = multiprocessing.Event()
+        self._msgqueue = multiprocessing.Queue()
+        self._reduction_thread = ReductionWorker(None, None, self._kill_reduction_thread, self._inqueue, self._msgqueue)
+        self._reduction_thread.daemon = True
         self._reduction_thread.start()
+        self._next_jobidx = 0L
         if args and isinstance(args[0], DataReduction):
             self.__propvalues__ = args[0].__propvalues__.copy()
         else:
             self.__propvalues__ = {}
         for k in kwargs:
             self.set_property(k, kwargs[k])
+        self._poller_sourceid = GObject.idle_add(self.poll_message_queue)
         # if self.datadirs is None:
         #    self.datadirs = ['.']
+    def __del__(self):
+        GObject.source_remove(self._poller_sourceid)
+        self._kill_reduction_thread.set()
+        self._kill_reduction_thread.join()
+    def poll_message_queue(self):
+        try:
+            jobidx, msg = self._msgqueue.get_nowait()
+        except multiprocessing.queues.Empty:
+            return True
+        if isinstance(msg, basestring):
+            self.emit('message', jobidx, msg)
+        else:
+            self.emit('done', jobidx, msg)
+        return True
     def load_state(self, cfg=os.path.expanduser('~/.config/credo/dataredrc'), keep=[]):
         cp = ConfigParser.ConfigParser()
         cp.read(cfg)
@@ -169,160 +336,8 @@ class DataReduction(GObject.GObject):
                 cp.set(sec, opt, self.get_property(prop.name))
         with open(cfg, 'w+') as f:
             cp.write(f)
-    def _reduction_thread_worker(self):
-        while not self._kill_reduction_thread.isSet():
-            try:
-                (exposure, callback, settings) = self._inqueue.get(block=True, timeout=1)
-            except Queue.Empty:
-                continue
-            es = ExpSelector(settings.get_property('headerformat'), settings.get_property('datadirs'))
-            logger.info('Data reduction of ' + str(exposure.header) + ' starting.')
-            exposure = self._reduction_step1(exposure, callback, settings)
-            exposure = self._reduction_step2(exposure, es, callback, settings)
-            exposure = self._reduction_step3(exposure, es, callback, settings)
-            callback(exposure)
-        return
-    def _reduction_step1(self, exposure, callback, settings):
-        callback('Reductions step #1 (scaling & geometry) on ' + str(exposure.header) + ' starting.')
-        if settings.get_property('do-monitor'):
-            callback('Normalizing intensities according to \'%s\'.' % settings.get_property('monitor-attr'))
-            exposure = exposure / exposure[settings.get_property('monitor-attr')]
-            exposure.header.add_history('Corrected for monitor: ' + settings.get_property('monitor-attr'))
-        if settings.get_property('do-solidangle'):
-            callback('Doing solid angle correction.')
-            exposure = exposure * sastool.utils2d.corrections.solidangle(exposure.tth, exposure['DistCalibrated'])
-            exposure.header.add_history('Corrected for solid angle.')
-        if settings.get_property('do-transmission'):
-            callback('Normalizing by transmission.')
-            exposure = exposure / sastool.misc.errorvalue.ErrorValue(exposure['Transm'], exposure['TransmError'])
-            exposure.header.add_history('Corrected for transmission')
-            if settings.get_property('transmission-selfabsorption'):
-                callback('Self-absorption correction.')
-                exposure *= sastool.utils2d.corrections.angledependentabsorption(exposure.tth, exposure['Transm'])
-                exposure.header.add_history('Corrected for angle-dependent self-absorption.')
-        callback('Reduction step #1 (scaling & geometry) on ' + str(exposure.header) + ' done.')
-        return exposure
-    def _reduction_step2(self, exposure, es, callback, settings):
-        if settings.get_property('do-bgsub'):
-            if exposure['Title'] == settings.get_property('bg-name'):
-                callback('Skipping background subtraction from background.')
-                return exposure
-            callback('Reduction step #2 (background subtraction) on ' + str(exposure.header) + ' starting.')
-            if settings.get_property('bg-select-method') == 'nearest':
-                header = sastool.classes.SASHeader(exposure.header)
-                header['Title'] = settings.get_property('bg-name')
-                bgheader = es.select(header, equal=['Title'],
-                                     func=[lambda h0, h1: (abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < settings.get_property('bg-energy-tolerance')),
-                                           lambda h0, h1: (abs(h0['DistCalibrated'] - h1['DistCalibrated']) < settings.get_property('bg-dist-tolerance'))],
-                                     sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
-                bg = sastool.classes.SASExposure(settings.get_property('fileformat') % bgheader['FSN'], dirs=es.datadirs)
-            elif settings.get_property('bg-select-method') == 'prev':
-                header = sastool.classes.SASHeader(exposure.header)
-                header['Title'] = settings.get_property('bg-name')
-                bgheader = es.select(header, equal=['Title'], less=['Date'],
-                                     func=[lambda h0, h1: (abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < settings.get_property('bg-energy-tolerance')),
-                                           lambda h0, h1: (abs(h0['DistCalibrated'] - h1['DistCalibrated']) < settings.get_property('bg-dist-tolerance'))],
-                                     sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
-                bg = sastool.classes.SASExposure(settings.get_property('fileformat') % bgheader['FSN'], dirs=es.datadirs)
-            elif settings.get_property('bg-select-method') == 'next':
-                header = sastool.classes.SASHeader(exposure.header)
-                header['Title'] = settings.get_property('bg-name')
-                bgheader = es.select(header, equal=['Title'], greater=['Date'],
-                                     func=[lambda h0, h1: (abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < settings.get_property('bg-energy-tolerance')),
-                                           lambda h0, h1: (abs(h0['DistCalibrated'] - h1['DistCalibrated']) < settings.get_property('bg-dist-tolerance'))],
-                                     sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
-                bg = sastool.classes.SASExposure(settings.get_property('fileformat') % bgheader['FSN'], dirs=es.datadirs)
-            else:
-                bg = sastool.classes.SASExposure(settings.get_property('bg-select-method'), dirs=es.datadirs)
-            callback('Found background: ' + str(bg.header))
-            bg = self._reduction_step1(bg, callback, settings)
-            exposure = exposure - bg
-            exposure.header.add_history('Subtracted background: ' + str(bg.header))
-            exposure.header['FSNempty'] = bg.header['FSN']
-            callback('Reduction step #2 (background subtraction) on ' + str(exposure.header) + ' done.')
-        if settings.get_property('do-thickness'):
-            callback('Normalizing by thickness.')
-            exposure /= exposure.header['Thickness']
-            exposure.header.add_history('Normalized by thickness.')
-        return exposure
-    def _reduction_step3(self, exposure, es, callback, settings):
-        if exposure['Title'] == settings.get_property('bg-name'):
-            callback('Skipping absolute normalization of a background measurement.')
-            return exposure
-        if settings.get_property('do-absint'):
-            callback('Reduction step #3 (absolute intensity) on ' + str(exposure.header) + ' starting.')
-            if settings.get_property('absint-select-method') == 'nearest':
-                header = sastool.classes.SASHeader(exposure.header)
-                header['Title'] = settings.get_property('absint-name')
-                refheader = es.select(header, equal=['Title'],
-                                      func=[lambda h0, h1: abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < settings.get_property('absint-energy-tolerance'),
-                                            lambda h0, h1: abs(h0['DistCalibrated'] - h1['DistCalibrated']) < settings.get_property('absint-dist-tolerance')],
-                                      sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
-                ref = sastool.classes.SASExposure(settings.get_property('fileformat') % refheader['FSN'], dirs=es.datadirs)
-            elif settings.get_property('absint-select-method') == 'prev':
-                header = sastool.classes.SASHeader(exposure.header)
-                header['Title'] = settings.get_property('absint-name')
-                refheader = es.select(header, equal=['Title'], less=['Date'],
-                                      func=[lambda h0, h1: abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < settings.get_property('absint-energy-tolerance'),
-                                            lambda h0, h1: abs(h0['DistCalibrated'] - h1['DistCalibrated']) < settings.get_property('absint-dist-tolerance')],
-                                      sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
-                ref = sastool.classes.SASExposure(settings.get_property('fileformat') % refheader['FSN'], dirs=es.datadirs)
-            elif settings.get_property('absint-select-method') == 'next':
-                header = sastool.classes.SASHeader(exposure.header)
-                header['Title'] = settings.get_property('absint-name')
-                refheader = es.select(header, equal=['Title'], greater=['Date'],
-                                      func=[lambda h0, h1: abs(h0['EnergyCalibrated'] - h1['EnergyCalibrated']) < settings.get_property('absint-energy-tolerance'),
-                                            lambda h0, h1: abs(h0['DistCalibrated'] - h1['DistCalibrated']) < settings.get_property('absint-dist-tolerance')],
-                                      sorting=lambda h0, h1:abs((h1['Date'] - h0['Date']).total_seconds()))
-                ref = sastool.classes.SASExposure(settings.get_property('fileformat') % refheader['FSN'], dirs=es.datadirs)
-            else:
-                ref = sastool.classes.SASExposure(settings.get_property('absint-select-method'), dirs=es.datadirs)
-            ref = self._reduction_step1(ref, callback, settings)
-            ref = self._reduction_step2(ref, es, callback, settings)
-            qmin = settings.get_property('absint-qmin')
-            if qmin < 0:
-                qmin = None
-            qmax = settings.get_property('absint-qmax')
-            if qmax < 0:
-                qmax = None
-            reffile = sastool.classes.SASCurve(settings.get_property('absint-reffile')).trim(qmin, qmax)
-            callback('Absolute intensity reference dataset loaded from %s; %g <= q <= %g; %d data points.' % (settings.get_property('absint-reffile'), reffile.q.min(), reffile.q.max(), len(reffile)))
-            callback('Reference measurement loaded: ' + str(ref.header))
-            exposure.header.add_history('Absolute reference measurement: ' + str(ref.header))
-            exposure.header.add_history('Absolute reference dataset: ' + settings.get_property('absint-reffile'))
-            refq = ref.get_qrange()
-            callback('Default q-range for reference measurement: %g <= q <= %g; %d data points.' % (refq.min(), refq.max(), len(refq)))
-            radref = ref.radial_average(reffile.q).sanitize(0, np.inf, 'Intensity')
-            callback('Radial averaged reference measurement: %g <= q <= %g; %d data points.' % (radref.q.min(), radref.q.max(), len(radref)))
-            exposure.header.add_history('Absolute scaling interval: %g <= q <= %g; % data points.' % (radref.q.min(), radref.q.max(), len(radref)))
-            scalefactor = radref.scalefactor(reffile)
-            exposure.header.add_history('Absolute scaling factor: %s' % str(scalefactor))
-            callback('Absolute scaling factor:' + str(scalefactor))
-            exposure = exposure * scalefactor
-            callback('Reduction step #3 (absolute intensity) on ' + str(exposure.header) + ' done.')
-            exposure.header['FSNref1'] = ref.header['FSN']
-            exposure.header['NormFactor'] = float(scalefactor)
-            exposure.header['NormFactorRelativeError'] = scalefactor.err
-            exposure.header['Thicknessref1'] = ref.header['Thickness']
-        return exposure
-    def _dummy_callback(self, msg, callback=None):
-        if isinstance(msg, basestring):
-            logger.info(msg)
-        if callback is not None:
-            callback(msg)
-    def do_reduction(self, exposure, callback=None, threaded=False):
-        if callback is None:
-            callback = self._dummy_callback
-        else:
-            callback = functools.partial(self._dummy_callback, callback=callback)
+    def do_reduction(self, exposure):
         settings = DataReductionSettings(self)
-        if not threaded:
-            es = ExpSelector(settings.get_property('headerformat'), settings.get_property('datadirs'))
-            logger.info('Data reduction of ' + str(exposure.header) + ' starting.')
-            exposure = self._reduction_step1(exposure, callback, settings)
-            exposure = self._reduction_step2(exposure, es, callback, settings)
-            exposure = self._reduction_step3(exposure, es, callback, settings)
-            return exposure
-        else:
-            self._inqueue.put((exposure, callback, settings))
-            return None
+        self._next_jobidx += 1
+        self._inqueue.put((exposure, self._next_jobidx, settings))
+        return self._next_jobidx
