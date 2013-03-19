@@ -108,7 +108,6 @@ class BeamAlignment(Gtk.Dialog):
         self.beamposlabel.set_alignment(0, 0.5)
         
         self.connect('response', self.on_response)
-        self.connect('delete-event', self.hide_on_delete)
         vb.show_all()
     def on_threshold_toggled(self, cb, entry):
         entry.set_sensitive(cb.get_active())

@@ -4,6 +4,22 @@ import collections
 import ConfigParser
 from .spec_filechoosers import ExposureLoader, FileEntryWithButton
 
+class PleaseWaitDialog(Gtk.Dialog):
+    def __init__(self, title='Data reduction running, please wait...', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+        vb = self.get_content_area()
+        self.pbar = Gtk.ProgressBar()
+        self.pbar.set_text('Working...')
+        self.label = Gtk.Label()
+        self.label.set_line_wrap(True)
+        vb.pack_start(self.pbar, False, True, 0)
+        vb.pack_start(self.label, True, True, 0)
+        vb.show_all()
+    def set_label_text(self, msg):
+        self.label.set_text(msg)
+        self.pbar.pulse()
+        
+    
 class DataRedSetup(Gtk.Dialog):
     def __init__(self, credo, title='Set-up on-line data reduction', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
@@ -167,7 +183,25 @@ class DataRedSetup(Gtk.Dialog):
         l = Gtk.Label(label='Reference dataset:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.GC_refdataset_entry = FileEntryWithButton()
+        tab.attach(self.GC_refdataset_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        row += 1
 
+        self.GC_qmin_cb = Gtk.CheckButton(label='Q min:'); self.GC_qmin_cb.set_alignment(0, 0.5)
+        tab.attach(self.GC_qmin_cb, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.GC_qmin_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 10000, 0.1, 1), digits=4)
+        tab.attach(self.GC_qmin_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.GC_qmin_cb.connect('toggled', self.on_coupled_cb_entry, self.GC_qmin_entry)
+        self.on_coupled_cb_entry(self.GC_qmin_cb, self.GC_qmin_entry)
+        row += 1
+
+        self.GC_qmax_cb = Gtk.CheckButton(label='Q max:'); self.GC_qmax_cb.set_alignment(0, 0.5)
+        tab.attach(self.GC_qmax_cb, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.GC_qmax_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 10000, 0.1, 1), digits=4)
+        tab.attach(self.GC_qmax_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.GC_qmax_cb.connect('toggled', self.on_coupled_cb_entry, self.GC_qmax_entry)
+        self.on_coupled_cb_entry(self.GC_qmax_cb, self.GC_qmax_entry)
+        row += 1
+        
         vb.show_all()
         self.from_credo()
         self.credo.datareduction.connect('changed', self.on_datareduction_changed)
@@ -193,67 +227,85 @@ class DataRedSetup(Gtk.Dialog):
             self.hide()
         return True
     def to_credo(self):
-        self.credo.datareduction.do_monitor = self.monitor_cb.get_active()
-        self.credo.datareduction.do_transmission = self.transmission_cb.get_active()
-        self.credo.datareduction.do_solidangle = self.solidangle_cb.get_active()
-        self.credo.datareduction.transmission_selfabsorption = self.angledepabs_cb.get_active()
-        self.credo.datareduction.do_bgsub = self.bgsub_cb.get_active()
-        self.credo.datareduction.do_absint = self.GCcalib_cb.get_active()
-        self.credo.datareduction.bg_name = self.bgname_entry.get_text()
-        self.credo.datareduction.bg_dist_tolerance = self.bg_disttol_entry.get_value()
-        self.credo.datareduction.bg_energy_tolerance = self.bg_energytol_entry.get_value()
+        self.credo.datareduction.set_property('do_monitor', self.monitor_cb.get_active())
+        self.credo.datareduction.set_property('do_transmission', self.transmission_cb.get_active())
+        self.credo.datareduction.set_property('do_solidangle', self.solidangle_cb.get_active())
+        self.credo.datareduction.set_property('transmission_selfabsorption', self.angledepabs_cb.get_active())
+        self.credo.datareduction.set_property('do_bgsub', self.bgsub_cb.get_active())
+        self.credo.datareduction.set_property('do_absint', self.GCcalib_cb.get_active())
+        self.credo.datareduction.set_property('bg_name', self.bgname_entry.get_text())
+        self.credo.datareduction.set_property('bg_dist_tolerance', self.bg_disttol_entry.get_value())
+        self.credo.datareduction.set_property('bg_energy_tolerance', self.bg_energytol_entry.get_value())
         if self.bgfind_combo.get_active_text() == 'Static':
-            self.credo.datareduction.bg_select_method = self.bgloader.get_filename()
+            self.credo.datareduction.set_property('bg_select_method', self.bgloader.get_filename())
         elif self.bgfind_combo.get_active_text() == 'Nearest in time':
-            self.credo.datareduction.bg_select_method = 'nearest' 
+            self.credo.datareduction.set_property('bg_select_method', 'nearest')
         elif self.bgfind_combo.get_active_text() == 'Nearest in time before':
-            self.credo.datareduction.bg_select_method = 'prev'
+            self.credo.datareduction.set_property('bg_select_method', 'prev')
         elif self.bgfind_combo.get_active_text() == 'Nearest in time after':
-            self.credo.datareduction.bg_select_method = 'next'
-        self.credo.datareduction.absint_name = self.GCname_entry.get_text()
-        self.credo.datareduction.absint_dist_tolerance = self.GC_disttol_entry.get_value()
-        self.credo.datareduction.absint_energy_tolerance = self.GC_energytol_entry.get_value()
-        self.credo.datareduction.absint_reffile = self.GC_refdataset_entry.get_path()
-        self.credo.datareduction.monitor_attr = 'MeasTime'     
+            self.credo.datareduction.set_property('bg_select_method', 'next')
+        self.credo.datareduction.set_property('absint_name', self.GCname_entry.get_text())
+        self.credo.datareduction.set_property('absint_dist_tolerance', self.GC_disttol_entry.get_value())
+        self.credo.datareduction.set_property('absint_energy_tolerance', self.GC_energytol_entry.get_value())
+        self.credo.datareduction.set_property('absint_reffile', self.GC_refdataset_entry.get_path())
+        self.credo.datareduction.set_property('monitor_attr', 'MeasTime')
         if self.GCfind_combo.get_active_text() == 'Static':
-            self.credo.datareduction.absint_select_method = self.GCloader.get_filename()
+            self.credo.datareduction.set_property('absint_select_method', self.GCloader.get_filename())
         elif self.GCfind_combo.get_active_text() == 'Nearest in time':
-            self.credo.datareduction.absint_select_method = 'nearest' 
+            self.credo.datareduction.set_property('absint_select_method', 'nearest') 
         elif self.GCfind_combo.get_active_text() == 'Nearest in time before':
-            self.credo.datareduction.absint_select_method = 'prev'
+            self.credo.datareduction.set_property('absint_select_method', 'prev')
         elif self.GCfind_combo.get_active_text() == 'Nearest in time after':
-            self.credo.datareduction.absint_select_method = 'next'
-        self.credo.datareduction.do_thickness = self.thickness_cb.get_active()
+            self.credo.datareduction.set_property('absint_select_method', 'next')
+        self.credo.datareduction.set_property('do_thickness', self.thickness_cb.get_active())
+        if self.GC_qmin_cb.get_active():
+            self.credo.datareduction.set_property('absint_qmin', self.GC_qmin_entry.get_value())
+        else:
+            self.credo.datareduction.set_property('absint_qmin', -100)
+        if self.GC_qmax_cb.get_active():
+            self.credo.datareduction.set_property('absint_qmax', self.GC_qmax_entry.get_value())
+        else:
+            self.credo.datareduction.set_property('absint_qmax', -100)
     def from_credo(self):
-        self.monitor_cb.set_active(self.credo.datareduction.do_monitor)
-        self.transmission_cb.set_active(self.credo.datareduction.do_transmission)
-        self.solidangle_cb.set_active(self.credo.datareduction.do_solidangle)
-        self.angledepabs_cb.set_active(self.credo.datareduction.transmission_selfabsorption)
-        self.bgsub_cb.set_active(self.credo.datareduction.do_bgsub)
-        self.GCcalib_cb.set_active(self.credo.datareduction.do_absint)
-        self.bgname_entry.set_text(self.credo.datareduction.bg_name)
-        self.bg_disttol_entry.set_value(self.credo.datareduction.bg_dist_tolerance)
-        self.bg_energytol_entry.set_value(self.credo.datareduction.bg_energy_tolerance)
-        if self.credo.datareduction.bg_select_method == 'nearest':
+        self.monitor_cb.set_active(self.credo.datareduction.get_property('do_monitor'))
+        self.transmission_cb.set_active(self.credo.datareduction.get_property('do_transmission'))
+        self.solidangle_cb.set_active(self.credo.datareduction.get_property('do_solidangle'))
+        self.angledepabs_cb.set_active(self.credo.datareduction.get_property('transmission_selfabsorption'))
+        self.bgsub_cb.set_active(self.credo.datareduction.get_property('do_bgsub'))
+        self.GCcalib_cb.set_active(self.credo.datareduction.get_property('do_absint'))
+        self.bgname_entry.set_text(self.credo.datareduction.get_property('bg_name'))
+        self.bg_disttol_entry.set_value(self.credo.datareduction.get_property('bg_dist_tolerance'))
+        self.bg_energytol_entry.set_value(self.credo.datareduction.get_property('bg_energy_tolerance'))
+        if self.credo.datareduction.get_property('bg_select_method') == 'nearest':
             self.bgfind_combo.set_active(1)
-        elif self.credo.datareduction.bg_select_method == 'prev':
+        elif self.credo.datareduction.get_property('bg_select_method') == 'prev':
             self.bgfind_combo.set_active(2)
-        elif self.credo.datareduction.bg_select_method == 'next':
+        elif self.credo.datareduction.get_property('bg_select_method') == 'next':
             self.bgfind_combo.set_active(3)
         else:
             self.bgfind_combo.set_active(0)
-            self.bgloader.set_filename(self.credo.datareduction.bg_select_method)
-        self.GCname_entry.set_text(self.credo.datareduction.absint_name)
-        self.GC_disttol_entry.set_value(self.credo.datareduction.absint_dist_tolerance)
-        self.GC_energytol_entry.set_value(self.credo.datareduction.absint_energy_tolerance)
-        self.GC_refdataset_entry.set_filename(self.credo.datareduction.absint_reffile)
-        if self.credo.datareduction.absint_select_method == 'nearest':
+            self.bgloader.set_filename(self.credo.datareduction.get_property('bg_select_method'))
+        self.GCname_entry.set_text(self.credo.datareduction.get_property('absint_name'))
+        self.GC_disttol_entry.set_value(self.credo.datareduction.get_property('absint_dist_tolerance'))
+        self.GC_energytol_entry.set_value(self.credo.datareduction.get_property('absint_energy_tolerance'))
+        self.GC_refdataset_entry.set_filename(self.credo.datareduction.get_property('absint_reffile'))
+        if self.credo.datareduction.get_property('absint_select_method') == 'nearest':
             self.GCfind_combo.set_active(1)
-        elif self.credo.datareduction.absint_select_method == 'prev':
+        elif self.credo.datareduction.get_property('absint_select_method') == 'prev':
             self.GCfind_combo.set_active(2)
-        elif self.credo.datareduction.absint_select_method == 'next':
+        elif self.credo.datareduction.get_property('absint_select_method') == 'next':
             self.GCfind_combo.set_active(3)
         else:
             self.GCfind_combo.set_active(0)
-            self.GCloader.set_filename(self.credo.datareduction.absint_select_method)
-        self.thickness_cb.set_active(self.credo.datareduction.do_thickness)
+            self.GCloader.set_filename(self.credo.datareduction.get_property('absint_select_method'))
+        self.thickness_cb.set_active(self.credo.datareduction.get_property('do_thickness'))
+        if self.credo.datareduction.get_property('absint_qmax') < 0:
+            self.GC_qmax_cb.set_active(False)
+        else:
+            self.GC_qmax_cb.set_active(True)
+            self.GC_qmax_entry.set_value(self.credo.datareduction.get_property('absint_qmax'))
+        if self.credo.datareduction.get_property('absint_qmin') < 0:
+            self.GC_qmin_cb.set_active(False)
+        else:
+            self.GC_qmin_cb.set_active(True)
+            self.GC_qmin_entry.set_value(self.credo.datareduction.get_property('absint_qmin'))            

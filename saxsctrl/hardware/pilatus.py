@@ -16,6 +16,7 @@ import logging
 import Queue
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class PilatusError(StandardError):
     pass
@@ -295,9 +296,9 @@ class PilatusConnection(object):
                     while chars_sent < self._mesglen:
                         chars_sent += sock.send(mesg1[chars_sent:])
                     if sock is self.socket:
-                        logging.debug('Send through RW:' + str(msgtosend))
+                        logger.debug('Send through RW:' + str(msgtosend))
                     else:
-                        logging.debug('Send through RO:' + str(msgtosend))
+                        logger.debug('Send through RO:' + str(msgtosend))
                 except socket.error:
                     self._disconnect_socket('error')
                     return
@@ -324,9 +325,9 @@ class PilatusConnection(object):
                     with self._pilatus_lock:
                         sock_is_readable = select.select([sock], [], [], 0)[0]
                 if sock is self.socket:
-                    logging.debug('Read from RW: ' + newmesg)
+                    logger.debug('Read from RW: ' + newmesg)
                 else:
-                    logging.debug('Read from RO: ' + newmesg)
+                    logger.debug('Read from RO: ' + newmesg)
 
                 # handle all nonempty messages.
                 for msg in [m for m in mesg.split('\x18') if m]:

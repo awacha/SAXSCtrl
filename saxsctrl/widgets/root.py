@@ -1,13 +1,14 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 import logging
+import logging.handlers
 import time
 import resource
 import sys
 import traceback
 
 from ..hardware import pilatus, genix, credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay
 logger = logging.getLogger('SAXSCtrl')
 
 def my_excepthook(type_, value, traceback_):
@@ -208,7 +209,16 @@ class RootWindow(Gtk.Window):
                 b = t.createbutton()
                 tab.attach(b, i % 2, i % 2 + 1, i / 2, i / 2 + 1)
         self.update_sensitivities()
-
+        
+        ex = Gtk.Expander(label='Log')
+        vb.pack_start(ex, False, True, 0)
+        
+        self.logdisplay = logdisplay.LogDisplay()
+        ex.add(self.logdisplay)
+        loghandler = logdisplay.Gtk3LogHandler(self.logdisplay)
+        loghandler.setLevel(logging.DEBUG)
+        logging.root.addHandler(loghandler)
+        loghandler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
 
         GObject.timeout_add_seconds(1, self.update_statuslabels)
     def update_statuslabels(self):

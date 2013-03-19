@@ -6,6 +6,8 @@ import re
 import os
 from .spec_filechoosers import MaskChooserDialog
 import datetime
+from .data_reduction_setup import DataRedSetup, PleaseWaitDialog
+from ..hardware.datareduction import DataReduction
 
 class DataViewer(Gtk.Dialog):
     _filechooserdialogs = None
@@ -13,6 +15,7 @@ class DataViewer(Gtk.Dialog):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
         self.credo = credo
+        self.datareduction = None
         vb = self.get_content_area()
         tab = Gtk.Table()
         vb.pack_start(tab, False, True, 0)
@@ -35,34 +38,34 @@ class DataViewer(Gtk.Dialog):
         self.fsn_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 1e6, 1, 10), digits=0)
         tab.attach(self.fsn_entry, 1, 2, row, row + 1)
         self.fsn_entry.connect('activate', self._openbutton_handler, 'selected')
+        self.fsn_entry.connect('value-changed', self._openbutton_handler, 'selected')
         hbb = Gtk.HButtonBox()
         tab.attach(hbb, 2, 3, row - 1, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         b = Gtk.Button(stock=Gtk.STOCK_GOTO_FIRST)
         hbb.add(b)
         b.connect('clicked', self._openbutton_handler, 'first')
-        b = Gtk.Button(stock=Gtk.STOCK_GO_BACK)
-        hbb.add(b)
-        b.connect('clicked', self._openbutton_handler, 'back')
         b = Gtk.Button(stock=Gtk.STOCK_OPEN)
         hbb.add(b)
         b.connect('clicked', self._openbutton_handler, 'selected')    
-        b = Gtk.Button(stock=Gtk.STOCK_GO_FORWARD)
-        hbb.add(b)
-        b.connect('clicked', self._openbutton_handler, 'forward')
         b = Gtk.Button(stock=Gtk.STOCK_GOTO_LAST)
         hbb.add(b)
         b.connect('clicked', self._openbutton_handler, 'last')
-        
+        b = Gtk.Button(label='Data reduction...')
+        hbb.add(b)
+        b.connect('clicked', self.do_data_reduction)
         row += 1
 
 
-        l = Gtk.Label(label=u'Mask file name:');l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.mask_cb = Gtk.CheckButton(label=u'Mask file name:'); self.mask_cb.set_alignment(0, 0.5)
+        tab.attach(self.mask_cb, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         hb = Gtk.HBox()
         tab.attach(hb, 1, 3, row, row + 1)
         self.mask_entry = Gtk.Entry()
         self.mask_entry.set_text(os.path.join(self.credo.maskpath, 'mask.mat'))
         hb.pack_start(self.mask_entry, True, True, 0)
+        self.mask_cb.connect('toggled', self.on_checkbox_with_entry, self.mask_entry)
+        self.on_checkbox_with_entry(self.mask_cb, self.mask_entry)
+        
         
         hbb = Gtk.HButtonBox()
         hbb.set_layout(Gtk.ButtonBoxStyle.SPREAD)
@@ -74,18 +77,61 @@ class DataViewer(Gtk.Dialog):
         b.connect('clicked', self.on_editmask)
         hbb.pack_start(b, True, True, 0)
         row += 1
-         
-
         
+        p = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(p, True, True, 0)
         self.plot2d = sasgui.PlotSASImage(after_draw_cb=self.plot2d_after_draw_cb)
-        vb.pack_start(self.plot2d, True, True, 0)
+        self.plot2d.set_size_request(200, -1)
+        p.pack1(self.plot2d, True, True)
+        self.plot1d = sasgui.PlotSASCurve()
+        self.plot1d.set_size_request(200, -1)
+        p.pack2(self.plot1d, False, True)
+        p.set_size_request(-1, 480)
         self.connect('response', self.on_response)
-        self.connect('delete-event', self.hide_on_delete)
+        # self.connect('delete-event', self.hide_on_delete)
+        
         
         vb.show_all()
+    def on_checkbox_with_entry(self, cb, entry):
+        entry.set_sensitive(cb.get_active())
     def plot2d_after_draw_cb(self, exposure, fig, axes):
         axes.set_title(str(exposure.header))
         fig.text(1, 0, self.credo.username + '@CREDO ' + str(datetime.datetime.now()), ha='right', va='bottom')
+    def on_data_reduction_callback(self, message_or_exposure):
+        if (not hasattr(self, '_pwd')) or (self._pwd is None):
+            return False
+        if isinstance(message_or_exposure, basestring):
+            self._pwd.set_label_text(message_or_exposure)
+            return False
+        self._pwd.destroy()
+        del self._pwd
+        message_or_exposure.write(os.path.join(self.credo.eval2dpath, 'crd_%05d.h5' % message_or_exposure['FSN']))
+        rad = message_or_exposure.radial_average()
+        rad.save(os.path.join(self.credo.eval1dpath, 'crd_%05d.txt' % message_or_exposure['FSN']))
+        self.plot1d.cla()
+        self.plot1d.loglog(rad)
+        self.plot2d.set_exposure(message_or_exposure)
+        return False
+    def do_data_reduction(self, button):
+        if self.plot2d.exposure is None:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Please open a file first!')
+            md.run()
+            md.destroy()
+            del md
+            return
+        exposure = self.plot2d.exposure
+        if self.datareduction is None:
+            self.datareduction = DataReduction(self.credo.datareduction)
+            self._dataredsetup = DataRedSetup(self, 'Data reduction parameters for ' + str(exposure.header), buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        self._dataredsetup.present()
+        resp = self._dataredsetup.run()
+        if resp == Gtk.ResponseType.OK:
+            self._pwd = PleaseWaitDialog()
+            def cb(msg):
+                GObject.idle_add(self.on_data_reduction_callback, msg)
+            self._pwd.show_all()
+            self.datareduction.do_reduction(self.plot2d.exposure, callback=cb, threaded=True)
+        self._dataredsetup.hide()
     def on_loadmaskbutton(self, button, entry, action):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}
@@ -107,10 +153,10 @@ class DataViewer(Gtk.Dialog):
             GObject.idle_add(self.on_open, filename)
         else:
             if mode == 'back':
-                self.fsn_entry.spin(Gtk.SPIN_STEP_BACKWARD, 1)
+                self.fsn_entry.spin(Gtk.SpinType.STEP_BACKWARD, 1)
                 self._openbutton_handler(widget, 'selected')
             elif mode == 'forward':
-                self.fsn_entry.spin(Gtk.SPIN_STEP_FORWARD, 1)
+                self.fsn_entry.spin(Gtk.SpinType.STEP_FORWARD, 1)
                 self._openbutton_handler(widget, 'selected')
             else:
                 pattern = re.compile(sastool.misc.re_from_Cformatstring_numbers(self.fileprefix_entry.get_active_text())[:-1])
@@ -135,12 +181,11 @@ class DataViewer(Gtk.Dialog):
         return True
     def on_open(self, filename):
         datadirs = self.credo.get_exploaddirs()
-        if sastool.misc.findfileindirs(self.mask_entry.get_text(), datadirs, notfound_is_fatal=False, notfound_val=None) is None:
-            loadmask = False
-        else:
-            loadmask = True
+        kwargs_to_loader = {'dirs':datadirs, 'load_mask':True}
+        if self.mask_cb.get_active() and sastool.misc.findfileindirs(self.mask_entry.get_text(), datadirs, notfound_is_fatal=False, notfound_val=None) is not None:
+            kwargs_to_loader['maskfile'] = self.mask_entry.get_text()
         try:
-            ex = sastool.classes.SASExposure(filename, dirs=datadirs, maskfile=self.mask_entry.get_text(), load_mask=loadmask)
+            ex = sastool.classes.SASExposure(filename, **kwargs_to_loader)
         except IOError as ioe:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error reading file: ' + ioe.message)
             md.run()
@@ -148,6 +193,9 @@ class DataViewer(Gtk.Dialog):
             del md
         else:
             self.plot2d.set_exposure(ex)
+            self.plot1d.cla()
+            self.plot1d.loglog(ex.radial_average())
+            self.plot1d.legend(loc='best')
         return False
     def on_editmask(self, widget):
         maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.exposure)

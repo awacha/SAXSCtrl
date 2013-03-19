@@ -68,7 +68,7 @@ class Credo(object):
         self._samples = []
         self.sample = None
         self.load_settings()
-        self.datareduction = datareduction.DataReduction(fileformat=self.fileformat, headerformat=self.fileformat.replace('.cbf', '.param'),
+        self.datareduction = datareduction.DataReduction(fileformat=self.fileformat + '.cbf', headerformat=self.fileformat + '.param',
                                                          datadirs=self.get_exploaddirs())
         self.datareduction.load_state(keep=['fileformat', 'headerformat', 'datadirs'])
         self.datareduction.save_state()

@@ -26,6 +26,7 @@ import logging
 import time
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 GENIX_IDLE = 0
 GENIX_POWERDOWN = -1

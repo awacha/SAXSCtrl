@@ -8,6 +8,7 @@ logger = logging.getLogger('singleexposure')
 from gi.repository import GObject
 import sasgui
 import datetime
+import os
 
 class SingleExposure(Gtk.Dialog):
     _filechooserdialogs = None
@@ -148,7 +149,12 @@ class SingleExposure(Gtk.Dialog):
             mask = sastool.classes.SASMask(self.maskfile_entry.get_text())
             exposure.set_mask(mask)
             if self.datareduction_cb.get_active():
-                exposure = self.credo.datareduction.do_reduction(exposure)
+                def cb(msg):
+                    while Gtk.events_pending():
+                        Gtk.main_iteration_do(True)
+                exposure = self.credo.datareduction.do_reduction(exposure, cb)
+                exposure.write(os.path.join(self.credo.eval2dpath, 'crd_%05d.h5' % exposure['FSN']))
+                exposure.radial_average().save(os.path.join(self.credo.eval1dpath, 'crd_%05d.txt' % exposure['FSN']))
             if self.plot2D_checkbutton.get_active():
                 logger.debug('plotting received image')
                 if self.reuse2D_checkbutton.get_active():
@@ -160,7 +166,7 @@ class SingleExposure(Gtk.Dialog):
                     def cbfunc(ex, fig, ax):
                         ax.set_title(str(ex.header))
                         fig.text(1, 0, self.credo.username + '@CREDO' + str(datetime.datetime.now()), ha='right', va='bottom')
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow(exposure, cbfunc)
+                    win = sasgui.plot2dsasimage.PlotSASImageWindow(exposure, after_draw_cb=cbfunc)
                     win.show_all()
             if self.plot1D_checkbutton.get_active():
                 if self.q_or_pixel_checkbutton.get_active():
