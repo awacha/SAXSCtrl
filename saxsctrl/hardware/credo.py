@@ -13,7 +13,9 @@ import time
 import logging
 import cPickle as pickle
 from gi.repository import Gio
+from gi.repository import GObject
 import ConfigParser
+import multiprocessing
 
 from . import datareduction
 from . import sample
@@ -32,10 +34,169 @@ class CBFreeze(object):
     def __exit__(self, *args):
         self.obj.thaw_callbacks(self.name)
 
-class Credo(object):
+class CredoExpose(multiprocessing.Process):
+    def __init__(self, killswitch, inqueue, outqueue , group=None, name=None):
+        multiprocessing.Process.__init__(self, group=group, name=name)
+        self.inqueue = inqueue
+        self.outqueue = outqueue
+        self.killswitch = killswitch
+    def run(self):
+        while not self.killswitch.is_set():
+            try:
+                expparams, headertemplate = self.inqueue.get(block=True, timeout=1)
+            except multiprocessing.queues.Empty:
+                continue
+        return
+    def _exposure_notifier(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn, callback=None):
+        logger.debug('Notifier thread starting. Exptime: %f; expnum: %d; dwelltime: %f; filenameformat: %s; headernameformat: %s; firstfsn: %d.' % (exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn))
+        t0 = time.time()
+        for i in range(0, expnum):
+            t1 = time.time()
+            nextend = t0 + exptime * (i + 1) + dwelltime * i + 0.005
+            logger.debug('Sleeping %f seconds' % (nextend - t1))
+            if nextend > t1:
+                res = self._exposure_user_break.wait(nextend - t1)
+            if res is True:
+                # user break occurred
+                callback(None)
+                return
+            filename = os.path.join(self.imagepath, filenameformat % (firstfsn + i))
+            try:
+                f = open(filename, 'r')
+                exists = True
+                f.close()
+            except IOError:
+                exists = False
+            while not exists:
+                logger.debug('Waiting for file: ' + filename)
+                try:
+                    f = open(filename, 'r')
+                    exists = True
+                    f.close()
+                except IOError:
+                    exists = False
+                if self._kill_exposure_notifier.isSet():
+                    logger.debug('Killing notifier thread.')
+                    if callback is not None:
+                        callback(None)
+                    return
+                time.sleep(0.01)
+            pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
+            header.update(pilatusheader)
+            header['EndDate'] = datetime.datetime.now()
+            header['GeniX_HT_end'] = self.genix.get_ht()
+            header['GeniX_Current_end'] = self.genix.get_current()
+            header.write(os.path.join(self.parampath, headernameformat % header['FSN']))
+            logger.debug('Header %s written.' % (headernameformat % header['FSN']))
+            header['FSN'] += 1
+            if callback is not None:
+                try:
+#                    callback(filename)
+                    logger.debug('Loading file.')
+                    ex = sastool.classes.SASExposure(filename, dirs=(self.parampath, self.imagepath, self.offlineimagepath))
+                except IOError as ioe:
+                    print "Tried to load file:", filename
+                    print "Folders:", (self.parampath, self.imagepath, self.offlineimagepath)
+                    print "Error text:", ioe.message
+                    callback(None)
+                else:
+                    # self._recent_exposures.append(ex)
+                    logger.debug('File loaded, calling callback.')
+                    callback(ex)
+                    del ex
+        logger.debug('Notifier thread exiting cleanly.')
+    def _exposurethread_worker(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, callback=None):
+        logger.debug('Exposure thread running.')
+        expnotifier_thread = None
+        try:
+            firstfsn = header['FSN']
+            if self.shuttercontrol:
+                self.shutter = 1
+            expstartdata = self.pilatus.expose(exptime, filenameformat % firstfsn, expnum, dwelltime)
+            self._kill_exposure_notifier.clear()
+            expnotifier_thread = threading.Thread(name='Credo_exposure_notifier',
+                                                  target=self._exposure_notifier,
+                                                  args=(header, exptime, expnum, dwelltime,
+                                                        filenameformat, headernameformat, firstfsn,
+                                                        callback))
+            expnotifier_thread.setDaemon(True)
+            expnotifier_thread.start()
+            expenddata = self.pilatus.wait_for_event('exposure_finished', (exptime + dwelltime) * expnum + 3)
+            if self.shuttercontrol:
+                self.shutter = 0
+        finally:
+            if expnotifier_thread is not None:
+                self._kill_exposure_notifier.set()
+                expnotifier_thread.join()
+            self._exposurethread = None
+        return
+    def expose(self, exptime, expnum=1, dwelltime=0.003, blocking=True, callback=None, header_template=None):
+        expparams = {'shuttercontrol':self.shuttercontrol, 'exptime':exptime, 'expnum':expnum, 'dwelltime':dwelltime}
+        
+        logger.debug('Credo.exposure running.')
+        if self._exposure_user_break is None:
+            self._exposure_user_break = threading.Event()
+        if self._exposurethread is not None:
+            logger.warning('Another exposure is running, waiting for it to end.')
+            self._exposurethread.join()
+        # self._recent_exposures = []
+        if self.sample is None:
+            raise CredoError('No sample defined.')
+        logger.debug('Getting next FSN')
+        fsn = self.get_next_fsn()
+        logger.debug('Next FSN is ' + str(fsn))
+        filename = (self.fileformat % fsn) + '.cbf'
+        if header_template is None:
+            header_template = {}
+        header_template.update(self.sample.get_header())
+        h = sastool.classes.SASHeader(header_template)
+        h['__Origin__'] = 'CREDO'
+        h['__particle__'] = 'photon'
+        h['Dist'] = self.dist - self.sample.distminus
+        h['BeamPosX'] = self.beamposx
+        h['BeamPosY'] = self.beamposy
+        h['PixelSize'] = self.pixelsize / 1000.
+        h['Wavelength'] = self.wavelength
+        h['Owner'] = self.username
+        h['GeniX_HT'] = self.genix.get_ht()
+        h['GeniX_Current'] = self.genix.get_current()
+        h['MeasTime'] = exptime
+        h['FSN'] = fsn
+        h['Project'] = self.projectname
+        h['Filter'] = self.filter
+        h['Monitor'] = h['MeasTime']
+        headernameformat = self.fileformat + '.param'
+        logger.debug('Header prepared.')
+        
+        if callback is None:
+            callback = self._default_expend_callback
+        self._exposure_user_break.clear()
+        self._exposurethread = threading.Thread(name='Credo_exposure',
+                                                target=self._exposurethread_worker,
+                                                args=(h, exptime, expnum, dwelltime,
+                                                      self.fileformat + '.cbf',
+                                                      headernameformat, callback))
+        self._exposurethread.setDaemon(True)
+        logger.debug('Launching exposure thread.')
+        self._exposurethread.start()
+        if not blocking:
+            return
+        logger.debug('Waiting for exposure thread to finish')
+        self._exposurethread.join()
+        # data = self._recent_exposures
+        # self._recent_exposures = []
+        # return tuple(data)
+        return None
+        
+class Credo(GObject.GObject):
+    __gsignals__ = {'path-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'setup-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'files-changed':(GObject.SignalFlags.RUN_FIRST, None, (str,object)),
+                    'samples-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                   }
     _exposurethread = None
-    # _recent_exposures = []
-    _callbacks = {}
     _filewatchers = None
     _fileformat = None
     _fileformat_re = None
@@ -47,6 +208,7 @@ class Credo(object):
     _exposure_user_break = None
     def __init__(self, genixhost=None, pilatushost=None, genixport=502, pilatusport=41234, imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
+        GObject.GObject.__init__(self)
         if isinstance(genixhost, genix.GenixConnection):
             self.genix = genixhost
         elif genixhost is not None:
@@ -68,18 +230,28 @@ class Credo(object):
         self._samples = []
         self.sample = None
         self.load_settings()
-        self.datareduction = datareduction.DataReduction(fileformat=self.fileformat + '.cbf', headerformat=self.fileformat + '.param',
-                                                         datadirs=self.get_exploaddirs())
-        self.datareduction.load_state(keep=['fileformat', 'headerformat', 'datadirs'])
+        self.datareduction = datareduction.DataReduction()
+        self.datareduction.load_state()
+        self.datareduction.set_property('fileformat',self.fileformat+'.cbf')
+        self.datareduction.set_property('headerformat',self.fileformat+'.param')
+        self.datareduction.set_property('datadirs',self.get_exploaddirs())
         self.datareduction.save_state()
-        self.connect_callback('setup-changed', self.save_settings)
-        self.connect_callback('path-changed', self.on_path_changed)
-        self.connect_callback('setup-changed', self._setup_filewatchers)
         self._setup_filewatchers()
         self.load_samples()
-    def on_path_changed(self, *args):
-        self.load_samples(*args)
+    def do_path_changed(self):
+        self.load_samples()
         self.datareduction.datadirs = self.get_exploaddirs()
+    def do_setup_changed(self):
+        self.save_settings()
+        self._setup_filewatchers()
+    def do_samples_changed(self):
+        pass
+    def do_sample_changed(self,sam):
+        pass
+    def do_files_changed(self):
+        pass
+    def do_shutter(self):
+        pass
     def load_settings(self):
         cp = ConfigParser.ConfigParser()
         cp.read(os.path.expanduser('~/.config/credo/credorc'))
@@ -97,7 +269,7 @@ class Credo(object):
         del cp
         self.emit('setup-changed')
         self.emit('path-changed')
-    def save_settings(self, *args):
+    def save_settings(self):
         cp = ConfigParser.ConfigParser()
         cp.read(os.path.expanduser('~/.config/credo/credorc'))
         if not cp.has_section('CREDO'):
@@ -112,7 +284,7 @@ class Credo(object):
             cp.write(f)
         del cp
         return False
-    def _setup_filewatchers(self, *args):
+    def _setup_filewatchers(self):
         if self._filewatchers is None:
             self._filewatchers = []
         for fw, cbid in self._filewatchers:
@@ -157,30 +329,6 @@ class Credo(object):
         self._callbacks[name][1] = True
     def callbacks_frozen(self, name):
         return CBFreeze(self, name)
-    def connect_callback(self, name, func, *args):
-        if name not in self._callbacks:
-            self._callbacks[name] = [[], True]
-        u = uuid.uuid1()
-        self._callbacks[name][0].append((u, func, args))
-        return u
-    def emit(self, name, *args):
-        if name not in self._callbacks:
-            return
-        if not self._callbacks[name][1]:
-            return
-        for u, func, userargs in self._callbacks[name][0]:
-            ret = func.__call__(args, userargs)
-            if bool(ret):
-                break
-    def disconnect_callback(self, name, u):
-        if name not in self._callbacks:
-            return
-        try:
-            cb_to_delete = [x for x in self._callbacks[name][0] if x[0] == u][0]
-        except IndexError:
-            raise
-        self._callbacks[name][0].remove(cb_to_delete)
-        
     def is_pilatus_connected(self):
         return self.pilatus is not None and self.pilatus.connected()
     def is_genix_connected(self):
@@ -359,93 +507,11 @@ class Credo(object):
     def killexposure(self):
         self.pilatus.stopexposure()
         self._exposure_user_break.set()
-    def _exposure_notifier(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn, callback=None):
-        logger.debug('Notifier thread starting. Exptime: %f; expnum: %d; dwelltime: %f; filenameformat: %s; headernameformat: %s; firstfsn: %d.' % (exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn))
-        t0 = time.time()
-        for i in range(0, expnum):
-            t1 = time.time()
-            nextend = t0 + exptime * (i + 1) + dwelltime * i + 0.005
-            logger.debug('Sleeping %f seconds' % (nextend - t1))
-            if nextend > t1:
-                res = self._exposure_user_break.wait(nextend - t1)
-            if res is True:
-                # user break occurred
-                callback(None)
-                return
-            filename = os.path.join(self.imagepath, filenameformat % (firstfsn + i))
-            try:
-                f = open(filename, 'r')
-                exists = True
-                f.close()
-            except IOError:
-                exists = False
-            while not exists:
-                logger.debug('Waiting for file: ' + filename)
-                try:
-                    f = open(filename, 'r')
-                    exists = True
-                    f.close()
-                except IOError:
-                    exists = False
-                if self._kill_exposure_notifier.isSet():
-                    logger.debug('Killing notifier thread.')
-                    if callback is not None:
-                        callback(None)
-                    return
-                time.sleep(0.01)
-            pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
-            header.update(pilatusheader)
-            header['EndDate'] = datetime.datetime.now()
-            header['GeniX_HT_end'] = self.genix.get_ht()
-            header['GeniX_Current_end'] = self.genix.get_current()
-            header.write(os.path.join(self.parampath, headernameformat % header['FSN']))
-            logger.debug('Header %s written.' % (headernameformat % header['FSN']))
-            header['FSN'] += 1
-            if callback is not None:
-                try:
-#                    callback(filename)
-                    logger.debug('Loading file.')
-                    ex = sastool.classes.SASExposure(filename, dirs=(self.parampath, self.imagepath, self.offlineimagepath))
-                except IOError as ioe:
-                    print "Tried to load file:", filename
-                    print "Folders:", (self.parampath, self.imagepath, self.offlineimagepath)
-                    print "Error text:", ioe.message
-                    callback(None)
-                else:
-                    # self._recent_exposures.append(ex)
-                    logger.debug('File loaded, calling callback.')
-                    callback(ex)
-                    del ex
-        logger.debug('Notifier thread exiting cleanly.')
-    def _exposurethread_worker(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, callback=None):
-        logger.debug('Exposure thread running.')
-        expnotifier_thread = None
-        try:
-            firstfsn = header['FSN']
-            if self.shuttercontrol:
-                self.shutter = 1
-            expstartdata = self.pilatus.expose(exptime, filenameformat % firstfsn, expnum, dwelltime)
-            self._kill_exposure_notifier.clear()
-            expnotifier_thread = threading.Thread(name='Credo_exposure_notifier',
-                                                  target=self._exposure_notifier,
-                                                  args=(header, exptime, expnum, dwelltime,
-                                                        filenameformat, headernameformat, firstfsn,
-                                                        callback))
-            expnotifier_thread.setDaemon(True)
-            expnotifier_thread.start()
-            expenddata = self.pilatus.wait_for_event('exposure_finished', (exptime + dwelltime) * expnum + 3)
-            if self.shuttercontrol:
-                self.shutter = 0
-        finally:
-            if expnotifier_thread is not None:
-                self._kill_exposure_notifier.set()
-                expnotifier_thread.join()
-            self._exposurethread = None
-        return
     def expose(self, exptime, expnum=1, dwelltime=0.003, blocking=True, callback=None, header_template=None):
         logger.debug('Credo.exposure running.')
+        expparams = {'shuttercontrol':self.shuttercontrol, 'exptime':exptime, 'expnum':expnum, 'dwelltime':dwelltime, 'fileformat':self.filenameformat + '.cbf', 'headernameformat':self.fileformat + '.param'}
         if self._exposure_user_break is None:
-            self._exposure_user_break = threading.Event()
+            self._exposure_user_break = multiprocessing.Event()
         if self._exposurethread is not None:
             logger.warning('Another exposure is running, waiting for it to end.')
             self._exposurethread.join()
@@ -475,19 +541,19 @@ class Credo(object):
         h['Project'] = self.projectname
         h['Filter'] = self.filter
         h['Monitor'] = h['MeasTime']
-        headernameformat = self.fileformat + '.param'
         logger.debug('Header prepared.')
         
         if callback is None:
             callback = self._default_expend_callback
         self._exposure_user_break.clear()
+        logger.debug('Queue-ing exposure.')
+        self.
         self._exposurethread = threading.Thread(name='Credo_exposure',
                                                 target=self._exposurethread_worker,
                                                 args=(h, exptime, expnum, dwelltime,
                                                       self.fileformat + '.cbf',
                                                       headernameformat, callback))
         self._exposurethread.setDaemon(True)
-        logger.debug('Launching exposure thread.')
         self._exposurethread.start()
         if not blocking:
             return
