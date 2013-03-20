@@ -258,7 +258,6 @@ class DataReduction(GObject.GObject):
     _inqueue = None
     _kill_reduction_thread = None
     def do_get_property(self, prop):
-        self.lastget = prop
         if prop.name not in self.__propvalues__:
             self.__propvalues__[prop.name] = prop.default_value
         return self.__propvalues__[prop.name]
