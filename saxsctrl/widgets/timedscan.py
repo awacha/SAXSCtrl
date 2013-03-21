@@ -44,8 +44,15 @@ class VirtualPointDetector(object):
         elif self.mode == 'barycenter_y':
             x, y = exposure.barycenter(mask=self.mask)
             return y
-            
-            
+        elif self.mode == 'sigma_x':
+            x, y = exposure.sigma(mask=self.mask)
+            return x
+        elif self.mode == 'sigma_y':
+            x, y = exposure.sigma(mask=self.mask)
+            return y
+        elif self.mode == 'sigma_tot':
+            x, y = exposure.sigma(mask=self.mask)
+            return (x ** 2 + y ** 2) ** 0.5
 
 class AddDetectorDialog(Gtk.Dialog):
     _filechooserdialogs = None
@@ -87,6 +94,9 @@ class AddDetectorDialog(Gtk.Dialog):
         self.mode_entry.append_text('mean')
         self.mode_entry.append_text('barycenter_x')
         self.mode_entry.append_text('barycenter_y')
+        self.mode_entry.append_text('sigma_x')
+        self.mode_entry.append_text('sigma_y')
+        self.mode_entry.append_text('sigma_tot')
         self.mode_entry.set_active(0)
         tab.attach(self.mode_entry, 1, 3, row, row + 1)
         row += 1
