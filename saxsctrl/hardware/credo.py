@@ -46,7 +46,7 @@ class CredoExposureNotifier(threading.Thread):
                 logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
                 is_userbreak = self.userbreakswitch.is_set()
             if is_userbreak:
-                self.outqueue.put(None)
+                self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
                 return
             filename = os.path.join(self.expparams['imagepath'], self.expparams['exposureformat'] % (self.expparams['firstfsn'] + i))
             try:
@@ -65,7 +65,7 @@ class CredoExposureNotifier(threading.Thread):
                     exists = False
                 if self.userbreakswitch.wait(0.01): 
                     logger.debug('Killing notifier thread.')
-                    self.outqueue.put(None)
+                    self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
                     return
             pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
             header.update(pilatusheader)
@@ -82,20 +82,24 @@ class CredoExposureNotifier(threading.Thread):
                 print "Tried to load file:", filename
                 print "Folders:", self.expparams['exploaddirs']
                 print "Error text:", ioe.message
-                self.outqueue.put(ioe)
+                self.outqueue.put(CredoExpose.EXPOSURE_FAIL)
             else:
                 logger.debug('File loaded, calling callback.')
                 self.outqueue.put(ex)
                 del ex
+        self.outqueue.put(CredoExpose.EXPOSURE_END)
         logger.debug('Notifier thread exiting cleanly.')
 
 class CredoExpose(multiprocessing.Process):
+    EXPOSURE_END = -1
+    EXPOSURE_FAIL = -2
+    EXPOSURE_BREAK = -3
     def __init__(self, pilatus, genix, group=None, name=None):
         multiprocessing.Process.__init__(self, group=group, name=name)
         self.inqueue = multiprocessing.Queue()
         self.outqueue = multiprocessing.Queue()
         self.killswitch = multiprocessing.Event()
-        self.isworking = multiprocessing.Lock()
+        self.isworking = multiprocessing.Semaphore(1)
         self.userbreakswitch = multiprocessing.Event()
         self.pilatus = pilatus
         self.genix = genix
@@ -135,6 +139,9 @@ class Credo(GObject.GObject):
                     'samples-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool)),
                    }
     _credo_state = None
     _exposurethread = None
@@ -185,6 +192,8 @@ class Credo(GObject.GObject):
         self.datareduction.set_property('datadirs', self.get_exploaddirs())
         self.datareduction.save_state()
         self._exposurethread = CredoExpose(self.pilatus, self.genix)
+        self._exposurethread.daemon = True
+        self._exposurethread.start()
         self._setup_filewatchers()
         self.load_settings()
         self.load_samples()
@@ -295,7 +304,6 @@ class Credo(GObject.GObject):
     def load_samples(self, *args):
         for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):
             self.add_sample(sam)
-        
         if self._samples:
             self.set_sample(self._samples[0])
         self.emit('samples-changed')
@@ -306,16 +314,6 @@ class Credo(GObject.GObject):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
         with open(os.path.expanduser('~/.config/credo/samplerc'), 'w+') as f:
             cp.write(f)
-    def freeze_callbacks(self, name):
-        if name not in self._callbacks:
-            return
-        self._callbacks[name][1] = False
-    def thaw_callbacks(self, name):
-        if name not in self._callbacks:
-            return
-        self._callbacks[name][1] = True
-    def callbacks_frozen(self, name):
-        return CBFreeze(self, name)
     def is_pilatus_connected(self):
         return self.pilatus is not None and self.pilatus.connected()
     def is_genix_connected(self):
@@ -390,22 +388,19 @@ class Credo(GObject.GObject):
     
     def killexposure(self):
         self.pilatus.stopexposure()
-        self._exposure_user_break.set()
-    def expose(self, exptime, expnum=1, dwelltime=0.003, blocking=True, callback=None, header_template=None):
+        self._exposurethread.userbreakswitch.set()
+    def expose(self, exptime, expnum=1, dwelltime=0.003, header_template=None):
         logger.debug('Credo.exposure running.')
         expparams = {'shuttercontrol':self.shuttercontrol, 'exptime':exptime, 'expnum':expnum,
                      'dwelltime':dwelltime, 'exposureformat':self.exposureformat, 'headerformat':self.headerformat,
                      'imagepath':self.imagepath, 'parampath':self.parampath, 'exploaddirs':self.get_exploaddirs()}
-        if self._exposurethread.isworking:
-            logger.warning('Another exposure is running, waiting for it to end.')
-            self._exposurethread.join()
-        # self._recent_exposures = []
+        if not self._exposurethread.isworking.get_value():
+            raise CredoError('Another exposure is running!')
         if self.sample is None:
             raise CredoError('No sample defined.')
         logger.debug('Getting next FSN')
         fsn = self.get_next_fsn()
         logger.debug('Next FSN is ' + str(fsn))
-        filename = self.exposureformat % fsn
         if header_template is None:
             header_template = {}
         header_template.update(self.sample.get_header())
@@ -427,38 +422,26 @@ class Credo(GObject.GObject):
         h['Monitor'] = h['MeasTime']
         logger.debug('Header prepared.')
         logger.debug('Queue-ing exposure.')
-        self._exposurethread = threading.Thread(name='Credo_exposure',
-                                                target=self._exposurethread_worker,
-                                                args=(h, exptime, expnum, dwelltime,
-                                                      self.fileformat + '.cbf',
-                                                      headernameformat, callback))
-        self._exposurethread.setDaemon(True)
-        self._exposurethread.start()
-        if not blocking:
-            return
-        logger.debug('Waiting for exposure thread to finish')
-        self._exposurethread.join()
-        # data = self._recent_exposures
-        # self._recent_exposures = []
-        # return tuple(data)
+        GObject.idle_add(self._check_if_exposure_finished)
+        self._exposurethread.inqueue.put(expparams, h)
         return None
-    def _default_expend_callback(self, exposure):
-        if exposure is None:
-            return
-        print "Lowest count: ", exposure.Intensity.min()
-        print "Highest count: ", exposure.Intensity.max()
-        print "Saturation limit: ", exposure['Count_cutoff']
-        sat = exposure['Count_cutoff']
-        saturated = (exposure.Intensity >= sat).sum()
-        if saturated:
-            print "SATURATION!!! Saturated pixels: ", saturated
-        fig = plt.figure()
-        exposure.plot2d()
-        fig.canvas.set_window_title((self.fileformat % exposure['FSN']) + '.cbf')
-    def is_pilatus_idle(self):
-        if self._exposurethread is not None:
+    def _check_if_exposure_finished(self):
+        try:
+            mesg = self._exposurethread.outqueue.get_nowait()
+        except multiprocessing.queues.Empty:
+            return True
+        if mesg == CredoExpose.EXPOSURE_FAIL:
+            self.emit('exposure-fail')
+            return True
+        elif mesg == CredoExpose.EXPOSURE_END:
+            self.emit('exposure-end', True)
             return False
-        return self.pilatus.camstate == 'idle'
+        elif mesg == CredoExpose.EXPOSURE_BREAK:
+            self.emit('exposure-end', False)
+            return False
+        else:
+            self.emit('exposure-done', mesg)
+            return True
     def trim_detector(self, threshold=4024, gain='midg'):
         self.pilatus.setthreshold(threshold, gain)
     def get_next_fsn(self, regex=None):

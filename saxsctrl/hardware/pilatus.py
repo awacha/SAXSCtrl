@@ -15,6 +15,7 @@ import uuid
 import logging
 import Queue
 from gi.repository import GObject
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -42,7 +43,14 @@ class Message(object):
         return self.message
     def __unicode__(self):
         return self.message
-    
+
+class PilatusCommProcess(multiprocessing.Process):
+    def __init__(self, name=None, group=None):
+        multiprocessing.Process.__init__(self, name=name, group=group)
+        
+    def run(self):
+        pass
+
 class PilatusConnection(object):
     _in_exposure = False
     _expstarted = None
