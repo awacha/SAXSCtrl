@@ -141,13 +141,12 @@ class Credo(GObject.GObject):
                     'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool)),
+                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
                    }
     _credo_state = None
     _exposurethread = None
     _filewatchers = None
     _nextfsn_cache = None
-    _exposure_user_break = None
     _samples = None
     _setup_changed_blocked = False
     _path_changed_blocked = False
@@ -244,7 +243,7 @@ class Credo(GObject.GObject):
         pass
     def load_settings(self):
         cp = ConfigParser.ConfigParser()
-        cp.read(os.path.expanduser('~/.config/credo/credorc'))
+        cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
         try:
             self._setup_changed_blocked = True
             self._path_changed_blocked = False
@@ -267,7 +266,7 @@ class Credo(GObject.GObject):
         self.emit('path-changed')
     def save_settings(self):
         cp = ConfigParser.ConfigParser()
-        cp.read(os.path.expanduser('~/.config/credo/credorc'))
+        cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
         if not cp.has_section('CREDO'):
             cp.add_section('CREDO')
         for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
@@ -276,7 +275,7 @@ class Credo(GObject.GObject):
             cp.set('CREDO', option, self.__getattribute__(attrname))
         if not os.path.exists(os.path.expanduser('~/.config/credo')):
             os.makedirs(os.path.expanduser('~/.config/credo'))
-        with open(os.path.expanduser('~/.config/credo/credorc'), 'wt') as f:
+        with open(os.path.expanduser('~/.config/credo/credo2rc'), 'wt') as f:
             cp.write(f)
         del cp
         return False
@@ -302,7 +301,7 @@ class Credo(GObject.GObject):
         if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
             self.emit('files-changed', filename, event)
     def load_samples(self, *args):
-        for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):
+        for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/sample2rc')):
             self.add_sample(sam)
         if self._samples:
             self.set_sample(self._samples[0])
@@ -312,7 +311,7 @@ class Credo(GObject.GObject):
         cp = ConfigParser.ConfigParser()
         for i, sam in enumerate(self.get_samples()):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
-        with open(os.path.expanduser('~/.config/credo/samplerc'), 'w+') as f:
+        with open(os.path.expanduser('~/.config/credo/sample2rc'), 'w+') as f:
             cp.write(f)
     def is_pilatus_connected(self):
         return self.pilatus is not None and self.pilatus.connected()

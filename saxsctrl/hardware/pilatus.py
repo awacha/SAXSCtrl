@@ -45,8 +45,56 @@ class Message(object):
         return self.message
 
 class PilatusCommProcess(multiprocessing.Process):
+    _eventnames = ['tau', 'getthreshold', 'setackint', 'expperiod', 'nimages', 'disconnect_from_camserver', 'imgmode', 'setthreshold', 'mxsettings', 'camsetup', 'exptime', 'OK', 'exposure', 'expend', 'exposure_finished', 'imgpath', 'df', 'thread']
     def __init__(self, name=None, group=None):
         multiprocessing.Process.__init__(self, name=name, group=group)
+        self.inqueue = multiprocessing.Queue()
+        self.outqueue = multiprocessing.Queue()
+        self.killswitch = multiprocessing.Event()
+        self.conditions = {}
+        for e in self._eventnames:
+            self.conditions[e] = multiprocessing.Condition(lock)
+        self.socket = None
+        self.auxsocket = None
+        self._pilatus_lock = multiprocessing.Lock()
+    def connect_to_camserver(self, host, port=41234):
+        """Connect to camserver at host:port.
+        """
+        with self._pilatus_lock:
+            if self.socket is not None:
+                raise PilatusError('Cannot connect: connection already open.')
+            try:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                ip = socket.gethostbyname(host)
+                self.socket.connect((ip, port))
+                self.auxsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.auxsocket.connect((ip, port))
+                self.host = host
+                self.port = port
+            except socket.gaierror:
+                self.socket = None
+                self.auxsocket = None
+                raise PilatusError('Cannot resolve host name.')
+            except socket.error:
+                self.socket = None
+                self.auxsocket = None
+                raise PilatusError('Cannot connect to camserver.')
+        logger.debug('Connected to server %s:%d' % (host, port))
+    def get_socket_for_send(self, message):
+        """decide if the message can be sent through the readonly socket."""
+        message = message.lower()
+        cmd = message.split()[0]
+        if cmd in ['camsetup', 'df', 'thread']:
+            return self.auxsocket
+        elif cmd in ['exit', 'exposure', 'k', 'fillpix', 'resetcam', 'calibrate', 'expend', 'setthreshold', 'tau']:
+            return self.socket
+        elif cmd in ['setackint', 'exptime', 'nimages', 'expperiod', 'imgpath', 'setthreshold', 'imgmode', 'mxsettings']:
+            if len(message.split()) > 1:
+                return self.socket
+            else:
+                return self.auxsocket
+        else:
+            return self.socket
         
     def run(self):
         pass
@@ -91,48 +139,6 @@ class PilatusConnection(object):
         """Return if connected to camserver"""
         with self._pilatus_lock:
             return self.socket is not None
-    def connect(self, host, port=41234):
-        """Connect to camserver at host:port.
-        """
-        with self._pilatus_lock:
-            if self.socket is not None:
-                raise PilatusError('Cannot connect: connection already open.')
-            try:
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                ip = socket.gethostbyname(host)
-                self.socket.connect((ip, port))
-                self.auxsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.auxsocket.connect((ip, port))
-                self._commthread = threading.Thread(name='Pilatus_receive', target=self._comm_worker)
-                self._commthread.setDaemon(True)
-                self._kill_commthread = threading.Event()
-                self.host = host
-                self.port = port
-                self._commthread.start()
-            except socket.gaierror:
-                self.socket = None
-                self.auxsocket = None
-                raise PilatusError('Cannot resolve host name.')
-            except socket.error:
-                self.socket = None
-                self.auxsocket = None
-                raise PilatusError('Cannot connect to camserver.')
-        logger.debug('Connected to server %s:%d' % (host, port))
-    def _get_socket_for_send(self, message):
-        """decide if the message can be sent through the readonly socket."""
-        message = message.lower()
-        cmd = message.split()[0]
-        if cmd in ['camsetup', 'df', 'thread']:
-            return self.auxsocket
-        elif cmd in ['exit', 'exposure', 'k', 'fillpix', 'resetcam', 'calibrate', 'expend', 'setthreshold', 'tau']:
-            return self.socket
-        elif cmd in ['setackint', 'exptime', 'nimages', 'expperiod', 'imgpath', 'setthreshold', 'imgmode', 'mxsettings']:
-            if len(message.split()) > 1:
-                return self.socket
-            else:
-                return self.auxsocket
-        else:
-            return self.socket
     def _interpret_message(self, contextnumber, status, message):
         """Interpret the received message"""
         message = message.strip()
