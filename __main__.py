@@ -46,7 +46,8 @@ class ELOG_Handler(logging.Handler):
         p = subprocess.Popen(cmdline, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         results = p.communicate(message)
         if not results[0].startswith('Message successfully'):
-            raise LogException('Error transmitting message: ' + results[0])
+            print "Error transmitting message: " + results[0]
+            # raise LogException('Error transmitting message: ' + results[0])
         del p
         # print "Emitted message: ", message
         # print "Command line:", cmdline

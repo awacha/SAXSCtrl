@@ -13,7 +13,9 @@ import time
 import logging
 import cPickle as pickle
 from gi.repository import Gio
+from gi.repository import GObject
 import ConfigParser
+import multiprocessing
 
 from . import datareduction
 from . import sample
@@ -23,30 +25,148 @@ logger = logging.getLogger('credo')
 class CredoError(Exception):
     pass
 
-class CBFreeze(object):
-    def __init__(self, obj, name):
-        self.obj = obj
-        self.name = name
-    def __enter__(self):
-        self.obj.freeze_callbacks(self.name)
-    def __exit__(self, *args):
-        self.obj.thaw_callbacks(self.name)
+class CredoExposureNotifier(threading.Thread):
+    def __init__(self, expparams, headertemplate, outqueue, userbreak, name=None, group=None):
+        threading.Thread.__init__(name=name, group=group)
+        self.headertemplate = headertemplate
+        self.expparams = expparams
+        self.outqueue = outqueue
+        self.userbreakswitch = userbreak
+    def run(self):
+        self.expparams['firstfsn'] = self.headertemplate['FSN']
+        logger.debug('Notifier thread starting. Exptime: %(exptime)f; expnum: %(expnum)d; dwelltime: %(dwelltime)f; filenameformat: %(exposureformat)s; headernameformat: %(headerformat)s; firstfsn: %(firstfsn)d.' % self.expparams)
+        t0 = time.time()
+        for i in range(0, self.expparams['expnum']):
+            t1 = time.time()
+            nextend = t0 + self.expparams['exptime'] * (i + 1) + self.expparams['dwelltime'] * i + 0.005
+            if nextend > t1:
+                logger.debug('Sleeping %f seconds' % (nextend - t1))
+                is_userbreak = self.userbreakswitch.wait(nextend - t1)
+            else:
+                logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
+                is_userbreak = self.userbreakswitch.is_set()
+            if is_userbreak:
+                self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
+                return
+            filename = os.path.join(self.expparams['imagepath'], self.expparams['exposureformat'] % (self.expparams['firstfsn'] + i))
+            try:
+                f = open(filename, 'r')
+                exists = True
+                f.close()
+            except IOError:
+                exists = False
+            while not exists:
+                logger.debug('Waiting for file: ' + filename)
+                try:
+                    f = open(filename, 'r')
+                    exists = True
+                    f.close()
+                except IOError:
+                    exists = False
+                if self.userbreakswitch.wait(0.01): 
+                    logger.debug('Killing notifier thread.')
+                    self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
+                    return
+            pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
+            header.update(pilatusheader)
+            header['EndDate'] = datetime.datetime.now()
+            header['GeniX_HT_end'] = self.genix.get_ht()
+            header['GeniX_Current_end'] = self.genix.get_current()
+            header.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % header['FSN']))
+            logger.debug('Header %s written.' % (self.expparams['headerformat'] % header['FSN']))
+            header['FSN'] += 1
+            try:
+                logger.debug('Loading file.')
+                ex = sastool.classes.SASExposure(filename, dirs=self.expparams['exploaddirs'])
+            except IOError as ioe:
+                print "Tried to load file:", filename
+                print "Folders:", self.expparams['exploaddirs']
+                print "Error text:", ioe.message
+                self.outqueue.put(CredoExpose.EXPOSURE_FAIL)
+            else:
+                logger.debug('File loaded, calling callback.')
+                self.outqueue.put(ex)
+                del ex
+        self.outqueue.put(CredoExpose.EXPOSURE_END)
+        logger.debug('Notifier thread exiting cleanly.')
 
-class Credo(object):
+class CredoExpose(multiprocessing.Process):
+    EXPOSURE_END = -1
+    EXPOSURE_FAIL = -2
+    EXPOSURE_BREAK = -3
+    def __init__(self, pilatus, genix, group=None, name=None):
+        multiprocessing.Process.__init__(self, group=group, name=name)
+        self.inqueue = multiprocessing.Queue()
+        self.outqueue = multiprocessing.Queue()
+        self.killswitch = multiprocessing.Event()
+        self.isworking = multiprocessing.Semaphore(1)
+        self.userbreakswitch = multiprocessing.Event()
+        self.pilatus = pilatus
+        self.genix = genix
+        self.notifierthread = None
+        
+    def run(self):
+        while not self.killswitch.is_set():
+            try:
+                expparams, headertemplate = self.inqueue.get(block=True, timeout=1)
+            except multiprocessing.queues.Empty:
+                continue
+            with self.isworking:
+                logger.info('Starting exposure.')
+                self.notifierthread = CredoExposureNotifier(expparams, headertemplate, self.outqueue, self.userbreakswitch)
+                self.notifierthread.daemon = True
+                try:
+                    firstfsn = header['FSN']
+                    if expparams['shuttercontrol']:
+                        self.genix.shutter_open()
+                    self.userbreakswitch.clear()
+                    expstartdata = self.pilatus.expose(expparams['exptime'], expparams['exposureformat'] % firstfsn, expparams['expnum'], expparams['dwelltime'])
+                    self.notifierthread.start()
+                    expenddata = self.pilatus.wait_for_event('exposure_finished', (exptime + dwelltime) * expnum + 3)
+                    if expparams['shuttercontrol']:
+                        self.genix.shutter_close()
+                finally:
+                    self.notifierthread.userbreakswitch.set()
+                    self.notifierthread.join()
+                    self.notifierthread = None
+        return
+                            
+        
+class Credo(GObject.GObject):
+    __gsignals__ = {'path-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'setup-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'files-changed':(GObject.SignalFlags.RUN_FIRST, None, (str, object)),
+                    'samples-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
+                   }
+    _credo_state = None
     _exposurethread = None
-    # _recent_exposures = []
-    _callbacks = {}
     _filewatchers = None
-    _fileformat = None
-    _fileformat_re = None
     _nextfsn_cache = None
-    _username = 'Anonymous'
-    _projectname = 'No project'
-    _pixelsize = 172
-    _dist = 1000
-    _exposure_user_break = None
+    _samples = None
+    _setup_changed_blocked = False
+    _path_changed_blocked = False
+    filebegin = GObject.property(type=str, default='crd')
+    fsndigits = GObject.property(type=int, default=5, minimum=1, maximum=100)
+    username = GObject.property(type=str, default='Anonymous')
+    projectname = GObject.property(type=str, default='No project')
+    pixelsize = GObject.property(type=float, default=172, minimum=0)
+    dist = GObject.property(type=float, default=1000, minimum=0)
+    filter = GObject.property(type=str, default='No filter')
+    beamposx = GObject.property(type=float, default=348.38)
+    beamposy = GObject.property(type=float, default=242.47)
+    filepath = GObject.property(type=str, default=os.path.expanduser('~/credo_data/current'))
+    imagepath = GObject.property(type=str, default='/net/pilatus300k.saxs/disk2/images')
+    wavelength = GObject.property(type=float, default=1.54182, minimum=0)
+    shuttercontrol = GObject.property(type=bool, default=True)
     def __init__(self, genixhost=None, pilatushost=None, genixport=502, pilatusport=41234, imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
+        GObject.GObject.__init__(self)
+        self._credo_state = {}
         if isinstance(genixhost, genix.GenixConnection):
             self.genix = genixhost
         elif genixhost is not None:
@@ -55,64 +175,111 @@ class Credo(object):
             self.pilatus = pilatushost
         elif pilatushost is not None:
             self.pilatus = pilatus.PilatusConnection(pilatushost, pilatusport)
-        self._filepath = filepath
-        self._imagepath = imagepath
-        self.set_fileformat(filebegin, digitsinfsn)
-        self._beamposx = 348.38
-        self._beamposy = 242.47
-        self._wavelength = 1.54182
-        self._filter = 'No filter'
-        self._shuttercontrol = True
-        self._callbacks = {}
-        self._kill_exposure_notifier = threading.Event()
+        self.do_fileformatchange()
+        self.connect('notify::filebegin', self.do_fileformatchange)
+        self.connect('notify::fsndigits', self.do_fileformatchange)
+        for name in ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol']:
+            self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
+        for name in ['filepath', 'imagepath']:
+            self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
         self._samples = []
         self.sample = None
-        self.load_settings()
-        self.datareduction = datareduction.DataReduction(fileformat=self.fileformat + '.cbf', headerformat=self.fileformat + '.param',
-                                                         datadirs=self.get_exploaddirs())
-        self.datareduction.load_state(keep=['fileformat', 'headerformat', 'datadirs'])
+        self.datareduction = datareduction.DataReduction()
+        self.datareduction.load_state()
+        self.datareduction.set_property('fileformat', self.fileformat + '.cbf')
+        self.datareduction.set_property('headerformat', self.fileformat + '.param')
+        self.datareduction.set_property('datadirs', self.get_exploaddirs())
         self.datareduction.save_state()
-        self.connect_callback('setup-changed', self.save_settings)
-        self.connect_callback('path-changed', self.on_path_changed)
-        self.connect_callback('setup-changed', self._setup_filewatchers)
+        self._exposurethread = CredoExpose(self.pilatus, self.genix)
+        self._exposurethread.daemon = True
+        self._exposurethread.start()
         self._setup_filewatchers()
+        self.load_settings()
         self.load_samples()
-    def on_path_changed(self, *args):
-        self.load_samples(*args)
+    def do_fileformatchange(self, crd=None, param=None):
+        ff = self.filebegin + '_' + '%%0%dd' % self.fsndigits
+        ff_re = re.compile(self.filebegin + '_' + '(\d{%d,%d})' % (self.fsndigits, self.fsndigits))
+        if ('fileformat' not in self._credo_state or self._credo_state['fileformat'] != ff) or ('fileformat_re' not in self._credo_state or self._credo_state['fileformat_re'] != ff_re):
+            self._credo_state['fileformat'] = ff
+            self._credo_state['fileformat_re'] = ff_re
+            self.emit('setup-changed')
+    @GObject.property
+    def fileformat(self):
+        return self._credo_state['fileformat']
+    @GObject.property
+    def fileformat_re(self):
+        return self._credo_state['fileformat_re']
+    @GObject.property
+    def headerformat(self):
+        return self._credo_state['fileformat'] + '.param'
+    @GObject.property
+    def exposureformat(self):
+        return self._credo_state['fileformat'] + '.cbf'
+    @GObject.property
+    def headerformat_re(self):
+        return re.compile(self._credo_state['fileformat_re'].pattern + '\.param')
+    @GObject.property
+    def exposureformat_re(self):
+        return re.compile(self._credo_state['fileformat_re'].pattern + '\.cbf')
+    def do_path_changed(self):
+        if self._path_changed_blocked:
+            self.stop_emission('path-changed')
+            return True
+        self.load_samples()
         self.datareduction.datadirs = self.get_exploaddirs()
+    def do_setup_changed(self):
+        if self._setup_changed_blocked:
+            self.stop_emission('setup-changed')
+            return True
+        self.save_settings()
+        self._setup_filewatchers()
+    def do_samples_changed(self):
+        pass
+    def do_sample_changed(self, sam):
+        pass
+    def do_files_changed(self, filename, event):
+        pass
+    def do_shutter(self):
+        pass
     def load_settings(self):
         cp = ConfigParser.ConfigParser()
-        cp.read(os.path.expanduser('~/.config/credo/credorc'))
-        for attrname, option in [('_username', 'User'), ('_projectname', 'Project'), ('_filepath', 'File_path'), ('_imagepath', 'Image_path'),
-                                ('_filter', 'Filter')]:
-            if cp.has_option('CREDO', option):
-                self.__setattr__(attrname, cp.get('CREDO', option))
-        for attrname, option in [('_dist', 'Distance'), ('_pixelsize', 'Pixel_size'), ('_beamposx', 'Beam_X'), ('_beamposy', 'Beam_Y'),
-                                ('_wavelength', 'Wavelength')]:
-            if cp.has_option('CREDO', option):
-                self.__setattr__(attrname, cp.getfloat('CREDO', option))
-        for attrname, option in [('_shuttercontrol', 'Shutter_control')]:
-            if cp.has_option('CREDO', option):
-                self.__setattr__(attrname, cp.getboolean('CREDO', option))
+        cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
+        try:
+            self._setup_changed_blocked = True
+            self._path_changed_blocked = False
+            for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
+                                    ('filter', 'Filter')]:
+                if cp.has_option('CREDO', option):
+                    self.__setattr__(attrname, cp.get('CREDO', option))
+            for attrname, option in [('dist', 'Distance'), ('pixelsize', 'Pixel_size'), ('beamposx', 'Beam_X'), ('beamposy', 'Beam_Y'),
+                                    ('wavelength', 'Wavelength')]:
+                if cp.has_option('CREDO', option):
+                    self.__setattr__(attrname, cp.getfloat('CREDO', option))
+            for attrname, option in [('shuttercontrol', 'Shutter_control')]:
+                if cp.has_option('CREDO', option):
+                    self.__setattr__(attrname, cp.getboolean('CREDO', option))
+        finally:
+            self._setup_changed_blocked = False
+            self._path_changed_blocked = False
         del cp
         self.emit('setup-changed')
         self.emit('path-changed')
-    def save_settings(self, *args):
+    def save_settings(self):
         cp = ConfigParser.ConfigParser()
-        cp.read(os.path.expanduser('~/.config/credo/credorc'))
+        cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
         if not cp.has_section('CREDO'):
             cp.add_section('CREDO')
-        for attrname, option in [('_username', 'User'), ('_projectname', 'Project'), ('_filepath', 'File_path'), ('_imagepath', 'Image_path'),
-                                ('_filter', 'Filter'), ('_dist', 'Distance'), ('_pixelsize', 'Pixel_size'), ('_beamposx', 'Beam_X'), ('_beamposy', 'Beam_Y'),
-                                ('_wavelength', 'Wavelength'), ('_shuttercontrol', 'Shutter_control')]:
+        for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
+                                ('filter', 'Filter'), ('dist', 'Distance'), ('pixelsize', 'Pixel_size'), ('beamposx', 'Beam_X'), ('beamposy', 'Beam_Y'),
+                                ('wavelength', 'Wavelength'), ('shuttercontrol', 'Shutter_control')]:
             cp.set('CREDO', option, self.__getattribute__(attrname))
         if not os.path.exists(os.path.expanduser('~/.config/credo')):
             os.makedirs(os.path.expanduser('~/.config/credo'))
-        with open(os.path.expanduser('~/.config/credo/credorc'), 'wt') as f:
+        with open(os.path.expanduser('~/.config/credo/credo2rc'), 'wt') as f:
             cp.write(f)
         del cp
         return False
-    def _setup_filewatchers(self, *args):
+    def _setup_filewatchers(self):
         if self._filewatchers is None:
             self._filewatchers = []
         for fw, cbid in self._filewatchers:
@@ -134,9 +301,8 @@ class Credo(object):
         if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
             self.emit('files-changed', filename, event)
     def load_samples(self, *args):
-        for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):
+        for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/sample2rc')):
             self.add_sample(sam)
-        
         if self._samples:
             self.set_sample(self._samples[0])
         self.emit('samples-changed')
@@ -145,42 +311,8 @@ class Credo(object):
         cp = ConfigParser.ConfigParser()
         for i, sam in enumerate(self.get_samples()):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
-        with open(os.path.expanduser('~/.config/credo/samplerc'), 'w+') as f:
+        with open(os.path.expanduser('~/.config/credo/sample2rc'), 'w+') as f:
             cp.write(f)
-    def freeze_callbacks(self, name):
-        if name not in self._callbacks:
-            return
-        self._callbacks[name][1] = False
-    def thaw_callbacks(self, name):
-        if name not in self._callbacks:
-            return
-        self._callbacks[name][1] = True
-    def callbacks_frozen(self, name):
-        return CBFreeze(self, name)
-    def connect_callback(self, name, func, *args):
-        if name not in self._callbacks:
-            self._callbacks[name] = [[], True]
-        u = uuid.uuid1()
-        self._callbacks[name][0].append((u, func, args))
-        return u
-    def emit(self, name, *args):
-        if name not in self._callbacks:
-            return
-        if not self._callbacks[name][1]:
-            return
-        for u, func, userargs in self._callbacks[name][0]:
-            ret = func.__call__(args, userargs)
-            if bool(ret):
-                break
-    def disconnect_callback(self, name, u):
-        if name not in self._callbacks:
-            return
-        try:
-            cb_to_delete = [x for x in self._callbacks[name][0] if x[0] == u][0]
-        except IndexError:
-            raise
-        self._callbacks[name][0].remove(cb_to_delete)
-        
     def is_pilatus_connected(self):
         return self.pilatus is not None and self.pilatus.connected()
     def is_genix_connected(self):
@@ -228,234 +360,46 @@ class Credo(object):
         self.emit('samples-changed')
     def get_exploaddirs(self):
         return [self.imagepath, self.offlineimagepath, self.eval1dpath, self.eval2dpath, self.parampath, self.maskpath]
-    @property
-    def filter(self):
-        return self._filter
-    @filter.setter
-    def filter(self, value):
-        if self._filter != value:
-            self._filter = value
-            self.emit('setup-changed')
-    @property
-    def pixelsize(self):
-        return self._pixelsize
-    @pixelsize.setter
-    def pixelsize(self, value):
-        if self._pixelsize != value:
-            self._pixelsize = value
-            self.emit('setup-changed')
-    @property
+    @GObject.property
     def configpath(self):
         return self._get_subpath('config')
-    @property
+    @GObject.property
     def moviepath(self):
         return self._get_subpath('movie')
-    @property
+    @GObject.property
     def parampath(self):
         return self._get_subpath('param')
-    @property
+    @GObject.property
     def maskpath(self):
         return self._get_subpath('mask')
-    @property
+    @GObject.property
     def scanpath(self):
         return self._get_subpath('scan')
-    @property
+    @GObject.property
     def eval2dpath(self):
         return self._get_subpath('eval2d')
-    @property
+    @GObject.property
     def offlineimagepath(self):
         return self._get_subpath('images')
-    @property
+    @GObject.property
     def eval1dpath(self):
         return self._get_subpath('eval1d')
     
-    @property
-    def filepath(self):
-        return self._filepath
-    @filepath.setter
-    def filepath(self, value):
-        if self._filepath != value:
-            self._filepath = value
-            self.emit('path-changed')
-    @property
-    def imagepath(self):
-        return self._imagepath
-    @imagepath.setter
-    def imagepath(self, value):
-        if self._imagepath != value:
-            self._imagepath = value
-            self.emit('path-changed')
-    @property
-    def username(self):
-        return self._username
-    @username.setter
-    def username(self, value):
-        if self._username != value:
-            self._username = value
-            self.emit('setup-changed')
-    @property
-    def projectname(self):
-        return self._projectname
-    @projectname.setter
-    def projectname(self, value):
-        if self._projectname != value:
-            self._projectname = value
-            self.emit('setup-changed')
-    @property
-    def fileformat(self):
-        return self._fileformat
-    @property
-    def fileformat_re(self):
-        return self._fileformat_re
-    @property
-    def shutter(self):
-        return self.genix.shutter_state()
-    @shutter.setter
-    def shutter(self, val):
-        if bool(val):
-            self.genix.shutter_open()
-        else:
-            self.genix.shutter_close()
-        self.emit('shutter')
-    @property
-    def wavelength(self):
-        return self._wavelength
-    @wavelength.setter
-    def wavelength(self, value):
-        if self._wavelength != value:
-            self._wavelength = value
-            self.emit('setup-changed')
-    @property
-    def beamposx(self):
-        return self._beamposx
-    @beamposx.setter
-    def beamposx(self, value):
-        if self._beamposx != value:
-            self._beamposx = value
-            self.emit('setup-changed')
-    @property
-    def beamposy(self):
-        return self._beamposy
-    @beamposy.setter
-    def beamposy(self, value):
-        if self._beamposy != value:
-            self._beamposy = value
-            self.emit('setup-changed')
-    @property
-    def dist(self):
-        return self._dist
-    @dist.setter
-    def dist(self, value):
-        if self._dist != value:
-            self._dist = value
-            self.emit('setup-changed')
-    @property
-    def shuttercontrol(self):
-        return self._shuttercontrol
-    @shuttercontrol.setter
-    def shuttercontrol(self, value):
-        self._shuttercontrol = bool(value)
-        self.emit('setup-changed')
     def killexposure(self):
         self.pilatus.stopexposure()
-        self._exposure_user_break.set()
-    def _exposure_notifier(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn, callback=None):
-        logger.debug('Notifier thread starting. Exptime: %f; expnum: %d; dwelltime: %f; filenameformat: %s; headernameformat: %s; firstfsn: %d.' % (exptime, expnum, dwelltime, filenameformat, headernameformat, firstfsn))
-        t0 = time.time()
-        for i in range(0, expnum):
-            t1 = time.time()
-            nextend = t0 + exptime * (i + 1) + dwelltime * i + 0.005
-            logger.debug('Sleeping %f seconds' % (nextend - t1))
-            if nextend > t1:
-                res = self._exposure_user_break.wait(nextend - t1)
-            if res is True:
-                # user break occurred
-                callback(None)
-                return
-            filename = os.path.join(self.imagepath, filenameformat % (firstfsn + i))
-            try:
-                f = open(filename, 'r')
-                exists = True
-                f.close()
-            except IOError:
-                exists = False
-            while not exists:
-                logger.debug('Waiting for file: ' + filename)
-                try:
-                    f = open(filename, 'r')
-                    exists = True
-                    f.close()
-                except IOError:
-                    exists = False
-                if self._kill_exposure_notifier.isSet():
-                    logger.debug('Killing notifier thread.')
-                    if callback is not None:
-                        callback(None)
-                    return
-                time.sleep(0.01)
-            pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
-            header.update(pilatusheader)
-            header['EndDate'] = datetime.datetime.now()
-            header['GeniX_HT_end'] = self.genix.get_ht()
-            header['GeniX_Current_end'] = self.genix.get_current()
-            header.write(os.path.join(self.parampath, headernameformat % header['FSN']))
-            logger.debug('Header %s written.' % (headernameformat % header['FSN']))
-            header['FSN'] += 1
-            if callback is not None:
-                try:
-#                    callback(filename)
-                    logger.debug('Loading file.')
-                    ex = sastool.classes.SASExposure(filename, dirs=(self.parampath, self.imagepath, self.offlineimagepath))
-                except IOError as ioe:
-                    print "Tried to load file:", filename
-                    print "Folders:", (self.parampath, self.imagepath, self.offlineimagepath)
-                    print "Error text:", ioe.message
-                    callback(None)
-                else:
-                    # self._recent_exposures.append(ex)
-                    logger.debug('File loaded, calling callback.')
-                    callback(ex)
-                    del ex
-        logger.debug('Notifier thread exiting cleanly.')
-    def _exposurethread_worker(self, header, exptime, expnum, dwelltime, filenameformat, headernameformat, callback=None):
-        logger.debug('Exposure thread running.')
-        expnotifier_thread = None
-        try:
-            firstfsn = header['FSN']
-            if self.shuttercontrol:
-                self.shutter = 1
-            expstartdata = self.pilatus.expose(exptime, filenameformat % firstfsn, expnum, dwelltime)
-            self._kill_exposure_notifier.clear()
-            expnotifier_thread = threading.Thread(name='Credo_exposure_notifier',
-                                                  target=self._exposure_notifier,
-                                                  args=(header, exptime, expnum, dwelltime,
-                                                        filenameformat, headernameformat, firstfsn,
-                                                        callback))
-            expnotifier_thread.setDaemon(True)
-            expnotifier_thread.start()
-            expenddata = self.pilatus.wait_for_event('exposure_finished', (exptime + dwelltime) * expnum + 3)
-            if self.shuttercontrol:
-                self.shutter = 0
-        finally:
-            if expnotifier_thread is not None:
-                self._kill_exposure_notifier.set()
-                expnotifier_thread.join()
-            self._exposurethread = None
-        return
-    def expose(self, exptime, expnum=1, dwelltime=0.003, blocking=True, callback=None, header_template=None):
+        self._exposurethread.userbreakswitch.set()
+    def expose(self, exptime, expnum=1, dwelltime=0.003, header_template=None):
         logger.debug('Credo.exposure running.')
-        if self._exposure_user_break is None:
-            self._exposure_user_break = threading.Event()
-        if self._exposurethread is not None:
-            logger.warning('Another exposure is running, waiting for it to end.')
-            self._exposurethread.join()
-        # self._recent_exposures = []
+        expparams = {'shuttercontrol':self.shuttercontrol, 'exptime':exptime, 'expnum':expnum,
+                     'dwelltime':dwelltime, 'exposureformat':self.exposureformat, 'headerformat':self.headerformat,
+                     'imagepath':self.imagepath, 'parampath':self.parampath, 'exploaddirs':self.get_exploaddirs()}
+        if not self._exposurethread.isworking.get_value():
+            raise CredoError('Another exposure is running!')
         if self.sample is None:
             raise CredoError('No sample defined.')
         logger.debug('Getting next FSN')
         fsn = self.get_next_fsn()
         logger.debug('Next FSN is ' + str(fsn))
-        filename = (self.fileformat % fsn) + '.cbf'
         if header_template is None:
             header_template = {}
         header_template.update(self.sample.get_header())
@@ -475,45 +419,28 @@ class Credo(object):
         h['Project'] = self.projectname
         h['Filter'] = self.filter
         h['Monitor'] = h['MeasTime']
-        headernameformat = self.fileformat + '.param'
         logger.debug('Header prepared.')
-        
-        if callback is None:
-            callback = self._default_expend_callback
-        self._exposure_user_break.clear()
-        self._exposurethread = threading.Thread(name='Credo_exposure',
-                                                target=self._exposurethread_worker,
-                                                args=(h, exptime, expnum, dwelltime,
-                                                      self.fileformat + '.cbf',
-                                                      headernameformat, callback))
-        self._exposurethread.setDaemon(True)
-        logger.debug('Launching exposure thread.')
-        self._exposurethread.start()
-        if not blocking:
-            return
-        logger.debug('Waiting for exposure thread to finish')
-        self._exposurethread.join()
-        # data = self._recent_exposures
-        # self._recent_exposures = []
-        # return tuple(data)
+        logger.debug('Queue-ing exposure.')
+        GObject.idle_add(self._check_if_exposure_finished)
+        self._exposurethread.inqueue.put(expparams, h)
         return None
-    def _default_expend_callback(self, exposure):
-        if exposure is None:
-            return
-        print "Lowest count: ", exposure.Intensity.min()
-        print "Highest count: ", exposure.Intensity.max()
-        print "Saturation limit: ", exposure['Count_cutoff']
-        sat = exposure['Count_cutoff']
-        saturated = (exposure.Intensity >= sat).sum()
-        if saturated:
-            print "SATURATION!!! Saturated pixels: ", saturated
-        fig = plt.figure()
-        exposure.plot2d()
-        fig.canvas.set_window_title((self.fileformat % exposure['FSN']) + '.cbf')
-    def is_pilatus_idle(self):
-        if self._exposurethread is not None:
+    def _check_if_exposure_finished(self):
+        try:
+            mesg = self._exposurethread.outqueue.get_nowait()
+        except multiprocessing.queues.Empty:
+            return True
+        if mesg == CredoExpose.EXPOSURE_FAIL:
+            self.emit('exposure-fail')
+            return True
+        elif mesg == CredoExpose.EXPOSURE_END:
+            self.emit('exposure-end', True)
             return False
-        return self.pilatus.camstate == 'idle'
+        elif mesg == CredoExpose.EXPOSURE_BREAK:
+            self.emit('exposure-end', False)
+            return False
+        else:
+            self.emit('exposure-done', mesg)
+            return True
     def trim_detector(self, threshold=4024, gain='midg'):
         self.pilatus.setthreshold(threshold, gain)
     def get_next_fsn(self, regex=None):
@@ -532,10 +459,20 @@ class Credo(object):
     def set_fileformat(self, begin='crd', digitsinfsn=5):
         ff = begin + '_' + '%%0%dd' % digitsinfsn
         ff_re = re.compile(begin + '_' + '(\d{%d,%d})' % (digitsinfsn, digitsinfsn))
-        if (self._fileformat != ff) or (self._fileformat_re != ff_re):
-            self._fileformat = ff
-            self._fileformat_re = ff_re
+        if ('fileformat' in self._credo_state and self._credo_state['fileformat'] != ff) or ('fileformat_re' in self._credo_state and self._credo_state['fileformat_re'] != ff_re):
+            self._credo_state['fileformat'] = ff
+            self._credo_state['fileformat_re'] = ff_re
             self.emit('setup-changed')
+    def set_shutter(self, state):
+        if bool(val):
+            self.genix.shutter_open()
+        else:
+            self.genix.shutter_close()
+        self.emit('shutter')
+    def get_shutter(self):
+        return self.genix.shutter_state()
+    shutter = GObject.property(type=bool, default=False, getter=get_shutter, setter=set_shutter)
+
     def __del__(self):
         self.pilatus.disconnect()
         if self.shuttercontrol:
