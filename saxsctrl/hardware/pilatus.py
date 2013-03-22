@@ -44,7 +44,67 @@ class Message(object):
     def __unicode__(self):
         return self.message
 
+class PilatusCommand(object):
+    def __init__(self,cmd, context, regexes_dicts):
+        self.cmd=cmd
+        self.context=context
+        if regexes_dicts is None:
+            self.regexes=None
+        else:
+            self.regexes={}
+            for regex,dic in regexes_dicts:
+                if isinstance(regex,basestring):
+                    regex=re.compile(regex)
+                self.regexes[regex]=dic
+                
+    def parse(self, context, status, mesg):
+        if context!=self.context:
+            return None
+        if self.regexes is None:
+            gd={self.cmd:mesg,'__status__':status}
+            return gd
+        for regex in self.regexes:
+            m= regex.match(mesg)
+            if m is None:
+                continue
+            else:
+                gd=self.regexes[regex].copy()
+                gd.update(m.groupdict())
+                gd['__status__']=status
+                return gd
+        return None
+    
 class PilatusCommProcess(multiprocessing.Process):
+    _commands=[PilatusCommand('Tau', 15, [('Set up rate correction: tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s',{}),
+                                          ('Turn off rate correction',{'tau':'0'}),
+                                          ('Rate correction is on; tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s, cutoff = (?P<cutoff>\d+) counts',{}),
+                                          ('Rate correction is off, cutoff = (?P<cutoff>\d+) counts',{'tau':'0'})]),
+               PilatusCommand('ExpTime',15, [('Exposure time set to: (?P<exptime>\d+\.\d+) sec.',{})]),
+               PilatusCommand('Exposure',15, [('Starting (?P<exptime>\d+\.\d+) second (?P<exptype>\w*?): (?P<expdatetime>\d{4,4}-\d{2,2}-\d{2,2}T\d{2,2}:\d{2,2}:\d{2,2}.\d+)',{})]),
+               PilatusCommand('THread',215,[('Channel (?P<channel>\d+): Temperature = (?P<temp>\d+\.\d+)C, Rel\. Humidity = (?P<humidity>\d+.\d+)%',{})]),
+               PilatusCommand('ImgPath',10,None),
+               PilatusCommand('ExpEnd',6,None),
+               PilatusCommand('_exposure_finished',7,None),
+               PilatusCommand('Df',5,None),
+               PilatusCommand('ImgMode',15,[('ImgMode is (?P<imgmode>.*)',{})]),
+               PilatusCommand('SetThreshold',15,[('/tmp/setthreshold.cmd',{'gain':None,'threshold':None,'vcmp':None,'trimfile':None}),
+                                                 ('Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>\d+) eV; vcmp: (?P<vcmp>\d+(\.\d+)?) V\s*Trim file:\s*(?P<trimfile>.*)'),{}]),
+               PilatusCommand('ExpPeriod',15,[('Exposure period set to: (?P<expperiod>\d+.\d+) sec',{})]),
+               PilatusCommand('NImages',15,[('N images set to: (?P<nimages>\d+)',{})]),
+               PilatusCommand('SetAckInt',15,[('Acknowledgement interval is (?P<ackint>\d+)',{})]),
+               PilatusCommand('K',13,None),
+               PilatusCommand('_OK',15,None)
+               ]
+        elif contextnumber == 13:
+            self.events['exposure_finished'][1] = message
+            self.events['exposure_finished'][2] = status
+            self._call_handlers('exposure_finished')
+            self.events['exposure_finished'][0].set()
+        else:
+            logger.warn("Unknown but valid message: " + str(contextnumber) + ' ' + status + ' ' + message)
+
+
+
     _eventnames = ['tau', 'getthreshold', 'setackint', 'expperiod', 'nimages', 'disconnect_from_camserver', 'imgmode', 'setthreshold', 'mxsettings', 'camsetup', 'exptime', 'OK', 'exposure', 'expend', 'exposure_finished', 'imgpath', 'df', 'thread']
     def __init__(self, name=None, group=None):
         multiprocessing.Process.__init__(self, name=name, group=group)
@@ -161,13 +221,6 @@ class PilatusConnection(object):
             self.events['camsetup'][1] = self._status
             self._call_handlers('camsetup')
             self.events['camsetup'][0].set()
-        elif contextnumber == 15 and message.startswith('Exposure time set to:'):
-            try:
-                self.events['exptime'][1] = float(re.search('\d+\.\d+', message).group(0))
-            except (ValueError, AttributeError):
-                self.events['exptime'][1] = -1
-            self._call_handlers('exptime')
-            self.events['exptime'][0].set()
         elif contextnumber == 15 and message.startswith('Command:'):
             # using the demo P6M detector some commands are not implemented.
             cmd = message[8:].strip().split(None, 1)[0]
