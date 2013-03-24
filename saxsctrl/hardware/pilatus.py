@@ -45,160 +45,260 @@ class Message(object):
         return self.message
 
 class PilatusCommand(object):
-    def __init__(self,cmd, context, regexes_dicts):
-        self.cmd=cmd
-        self.context=context
+    _instances = []
+    def __init__(self, cmd, context, regexes_dicts=None, argtypes=None):
+        self.cmd = cmd
+        self.context = context
         if regexes_dicts is None:
-            self.regexes=None
+            self.regexes = None
+            self.argtypes = (str,)
         else:
-            self.regexes={}
-            for regex,dic in regexes_dicts:
-                if isinstance(regex,basestring):
-                    regex=re.compile(regex)
-                self.regexes[regex]=dic
-                
+            self.regexes = {}
+            for regex, dic in regexes_dicts:
+                if isinstance(regex, basestring):
+                    regex = re.compile(regex)
+                self.regexes[regex] = dic
+            if self.argtypes is None:
+                raise ValueError('argument argtypes cannot be None if regexes is not None.')
+            self.argtypes = tuple(argtypes[n] for n in sorted(argtypes.keys()))
+        
+        PilatusCommand._instances.append(self)
+    @classmethod
+    def get_instance(cls, cmdname):
+        return [cmd for cmd in cls._instances if cmd.cmd.upper() == cmdname.upper()][0]
+    @classmethod
+    def get_instances(cls):
+        return cls._instances[:]
+    def get_gsignal(self):
+        return ('camserver-' + self.cmd, (GObject.SignalFlags.RUN_FIRST, None, self.argtypes))
     def parse(self, context, status, mesg):
-        if context!=self.context:
+        if context != self.context:
             return None
         if self.regexes is None:
-            gd={self.cmd:mesg,'__status__':status}
+            gd = {self.cmd:mesg}
             return gd
         for regex in self.regexes:
-            m= regex.match(mesg)
+            m = regex.match(mesg)
             if m is None:
                 continue
             else:
-                gd=self.regexes[regex].copy()
+                gd = self.regexes[regex].copy()
                 gd.update(m.groupdict())
-                gd['__status__']=status
+                for argname, argtype in zip(sorted(gd.keys()), self.argtypes):
+                    gd[k] = argtype(gd[k])
                 return gd
         return None
-    
+    def __del__(self):
+        PilatusCommand._instances.remove(self)
+
+PilatusCommand('Tau', 15, [('Set up rate correction: tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s', {'cutoff':None})
+                           ('Turn off rate correction', {'tau':'0', 'cutoff':None})
+                           ('Rate correction is on; tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s, cutoff = (?P<cutoff>\d+) counts', {})
+                           ('Rate correction is off, cutoff = (?P<cutoff>\d+) counts', {'tau':'0'})],
+               {'tau':float, 'cutoff':int})
+PilatusCommand('ExpTime', 15, [('Exposure time set to: (?P<exptime>\d+\.\d+) sec.', {})], {'exptime':float})
+PilatusCommand('Exposure', 15, [('Starting (?P<exptime>\d+\.\d+) second (?P<exptype>\w*?): (?P<expdatetime>\d{4,4}-\d{2,2}-\d{2,2}T\d{2,2}:\d{2,2}:\d{2,2}.\d+)', {})],
+               {'exptime':float, 'exptype':str, 'expdatetime':str})
+PilatusCommand('THread', 215, [('Channel (?P<channel>\d+): Temperature = (?P<temp>\d+\.\d+)C, Rel\. Humidity = (?P<humidity>\d+.\d+)%', {})],
+               {'channel':int, 'temp':float, 'humidity':float})
+PilatusCommand('ImgPath', 10, None)
+PilatusCommand('ExpEnd', 6, None)
+PilatusCommand('exposurefinished', 7, None)
+PilatusCommand('Df', 5, None)
+PilatusCommand('ImgMode', 15, [('ImgMode is (?P<imgmode>.*)', {})], {'imgmode':str})
+PilatusCommand('SetThreshold', 15, [('/tmp/setthreshold.cmd', {'gain':None, 'threshold':None, 'vcmp':None, 'trimfile':None})
+                                  ('Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>\d+) eV; vcmp: (?P<vcmp>\d+(\.\d+)?) V\s*Trim file:\s*(?P<trimfile>.*)'), {}],
+               {'gain':str, 'threshold':float, 'vcmp':float, 'trimfile':str})
+PilatusCommand('ExpPeriod', 15, [('Exposure period set to: (?P<expperiod>\d+.\d+) sec', {})],
+               {'expperiod':float})
+PilatusCommand('NImages', 15, [('N images set to: (?P<nimages>\d+)', {})], {'nimages':float})
+PilatusCommand('SetAckInt', 15, [('Acknowledgement interval is (?P<ackint>\d+)', {})], {'ackint':int})
+PilatusCommand('K', 13, None)
+PilatusCommand('Send', 15, None)
+PilatusCommand('Exit', 1000, None)
+# TODO:  regex for camsetup command
+PilatusCommand('CamSetup', 2, None)
+
 class PilatusCommProcess(multiprocessing.Process):
-    _commands=[PilatusCommand('Tau', 15, [('Set up rate correction: tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s',{}),
-                                          ('Turn off rate correction',{'tau':'0'}),
-                                          ('Rate correction is on; tau = (?P<tau>\d+(\.\d*)?(e[+-]?\d+)?) s, cutoff = (?P<cutoff>\d+) counts',{}),
-                                          ('Rate correction is off, cutoff = (?P<cutoff>\d+) counts',{'tau':'0'})]),
-               PilatusCommand('ExpTime',15, [('Exposure time set to: (?P<exptime>\d+\.\d+) sec.',{})]),
-               PilatusCommand('Exposure',15, [('Starting (?P<exptime>\d+\.\d+) second (?P<exptype>\w*?): (?P<expdatetime>\d{4,4}-\d{2,2}-\d{2,2}T\d{2,2}:\d{2,2}:\d{2,2}.\d+)',{})]),
-               PilatusCommand('THread',215,[('Channel (?P<channel>\d+): Temperature = (?P<temp>\d+\.\d+)C, Rel\. Humidity = (?P<humidity>\d+.\d+)%',{})]),
-               PilatusCommand('ImgPath',10,None),
-               PilatusCommand('ExpEnd',6,None),
-               PilatusCommand('_exposure_finished',7,None),
-               PilatusCommand('Df',5,None),
-               PilatusCommand('ImgMode',15,[('ImgMode is (?P<imgmode>.*)',{})]),
-               PilatusCommand('SetThreshold',15,[('/tmp/setthreshold.cmd',{'gain':None,'threshold':None,'vcmp':None,'trimfile':None}),
-                                                 ('Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>\d+) eV; vcmp: (?P<vcmp>\d+(\.\d+)?) V\s*Trim file:\s*(?P<trimfile>.*)'),{}]),
-               PilatusCommand('ExpPeriod',15,[('Exposure period set to: (?P<expperiod>\d+.\d+) sec',{})]),
-               PilatusCommand('NImages',15,[('N images set to: (?P<nimages>\d+)',{})]),
-               PilatusCommand('SetAckInt',15,[('Acknowledgement interval is (?P<ackint>\d+)',{})]),
-               PilatusCommand('K',13,None),
-               PilatusCommand('_OK',15,None)
-               ]
-        elif contextnumber == 13:
-            self.events['exposure_finished'][1] = message
-            self.events['exposure_finished'][2] = status
-            self._call_handlers('exposure_finished')
-            self.events['exposure_finished'][0].set()
-        else:
-            logger.warn("Unknown but valid message: " + str(contextnumber) + ' ' + status + ' ' + message)
-
-
-
     _eventnames = ['tau', 'getthreshold', 'setackint', 'expperiod', 'nimages', 'disconnect_from_camserver', 'imgmode', 'setthreshold', 'mxsettings', 'camsetup', 'exptime', 'OK', 'exposure', 'expend', 'exposure_finished', 'imgpath', 'df', 'thread']
-    def __init__(self, name=None, group=None):
+    iotimeout = 0.1
+    mesglen = 1024
+    def __init__(self, host, port=41234, name=None, group=None):
         multiprocessing.Process.__init__(self, name=name, group=group)
         self.inqueue = multiprocessing.Queue()
         self.outqueue = multiprocessing.Queue()
         self.killswitch = multiprocessing.Event()
         self.conditions = {}
-        for e in self._eventnames:
-            self.conditions[e] = multiprocessing.Condition(lock)
+        self._commands = PilatusCommand.get_instances()
+        self.sendqueue2 = Queue.PriorityQueue()
+        for c in self._commands:
+            self.conditions[c.cmd] = multiprocessing.Condition(lock)
         self.socket = None
-        self.auxsocket = None
-        self._pilatus_lock = multiprocessing.Lock()
-    def connect_to_camserver(self, host, port=41234):
-        """Connect to camserver at host:port.
-        """
-        with self._pilatus_lock:
-            if self.socket is not None:
-                raise PilatusError('Cannot connect: connection already open.')
-            try:
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                ip = socket.gethostbyname(host)
-                self.socket.connect((ip, port))
-                self.auxsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.auxsocket.connect((ip, port))
-                self.host = host
-                self.port = port
-            except socket.gaierror:
-                self.socket = None
-                self.auxsocket = None
-                raise PilatusError('Cannot resolve host name.')
-            except socket.error:
-                self.socket = None
-                self.auxsocket = None
-                raise PilatusError('Cannot connect to camserver.')
-        logger.debug('Connected to server %s:%d' % (host, port))
-    def get_socket_for_send(self, message):
-        """decide if the message can be sent through the readonly socket."""
-        message = message.lower()
-        cmd = message.split()[0]
-        if cmd in ['camsetup', 'df', 'thread']:
-            return self.auxsocket
-        elif cmd in ['exit', 'exposure', 'k', 'fillpix', 'resetcam', 'calibrate', 'expend', 'setthreshold', 'tau']:
-            return self.socket
-        elif cmd in ['setackint', 'exptime', 'nimages', 'expperiod', 'imgpath', 'setthreshold', 'imgmode', 'mxsettings']:
-            if len(message.split()) > 1:
-                return self.socket
-            else:
-                return self.auxsocket
-        else:
-            return self.socket
-        
-    def run(self):
-        pass
-
-class PilatusConnection(object):
-    _in_exposure = False
-    _expstarted = None
-    _mesglen = 200
-    _status = {}
-    _status_timeout = 0.1
-    _status_time = None
-    _pilatus_lock = None
-    _timeout_handler = None
-    _commthread = None
-    host = None
-    port = None
-    _commthread_iotimeout = 0.1  # time-out for select.select() in the receiving thread in seconds.
-    _kill_commthread = None  # event signifying to the receiving thread to stop.
-    _eventnames = ['tau', 'getthreshold', 'setackint', 'expperiod', 'nimages', 'disconnect_from_camserver', 'imgmode', 'setthreshold', 'mxsettings', 'camsetup', 'exptime', 'OK', 'exposure', 'expend', 'exposure_finished', 'imgpath', 'df', 'thread']
-    def __init__(self, host='localhost', port=41234):
-        self._pilatus_lock = threading.Lock()
-        self._sendqueue = Queue.PriorityQueue()
-        self.socket = None
-        self.auxsocket = None
-        self.events = {}
-        for e in self._eventnames:
-            self.events[e] = [threading.Event(), None, None, {}]  # event itself, message, status number, list of connections 
-        if host is not None:
-            self.connect(host, port)
-    def reconnect(self):
-        with self._pilatus_lock:
-            if self.socket is None:
-                return
-            self.socket.close()
-            self.auxsocket.close()
+        self.pilatus_lock = multiprocessing.Lock()
+        try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ip = socket.gethostbyname(host)
             self.socket.connect((ip, port))
-            self.auxsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.auxsocket.connect((ip, port))
+            self.host = host
+            self.port = port
+        except socket.gaierror:
+            self.socket = None
+            raise PilatusError('Cannot resolve host name.')
+        except socket.error:
+            self.socket = None
+            raise PilatusError('Cannot connect to camserver.')
+        logger.debug('Connected to server %s:%d' % (host, port))
+    def handle_event(self, contextnumber, status, mesg):
+        dic = None
+        for c in self._commands:
+            dic = c.parse(contextnumber, status, mesg)
+            if dic is None:
+                continue
+        if dic is None:
+            logger.error('Unknown camserver command for message: ', message)
+            return
+        self.outqueue.put((c.cmd, status, dic))
+        self.conditions[c.cmd].acquire()
+        self.conditions[c.cmd].notify_all()
+        self.conditions[c.cmd].release()
+    def disconnect_from_camserver(self):
+        if self.socket is None:
+            raise PilatusError('Cannot disconnect: connection is already closed.')
+        self.killswitch.set()
+        self.join()
+    def __del__(self):
+        try:
+            self.disconnect_from_camserver()
+        except PilatusError:
+            pass
+    def _process_sending(self):
+        while True:
+            # move the incoming messages to send to the priority queue. They will be processed
+            # from there. This is needed, since multiprocessing.queues.Queue does not
+            # handle priorities, which we need in case of unwritable sockets.
+            try:
+                msgtosend = self.inqueue.get_nowait()
+                self.sendqueue2.put(Message(msgtosend))
+            except multiprocessing.queues.Empty:
+                # if no messages, break the loop.
+                msgtosend = None
+        try:
+            msgtosend = self.sendqueue2.get_nowait()
+        except Queue.Empty:
+            return
+        while msgtosend is not None:
+            # find the preferred socket for the message.
+            with self.pilatus_lock:
+                writable, exceptional = select.select([], [self.socket], [self.socket], self.iotimeout)[1:3]
+            if exceptional:
+                raise CommunicationError('Exceptional state on send')
+            if not writable:
+                # put the message back to the priority queue, with an increased priority
+                self.sendqueue2.put(Message(msgtosend))
+                return
+            # if we have a writable socket to send our message to, separate the command part and check if we have a corresponding event.
+            cmd = str(msgtosend).strip().split()[0]
+            try:
+                # add a whitespace to the end. This is needed because of a bug in camserver
+                mesg1 = str(msgtosend) + ' '
+                chars_sent = 0
+                while chars_sent < len(mesg1):
+                    chars_sent += sock.send(mesg1[chars_sent:])
+                logger.debug('Sent to camserver:' + str(msgtosend))
+            except socket.error:
+                raise CommunicationError('Socket error on send')
+            # get the next message
+            try:
+                msgtosend = self.sendqueue2.get_nowait()
+            except Queue.Empty:
+                return
+    def _process_receiving(self):
+        with self.pilatus_lock:
+            readable, exceptional = select.select([self.socket], [self.socket], [self.socket], self.iotimeout)[0:3:2]
+            if exceptional:
+                raise CommunicationError('Exceptional state on read')
+            mesg = ''
+            while readable:
+                newmesg = self.socket.recv(self.mesglen)
+                if not newmesg:  # was readable but 0 bytes received: socket closed.
+                    raise CommunicationError('Socket closed by camserver')
+                mesg = mesg + newmesg
+                readable = select.select([self.socket], [self.socket], [self.socket], 0)[0:3:2]
+                if exceptional:
+                    raise CommunicationError('Exceptional state on read')
+        logging.debug('Read from camserver: ' + mesg)
+        # handle all nonempty messages.
+        for msg in [m for m in mesg.split('\x18') if m]:
+            try:
+                # split event message into parts
+                data = re.match('^(?P<context>\d+)\s+(?P<state>\w+)\s*(?P<message>.*)', msg, re.DOTALL | re.MULTILINE).groupdict()                   
+                contextnumber = int(data['context'])
+                state = data['state']
+                message = data['message']
+            except AttributeError:  # raised if the regular exception does not match
+                raise PilatusError('Invalid message received: ' + msg)
+            except ValueError:  # raised if the contextnumber is not a number.
+                raise PilatusError('Invalid context number in message: ' + msg)
+            if state not in [ 'ERR', 'OK']:
+                raise PilatusError('Invalid status in message: ' + msg)
+            if state == 'ERR':
+                logger.error('Camserver: ' + msg)
+            self.handle_event(contextnumber, state, message)
+    def run(self):
+        # this function constitutes of a main loop, which can be ended via a ''poison-pill'' mechanism.
+        try:
+            while not self.killswitch.is_set():
+                # first try to send, if there are messages to send.
+                self._process_sending()
+                self._process_receiving()
+        except CommunicationError,commerr:
+            logger.critical('Socket exception: '+commerr.message)
+            mesg = '1000 ERR socket closed: ' + commerr.message
+        else:
+            logger.debug('Socket closed normally.')
+            mesg='1000 OK socket closed normally.'
+        finally:
+            self.socket.close()
+            self.socket = None
+            self.handle_event(mesg)
+
+class PilatusConnection(GObject.GObject):
+    __gsignals__ = dict([c.get_gsignal() for c in PilatusCommand.get_instances()]) 
+    _status = {}
+    _status_timeout = 0.1
+    _status_time = None
+    _timeout_handler = None
+    def __init__(self, host='localhost', port=41234):
+        self.host = host
+        self.port = port
+        self.commprocess = None
+        if host is not None:
+            self.connect_to_camserver()
+    def poll_commqueue(self):
+        try:
+            cmd, status, dic = self.commprocess.outqueue.get_nowait()
+        except multiprocessing.queues.Empty:
+            return True
+        self.emit('camserver-' + cmd, status, *[dic[k] for k in sorted(dic.keys())])
+        return True
+    def do_camserver_Exit(self, pilatusconnection, status, message):
+        self.disconnect_from_camserver()
+    def connect_to_camserver(self):
+        self.commprocess = PilatusCommProcess(self.host, self.port)
+        self.commprocess.daemon = True
+        self.idle_function_handle = GObject.idle_add(self.poll_commqueue)
+        self.commprocess.start()
+    def reconnect_to_camserver(self):
+        self.disconnect_from_camserver()
+        self.connect_to_camserver()
+    def disconnect_from_camserver(self):
+        GObject.source_remove(self.idle_function_handle)
+        self.commprocess.disconnect_from_camserver()
+        self.commprocess.join()
+        self.commprocess = None
     def connected(self):
         """Return if connected to camserver"""
-        with self._pilatus_lock:
-            return self.socket is not None
+        return self.commprocess is not None
     def _interpret_message(self, contextnumber, status, message):
         """Interpret the received message"""
         message = message.strip()
@@ -331,90 +431,6 @@ class PilatusConnection(object):
         """worker function for the receiving thread. This is responsible for all the communication over TCP/IP between
         camserver and this class."""
         
-        # this function constitutes of a main loop, which can be ended via a ''poison-pill'' mechanism.
-        while not self._kill_commthread.is_set():
-            # first try to send, if there are messages to send.
-            try:
-                msgtosend = self._sendqueue.get_nowait()
-            except Queue.Empty:
-                # if no messages, break the loop.
-                msgtosend = None
-            while msgtosend is not None:
-                # find the preferred socket for the message.
-                sock = self._get_socket_for_send(str(msgtosend))
-                with self._pilatus_lock:
-                    writable, exceptional = select.select([], [sock], [sock], self._commthread_iotimeout)[1:3]
-                if exceptional:
-                    # the socket is in an exceptional state: disconnect and return from this thread.
-                    self._disconnect_socket(sock)
-                    return
-                if not writable:
-                    self._sendqueue.put(Message(msgtosend))
-                    # message cannot be sent. Break this loop, do the receiving jobs and retry this message next time.
-                    break
-                # if we have a writable socket to send our message to, separate the command part and check if we have a corresponding event.
-                cmd = str(msgtosend).strip().split()[0]
-                if cmd.lower() in self.events:
-                    # if we do, clear its flag, so corresponding wait_for_event() calls will not escape before the event is raised.
-                    self.events[cmd][0].clear()
-                try:
-                    # pad the message to the given length.
-                    mesg1 = str(msgtosend) + ' ' * (self._mesglen - len(str(msgtosend)))
-                    chars_sent = 0
-                    while chars_sent < self._mesglen:
-                        chars_sent += sock.send(mesg1[chars_sent:])
-                    if sock is self.socket:
-                        logger.debug('Send through RW:' + str(msgtosend))
-                    else:
-                        logger.debug('Send through RO:' + str(msgtosend))
-                except socket.error:
-                    self._disconnect_socket('error')
-                    return
-                try:
-                    msgtosend = self._sendqueue.get_nowait()
-                except Queue.Empty:
-                    # if no messages, break the loop.
-                    msgtosend = None
-                
-            with self._pilatus_lock:
-                readable, exceptional = select.select([self.socket, self.auxsocket], [self.socket, self.auxsocket], [self.socket, self.auxsocket], self._commthread_iotimeout)[0:3:2]
-            if exceptional:
-                self._disconnect_socket(exceptional[0])
-            mesg = ''
-            for sock in readable:
-                sock_is_readable = True
-                while sock_is_readable:
-                    with self._pilatus_lock:
-                        newmesg = sock.recv(self._mesglen)
-                    if not newmesg:  # was readable but 0 bytes received: socket closed.
-                        self._disconnect_socket('error')
-                        return
-                    mesg = mesg + newmesg
-                    with self._pilatus_lock:
-                        sock_is_readable = select.select([sock], [], [], 0)[0]
-                if sock is self.socket:
-                    logger.debug('Read from RW: ' + newmesg)
-                else:
-                    logger.debug('Read from RO: ' + newmesg)
-
-                # handle all nonempty messages.
-                for msg in [m for m in mesg.split('\x18') if m]:
-                    try:
-                        # split event message into parts
-                        data = re.match('^(?P<context>\d+)\s+(?P<state>\w+)\s*(?P<message>.*)', msg, re.DOTALL | re.MULTILINE).groupdict()                   
-                        contextnumber = int(data['context'])
-                        state = data['state']
-                        message = data['message']
-                    except AttributeError:  # raised if the regular exception does not match
-                        raise PilatusError('Invalid message received: ' + msg)
-                    except ValueError:  # raised if the contextnumber is not a number.
-                        raise PilatusError('Invalid context number in message: ' + msg)
-                    if state not in [ 'ERR', 'OK']:
-                        raise PilatusError('Invalid status in message: ' + msg)
-                    if state == 'ERR':
-                        logger.error('Camserver: ' + msg)
-                    self._interpret_message(contextnumber, state, message)
-        return
     def _call_handlers(self, eventname):
         for uuid in self.events[eventname][3]:
             self.events[eventname][3][uuid](self.events[eventname][1], self.events[eventname][2])
@@ -422,28 +438,7 @@ class PilatusConnection(object):
         if not self.connected():
             raise CommunicationError('Socket closed')
         logger.debug('sending message: ' + mesg)
-        self._sendqueue.put(Message(mesg))
-    def _disconnect_socket(self, mesg='normal'):
-        with self._pilatus_lock:
-            if mesg is self.socket:
-                logger.critical('Socket exception on RW socket.')
-                mesg = 'error'
-            if mesg is self.auxsocket:
-                logger.critical('Socket exception on RO socket.')
-                mesg = 'error'
-            self.socket.close()
-            self.auxsocket.close()
-            self.socket = None
-            self.auxsocket = None
-            self.events['disconnect_from_camserver'][1] = mesg
-            self._call_handlers('disconnect_from_camserver')
-    def disconnect(self):
-        if self.socket is None: return
-        self._kill_commthread.set()
-        self._commthread.join()
-        self._disconnect_socket()
-    def __del__(self):
-        self.disconnect()
+        self.commprocess.inqueue.put(mesg)
     def get_status(self, force=False):
         if self._status_time is not None and (time.time() - self._status_time) < self._status_timeout and not force:
             return self._status
