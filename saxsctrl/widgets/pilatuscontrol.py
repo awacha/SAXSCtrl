@@ -30,9 +30,8 @@ class PilatusStatus(Gtk.Frame):
     _slowmonitor_timeout = 30
     timeouthandler_slow = None
     timeouthandler = None
-    def __init__(self, controller):
+    def __init__(self):
         Gtk.Frame.__init__(self, label='Status monitor')
-        self._controller = controller
         sw = Gtk.ScrolledWindow()
         self.add(sw)
         tab = Gtk.Table()
@@ -100,20 +99,22 @@ class PilatusStatus(Gtk.Frame):
             temphard = [(15, 55), (15, 35), (15, 45)]
             humsoft = [30, 30, 20]
             humhard = [80, 80, 30]
-            for data, ts, th, hs, hh, twidget, hwidget in zip(thdata, tempsoft, temphard, humsoft, humhard, (self['t0'], self['t1'], self['t2']), (self['h0'], self['h1'], self['h2'])):
-                if (data['Temp'] <= max(ts)) and (data['Temp'] >= min(ts)):
-                    twidget.set_status('OK', u'%.1f°C' % data['Temp'])
-                elif (data['Temp'] <= max(th)) and (data['Temp'] >= min(th)):
-                    twidget.set_status('WARNING', u'%.1f°C' % data['Temp'])
+            temp = thdata['temp']
+            hum = thdata['humidity']
+            for temp, hum, ts, th, hs, hh, twidget, hwidget in zip(temp, hum, tempsoft, temphard, humsoft, humhard, (self['t0'], self['t1'], self['t2']), (self['h0'], self['h1'], self['h2'])):
+                if (temp <= max(ts)) and (temp >= min(ts)):
+                    twidget.set_status('OK', u'%.1f°C' % temp)
+                elif (temp <= max(th)) and (temp >= min(th)):
+                    twidget.set_status('WARNING', u'%.1f°C' % temp)
                 else:
-                    twidget.set_status('ERROR', u'%.1f°C' % data['Temp'])
-                if data['Humidity'] < hs:
-                    hwidget.set_status('OK', u'%.1f%%' % data['Humidity'])
-                elif data['Humidity'] < hh:
-                    hwidget.set_status('WARNING', u'%.1f%%' % data['Humidity'])
+                    twidget.set_status('ERROR', u'%.1f°C' % temp)
+                if hum < hs:
+                    hwidget.set_status('OK', u'%.1f%%' % hum)
+                elif hum < hh:
+                    hwidget.set_status('WARNING', u'%.1f%%' % hum)
                 else:
-                    hwidget.set_status('ERROR', u'%.1f%%' % data['Humidity'])
-            self['Tau'].set_status('OK', '%.1f ns' % (taudata['tau'] * 1e9))
+                    hwidget.set_status('ERROR', u'%.1f%%' % hum)
+            self['Tau'].set_status('OK', '%.1f ns' % (taudata * 1e9))
         try:
             thresholddata = pc.getthreshold()
         except pilatus.PilatusError:
@@ -132,9 +133,9 @@ class PilatusStatus(Gtk.Frame):
                     self[l] = 'UNKNOWN'
             return True
         try:
-            self['camstate'] = self._controller.get_camstate()
-            self['Done'].set_status('OK', '%.2f %%' % (self._controller.get_percentdone()))
-            tl = self._controller.get_timeleft()
+            self['camstate'] = pc.camstate
+            self['Done'].set_status('OK', '%.2f %%' % (pc.percentdone))
+            tl = pc.timeleft
             self['Timeleft'].set_status('OK', '%02d:%02.0f' % (int(tl) / 60, int(tl) % 60))
         except pilatus.PilatusError:
             self['camstate'] = 'error'
@@ -169,12 +170,11 @@ def append_and_select_text_to_combo(combo, txt):
     idx = [x for x in range(len(combo.get_model())) if combo.get_model()[x][0] == txt][0]
     combo.set_active(idx)
     
-    
 class PilatusControl(Gtk.Dialog):
     def __init__(self, credo, title='Control the Pilatus detector', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, Gtk.ResponseType.APPLY)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         vbox = self.get_content_area()
-        self.statusmonitor = PilatusStatus(self)
+        self.statusmonitor = PilatusStatus()
         vbox.pack_start(self.statusmonitor, False, True, 0)
         self.credo = credo
         
@@ -244,26 +244,6 @@ class PilatusControl(Gtk.Dialog):
             self.statusmonitor.updatemonitor(self.credo.pilatus)
             self.statusmonitor.updatemonitor_slow(self.credo.pilatus)
         return True
-    def get_camstate(self):
-        if self.credo.is_pilatus_connected():
-            return self.credo.pilatus.camstate
-        else:
-            return 'disconnected'
-    def get_exptime(self):
-        if self.credo.is_pilatus_connected():
-            return self.credo.pilatus.exptime
-        else:
-            return None
-    def get_timeleft(self):
-        if self.credo.is_pilatus_connected():
-            return self.credo.pilatus.timeleft
-        else:
-            return None
-    def get_percentdone(self):
-        if self.credo.is_pilatus_connected():
-            return self.credo.pilatus.percentdone
-        else:
-            return None
     def on_calibrate(self, button):
         logger.info('Starting calibration')
         self.credo.pilatus.calibrate()

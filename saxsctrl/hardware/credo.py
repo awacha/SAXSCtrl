@@ -27,7 +27,7 @@ class CredoError(Exception):
 
 class CredoExposureNotifier(threading.Thread):
     def __init__(self, expparams, headertemplate, outqueue, userbreak, name=None, group=None):
-        threading.Thread.__init__(name=name, group=group)
+        threading.Thread.__init__(self, name=name, group=group)
         self.headertemplate = headertemplate
         self.expparams = expparams
         self.outqueue = outqueue
@@ -68,13 +68,13 @@ class CredoExposureNotifier(threading.Thread):
                     self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
                     return
             pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
-            header.update(pilatusheader)
-            header['EndDate'] = datetime.datetime.now()
-            header['GeniX_HT_end'] = self.genix.get_ht()
-            header['GeniX_Current_end'] = self.genix.get_current()
-            header.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % header['FSN']))
-            logger.debug('Header %s written.' % (self.expparams['headerformat'] % header['FSN']))
-            header['FSN'] += 1
+            self.headertemplate.update(pilatusheader)
+            self.headertemplate['EndDate'] = datetime.datetime.now()
+            self.headertemplate['GeniX_HT_end'] = self.genix.get_ht()
+            self.headertemplate['GeniX_Current_end'] = self.genix.get_current()
+            self.headertemplate.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % self.headertemplate['FSN']))
+            logger.debug('Header %s written.' % (self.expparams['headerformat'] % self.headertemplate['FSN']))
+            self.headertemplate['FSN'] += 1
             try:
                 logger.debug('Loading file.')
                 ex = sastool.classes.SASExposure(filename, dirs=self.expparams['exploaddirs'])
@@ -104,7 +104,8 @@ class CredoExpose(multiprocessing.Process):
         self.pilatus = pilatus
         self.genix = genix
         self.notifierthread = None
-        
+        self._exposurefinished_switch = multiprocessing.Event()
+        self._exposurefinished_handle = None
     def run(self):
         while not self.killswitch.is_set():
             try:
@@ -116,21 +117,25 @@ class CredoExpose(multiprocessing.Process):
                 self.notifierthread = CredoExposureNotifier(expparams, headertemplate, self.outqueue, self.userbreakswitch)
                 self.notifierthread.daemon = True
                 try:
-                    firstfsn = header['FSN']
+                    firstfsn = headertemplate['FSN']
                     if expparams['shuttercontrol']:
                         self.genix.shutter_open()
                     self.userbreakswitch.clear()
-                    expstartdata = self.pilatus.expose(expparams['exptime'], expparams['exposureformat'] % firstfsn, expparams['expnum'], expparams['dwelltime'])
+                    self.pilatus.expose(expparams['exptime'], expparams['exposureformat'] % firstfsn, expparams['expnum'], expparams['dwelltime'])
                     self.notifierthread.start()
-                    expenddata = self.pilatus.wait_for_event('exposure_finished', (exptime + dwelltime) * expnum + 3)
+                    self._exposurefinished_handle = self.pilatus.connect('camserver-exposurefinished', self.on_exposurefinished)
+                    self._exposurefinished_switch.wait((expparams['exptime'] + expparams['dwelltime']) * expparams['expnum'] + 3)
                     if expparams['shuttercontrol']:
                         self.genix.shutter_close()
                 finally:
                     self.notifierthread.userbreakswitch.set()
-                    self.notifierthread.join()
+                    if self.notifierthread.is_alive():
+                        self.notifierthread.join()
                     self.notifierthread = None
-        return
-                            
+    def on_exposurefinished(self, pilatus, state, message):
+        self.pilatus.disconnect(self._exposurefinished_handle)
+        self._exposurefinished_switch.set()
+        return True
         
 class Credo(GObject.GObject):
     __gsignals__ = {'path-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -142,9 +147,13 @@ class Credo(GObject.GObject):
                     'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
+                    'connect-pilatus':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'connect-genix':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'disconnect-pilatus':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'disconnect-genix':(GObject.SignalFlags.RUN_FIRST, None, ()),
                    }
     _credo_state = None
-    _exposurethread = None
+    exposurethread = None
     _filewatchers = None
     _nextfsn_cache = None
     _samples = None
@@ -166,36 +175,67 @@ class Credo(GObject.GObject):
     def __init__(self, genixhost=None, pilatushost=None, genixport=502, pilatusport=41234, imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
         GObject.GObject.__init__(self)
+        self.load_settings()
         self._credo_state = {}
+        # connect GeniX
         if isinstance(genixhost, genix.GenixConnection):
             self.genix = genixhost
-        elif genixhost is not None:
+        else:
             self.genix = genix.GenixConnection(genixhost, genixport)
+        self.genix.connect('connect-controller', self.on_equipment_connection_change, 'genix', True)
+        self.genix.connect('disconnect-controller', self.on_equipment_connection_change, 'genix', False)
+        # connect Pilatus
         if isinstance(pilatushost, pilatus.PilatusConnection):
             self.pilatus = pilatushost
-        elif pilatushost is not None:
+        else:
             self.pilatus = pilatus.PilatusConnection(pilatushost, pilatusport)
+        self.pilatus.connect('connect-camserver', self.on_equipment_connection_change, 'pilatus', True)
+        self.pilatus.connect('disconnect-camserver', self.on_equipment_connection_change, 'pilatus', False)
+        
+        # file format changing
         self.do_fileformatchange()
         self.connect('notify::filebegin', self.do_fileformatchange)
         self.connect('notify::fsndigits', self.do_fileformatchange)
-        for name in ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol']:
-            self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
-        for name in ['filepath', 'imagepath']:
-            self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
+        
+        
+        # samples
         self._samples = []
         self.sample = None
+        
+        # data reduction
         self.datareduction = datareduction.DataReduction()
         self.datareduction.load_state()
         self.datareduction.set_property('fileformat', self.fileformat + '.cbf')
         self.datareduction.set_property('headerformat', self.fileformat + '.param')
         self.datareduction.set_property('datadirs', self.get_exploaddirs())
         self.datareduction.save_state()
-        self._exposurethread = CredoExpose(self.pilatus, self.genix)
-        self._exposurethread.daemon = True
-        self._exposurethread.start()
+
         self._setup_filewatchers()
-        self.load_settings()
         self.load_samples()
+        # emit signals if parameters change
+        for name in ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol']:
+            self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
+        for name in ['filepath', 'imagepath']:
+            self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
+        
+    def on_equipment_connection_change(self, credo, equipment, connstate):
+        if equipment in ['pilatus', 'genix']:
+            if self.pilatus.connected() and self.genix.connected() and self.exposurethread is None:
+                self.exposurethread = CredoExpose(self.pilatus, self.genix)
+                self.exposurethread.daemon = True
+                self.exposurethread.start()
+            elif not (self.pilatus.connected() and self.genix.connected()) and self.exposurethread is not None:
+                self.exposurethread.killswitch.set()
+                if self.exposurethread.is_alive():
+                    self.exposurethread.join()
+        if equipment == 'pilatus' and connstate:
+            self.emit('connect-pilatus')
+        elif equipment == 'pilatus' and not connstate:
+            self.emit('disconnect-pilatus')
+        elif equipment == 'genix' and connstate:
+            self.emit('connect-genix')
+        elif equipment == 'genix' and not connstate:
+            self.emit('disconnect-genix')
     def do_fileformatchange(self, crd=None, param=None):
         ff = self.filebegin + '_' + '%%0%dd' % self.fsndigits
         ff_re = re.compile(self.filebegin + '_' + '(\d{%d,%d})' % (self.fsndigits, self.fsndigits))
@@ -226,7 +266,8 @@ class Credo(GObject.GObject):
             self.stop_emission('path-changed')
             return True
         self.load_samples()
-        self.datareduction.datadirs = self.get_exploaddirs()
+        if hasattr(self, 'datareduction'):
+            self.datareduction.datadirs = self.get_exploaddirs()
     def do_setup_changed(self):
         if self._setup_changed_blocked:
             self.stop_emission('setup-changed')
@@ -246,18 +287,18 @@ class Credo(GObject.GObject):
         cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
         try:
             self._setup_changed_blocked = True
-            self._path_changed_blocked = False
+            self._path_changed_blocked = True
             for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
                                     ('filter', 'Filter')]:
                 if cp.has_option('CREDO', option):
-                    self.__setattr__(attrname, cp.get('CREDO', option))
+                    self.set_property(attrname, cp.get('CREDO', option))
             for attrname, option in [('dist', 'Distance'), ('pixelsize', 'Pixel_size'), ('beamposx', 'Beam_X'), ('beamposy', 'Beam_Y'),
                                     ('wavelength', 'Wavelength')]:
                 if cp.has_option('CREDO', option):
-                    self.__setattr__(attrname, cp.getfloat('CREDO', option))
+                    self.set_property(attrname, cp.getfloat('CREDO', option))
             for attrname, option in [('shuttercontrol', 'Shutter_control')]:
                 if cp.has_option('CREDO', option):
-                    self.__setattr__(attrname, cp.getboolean('CREDO', option))
+                    self.set_property(attrname, cp.getboolean('CREDO', option))
         finally:
             self._setup_changed_blocked = False
             self._path_changed_blocked = False
@@ -272,10 +313,11 @@ class Credo(GObject.GObject):
         for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
                                 ('filter', 'Filter'), ('dist', 'Distance'), ('pixelsize', 'Pixel_size'), ('beamposx', 'Beam_X'), ('beamposy', 'Beam_Y'),
                                 ('wavelength', 'Wavelength'), ('shuttercontrol', 'Shutter_control')]:
-            cp.set('CREDO', option, self.__getattribute__(attrname))
+            cp.set('CREDO', option, self.get_property(attrname))
         if not os.path.exists(os.path.expanduser('~/.config/credo')):
             os.makedirs(os.path.expanduser('~/.config/credo'))
         with open(os.path.expanduser('~/.config/credo/credo2rc'), 'wt') as f:
+            print "SAVING SETTINGS."
             cp.write(f)
         del cp
         return False
@@ -313,10 +355,6 @@ class Credo(GObject.GObject):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
         with open(os.path.expanduser('~/.config/credo/sample2rc'), 'w+') as f:
             cp.write(f)
-    def is_pilatus_connected(self):
-        return self.pilatus is not None and self.pilatus.connected()
-    def is_genix_connected(self):
-        return self.genix is not None
     def _get_subpath(self, subdir):
         pth = os.path.join(self.filepath, subdir)
         if not os.path.isdir(pth):
@@ -387,13 +425,13 @@ class Credo(GObject.GObject):
     
     def killexposure(self):
         self.pilatus.stopexposure()
-        self._exposurethread.userbreakswitch.set()
+        self.exposurethread.userbreakswitch.set()
     def expose(self, exptime, expnum=1, dwelltime=0.003, header_template=None):
         logger.debug('Credo.exposure running.')
         expparams = {'shuttercontrol':self.shuttercontrol, 'exptime':exptime, 'expnum':expnum,
                      'dwelltime':dwelltime, 'exposureformat':self.exposureformat, 'headerformat':self.headerformat,
                      'imagepath':self.imagepath, 'parampath':self.parampath, 'exploaddirs':self.get_exploaddirs()}
-        if not self._exposurethread.isworking.get_value():
+        if not self.exposurethread.isworking.get_value():
             raise CredoError('Another exposure is running!')
         if self.sample is None:
             raise CredoError('No sample defined.')
@@ -422,11 +460,11 @@ class Credo(GObject.GObject):
         logger.debug('Header prepared.')
         logger.debug('Queue-ing exposure.')
         GObject.idle_add(self._check_if_exposure_finished)
-        self._exposurethread.inqueue.put(expparams, h)
+        self.exposurethread.inqueue.put((expparams, h))
         return None
     def _check_if_exposure_finished(self):
         try:
-            mesg = self._exposurethread.outqueue.get_nowait()
+            mesg = self.exposurethread.outqueue.get_nowait()
         except multiprocessing.queues.Empty:
             return True
         if mesg == CredoExpose.EXPOSURE_FAIL:

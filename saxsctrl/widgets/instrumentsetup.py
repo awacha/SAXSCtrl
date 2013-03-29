@@ -6,8 +6,8 @@ class InstrumentSetup(Gtk.Dialog):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
         self.credo = credo
-        self.credo_callback = self.credo.connect_callback('setup-changed', self.on_credo_setup_changed)
-        self.credo_callback1 = self.credo.connect_callback('path-changed', self.on_credo_setup_changed)
+        self.credo_callback = self.credo.connect('setup-changed', self.on_credo_setup_changed)
+        self.credo_callback1 = self.credo.connect('path-changed', self.on_credo_setup_changed)
         vb = self.get_content_area()
         tab = Gtk.Table()
         vb.pack_start(tab, False, True, 0)
@@ -53,10 +53,10 @@ class InstrumentSetup(Gtk.Dialog):
         
         vb.pack_start(NextFSNMonitor(self.credo, 'Next exposure'), True, True, 0)
 
-        self.shuttercontrol_checkbutton = Gtk.CheckButton('Shutter control')
-        self.shuttercontrol_checkbutton.set_alignment(0, 0.5)
-        tab.attach(self.shuttercontrol_checkbutton, 0, 2, row, row + 1)
-        self.shuttercontrol_checkbutton.set_active(True)
+        self.shuttercontrol_entry = Gtk.CheckButton('Shutter control')
+        self.shuttercontrol_entry.set_alignment(0, 0.5)
+        tab.attach(self.shuttercontrol_entry, 0, 2, row, row + 1)
+        self.shuttercontrol_entry.set_active(True)
         
         self.update_from_credo()
         
@@ -65,35 +65,35 @@ class InstrumentSetup(Gtk.Dialog):
         self.connect('destroy', self.on_destroy)
         vb.show_all()
     def on_destroy(self, *args):
-        self.credo.disconnect_callback('setup-changed', self.credo_callback)
-        self.credo.disconnect_callback('path-changed', self.credo_callback1)
+        self.credo.disconnect('setup-changed', self.credo_callback)
+        self.credo.disconnect('path-changed', self.credo_callback1)
         return False
     def on_credo_setup_changed(self, *args):
         self.update_from_credo()
         return False
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK or respid == Gtk.ResponseType.APPLY:
-            with self.credo.callbacks_frozen('setup-changed'):
-                with self.credo.callbacks_frozen('path-changed'):
-                    self.credo.wavelength = self.wavelength_entry.get_value()
-                    self.credo.beamposx = self.beamposx_entry.get_value()
-                    self.credo.beamposy = self.beamposy_entry.get_value()
-                    self.credo.dist = self.dist_entry.get_value()
-                    self.credo.pixelsize = self.pixelsize_entry.get_value()
-                    self.credo.filter = self.filter_entry.get_text()
-                    self.credo.shuttercontrol = self.shuttercontrol_checkbutton.get_active()
-                    self.credo_callback = self.credo.connect_callback('setup-changed', self.on_credo_setup_changed)
-                    self.credo_callback1 = self.credo.connect_callback('path-changed', self.on_credo_setup_changed)
-            self.credo.emit('setup-changed')
-            self.credo.emit('path-changed')
+            for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol']:
+                widget = self.__getattribute__(attrname + '_entry')
+                if isinstance(widget, Gtk.SpinButton):
+                    value = widget.get_value()
+                elif isinstance(widget, Gtk.Entry):
+                    value = widget.get_text()
+                elif isinstance(widget, Gtk.ToggleButton):
+                    value = widget.get_active()
+                if self.credo.__getattribute__(attrname) != value:
+                    print "Setting credo property: ", attrname, " to ", value
+                    self.credo.set_property(attrname, value)
         if respid != Gtk.ResponseType.APPLY:
             self.hide()
         return True
     def update_from_credo(self):
-        self.wavelength_entry.set_value(self.credo.wavelength)
-        self.beamposx_entry.set_value(self.credo.beamposx)
-        self.beamposy_entry.set_value(self.credo.beamposy)
-        self.dist_entry.set_value(self.credo.dist)
-        self.filter_entry.set_text(self.credo.filter)
-        self.pixelsize_entry.set_value(self.credo.pixelsize)
-        self.shuttercontrol_checkbutton.set_active(self.credo.shuttercontrol)
+        for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol']:
+            widget = self.__getattribute__(attrname + '_entry')
+            value = self.credo.get_property(attrname)
+            if isinstance(widget, Gtk.SpinButton):
+                widget.set_value(float(value))
+            elif isinstance(widget, Gtk.Entry):
+                widget.set_text(str(value))
+            elif isinstance(widget, Gtk.ToggleButton):
+                widget.set_active(bool(value))

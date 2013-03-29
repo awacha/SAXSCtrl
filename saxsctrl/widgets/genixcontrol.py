@@ -183,7 +183,7 @@ class GenixControl(Gtk.Dialog):
         self.update_status()
         self._timeout_handler = GObject.timeout_add_seconds(1, self.update_status)
     def update_status(self):
-        if not self.credo.is_genix_connected():
+        if not self.credo.genix.connected():
             self.hide()
             return False
         status = self.status.update_status(self.credo.genix)

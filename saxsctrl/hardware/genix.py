@@ -24,6 +24,7 @@ import modbus_tk.defines
 import threading
 import logging
 import time
+from gi.repository import GObject
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -41,35 +42,57 @@ GENIX_XRAYS_OFF = -8
 class GenixError(StandardError):
     pass
 
-class GenixConnection(object):
-    error_handler = None
+class GenixConnection(GObject.GObject):
+    __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'connect-controller':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'disconnect-controller':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    }
     _comm_lock = threading.Lock()
     _shutter_lock = threading.Lock()
     _shutter_timeout = 1
+    _tcp_timeout = 1
     _prevstate = GENIX_IDLE
-    def __init__(self, host, port=502):
-        self.connection = modbus_tk.modbus_tcp.TcpMaster(host, port)
-        self.connection.set_timeout(1)
+    def __init__(self, host=None, port=502):
+        GObject.GObject.__init__(self)
+        self.host = host
+        self.port = port
+        self.connection = None
+    def do_controller_error(self):
+        if self.connected():
+            self.disconnect_from_controller()
+    def connect_to_controller(self):
+        if self.connected():
+            raise GenixError('Already connected')
+        self.connection = modbus_tk.modbus_tcp.TcpMaster(self.host, self.port)
+        self.connection.set_timeout(self._tcp_timeout)
         try:
             self.connection.open()
-            logger.debug('Connected to GeniX at %s:%d' % (host, port))
+            logger.debug('Connected to GeniX at %s:%d' % (self.host, self.port))
+            self.emit('connect-controller')
         except:
-            raise GenixError('Cannot connect to GeniX at %s:%d' % (host, port))
+            self.connection = None
+            raise GenixError('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
+    def connected(self):
+        return self.connection is not None
+    def disconnect_from_controller(self):
+        if not self.connected():
+            raise GenixError('Not connected')
+        self.connection.close()
+        self.connection = None
+        self.emit('disconnect-controller')
     def _read_integer(self, regno):
         with self._comm_lock:
             try:
                 return self.connection.execute(1, modbus_tk.defines.READ_INPUT_REGISTERS, regno, 1)[0]
             except:
-                if hasattr(self.error_handler, '__call__'):
-                    self.error_handler.__call__('error')
+                self.emit('controller-error')
                 raise GenixError('Communication error on reading integer value.')
     def _write_coil(self, coilno, val):
         with self._comm_lock:
             try:
                 self.connection.execute(1, modbus_tk.defines.WRITE_SINGLE_COIL, coilno, 1, val)
             except:
-                if hasattr(self.error_handler, '__call__'):
-                    self.error_handler.__call__('error')
+                self.emit('controller-error')
                 raise GenixError('Communication error on writing coil.')
     def get_status_bits(self):
         """Read the status bits of GeniX.
@@ -78,8 +101,8 @@ class GenixConnection(object):
             try:
                 coils = self.connection.execute(1, modbus_tk.defines.READ_COILS, 210, 36)
             except:
-                if hasattr(self.error_handler, '__call__'):
-                    self.error_handler.__call__('error')
+                self.emit('controller-error')
+                raise
                 raise GenixError('Communication error')
             return coils
     def get_status_int(self, tup=None):

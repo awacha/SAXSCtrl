@@ -82,10 +82,7 @@ class Tool(object):
                 
 class RootWindow(Gtk.Window):
     __gsignals__ = {'camserver_disconnect':(GObject.SignalFlags.RUN_FIRST, None, ())}
-    pilatus = None
-    genix = None
     _filechooserdialogs = None
-    _tools = None
     _memusage = None
     _uptime = None
     def __init__(self):
@@ -93,10 +90,12 @@ class RootWindow(Gtk.Window):
         self._starttime = time.time()
         self.set_title('SAXS Control -- ROOT')
         self.set_resizable(False)
-        self._tools = {}  # dict of currently open tool windows.
-        self._genix_tools = []  # list of toolbuttons depending on a working connection to genix controller
-        self._pilatus_tools = []  # list of toolbuttons depending on a working connection to camserver
         self.credo = credo.Credo()
+        self.credo.connect('connect-pilatus', self.on_credo_connect_equipment, 'pilatus', True)
+        self.credo.connect('connect-genix', self.on_credo_connect_equipment, 'genix', True)
+        self.credo.connect('disconnect-pilatus', self.on_credo_connect_equipment, 'pilatus', False)
+        self.credo.connect('disconnect-genix', self.on_credo_connect_equipment, 'genix', False)
+        
         vb = Gtk.VBox()
         self.add(vb)
         f = Gtk.Frame(label='Status')
@@ -229,11 +228,19 @@ class RootWindow(Gtk.Window):
         return True
     def on_entry_changed(self, entry, entrytext):
         self.credo.__setattr__(entrytext, entry.get_text())
-
-    def on_camserver_connect(self, button):
-        if self.is_pilatus_connected():
-            self.disconnect_from_camserver()
+    def on_credo_connect_equipment(self, credo, equipment, state):
+        if equipment == 'pilatus' and state:
+            self.camserverconnect_button.set_label(Gtk.STOCK_DISCONNECT)
+        elif equipment == 'pilatus' and not state:
             self.camserverconnect_button.set_label(Gtk.STOCK_CONNECT)
+        elif equipment == 'genix' and state:
+            self.genixconnect_button.set_label(Gtk.STOCK_DISCONNECT)
+        elif equipment == 'genix' and not state:
+            self.genixconnect_button.set_label(Gtk.STOCK_CONNECT)
+        self.update_sensitivities()
+    def on_camserver_connect(self, button):
+        if self.credo.pilatus.connected():
+            self.credo.pilatus.disconnect_from_camserver()
         else:
             host = self.camserverhost_entry.get_text()
             if ':' in host:
@@ -242,17 +249,18 @@ class RootWindow(Gtk.Window):
             else:
                 port = 41234
             try:
-                self.connect_to_camserver(host, port)
+                self.credo.pilatus.host = host
+                self.credo.pilatus.port = port
+                self.credo.pilatus.connect_to_camserver()
+                self.credo.pilatus.setthreshold(4024, 'highG', blocking=False)
             except pilatus.PilatusError:
                 md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, message_format='Cannot connect to the Pilatus camserver!')
                 md.run()
                 md.destroy()
                 return
-            self.camserverconnect_button.set_label(Gtk.STOCK_DISCONNECT)
     def on_genix_connect(self, button):
-        if self.is_genix_connected():
-            self.disconnect_from_genix()
-            self.genixconnect_button.set_label(Gtk.STOCK_CONNECT)
+        if self.credo.genix.connected():
+            self.credo.genix.disconnect_from_controller()
         else:
             host = self.genixhost_entry.get_text()
             if ':' in host:
@@ -261,13 +269,14 @@ class RootWindow(Gtk.Window):
             else:
                 port = 502
             try:
-                self.connect_to_genix(host, port)
+                self.credo.genix.host = host
+                self.credo.genix.port = port
+                self.credo.genix.connect_to_controller()
             except genix.GenixError:
                 md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, message_format='Cannot connect to genix controller!')
                 md.run()
                 md.destroy()
                 return
-            self.genixconnect_button.set_label(Gtk.STOCK_DISCONNECT)
     def on_pathbutton(self, button, entry, action):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}
@@ -279,79 +288,8 @@ class RootWindow(Gtk.Window):
             entry.set_text(self._filechooserdialogs[entry].get_filename())
         self._filechooserdialogs[entry].hide()
         return True
-    def is_pilatus_connected(self):
-        return self.pilatus is not None
-    def disconnect_from_camserver(self):
-        if self.is_pilatus_connected():
-            self.pilatus.disconnect()
-            del self.pilatus
-            del self.credo.pilatus
-            self.credo.pilatus = None
-            self.pilatus = None
     def update_sensitivities(self):
         for t in self.toolbuttons:
-            t.set_sensitivity(genix=self.is_genix_connected(), pilatus=self.is_pilatus_connected())
-            
-    def connect_to_camserver(self, host, port=41234):
-        if not self.is_pilatus_connected():
-            self.pilatus = pilatus.PilatusConnection(host, port)
-            def _handler(arg, arg1):
-                GObject.idle_add(self.on_disconnect_from_camserver, arg)
-            self.pilatus.register_event_handler('disconnect_from_camserver', _handler)
-            self.credo.pilatus = self.pilatus
-            self.pilatus.setthreshold(4024, 'highG')
-        self.update_sensitivities()
-    def on_disconnect_from_camserver(self, arg):
-        if arg == 'error':
-            logger.error('Lost connection to camserver')
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, message_format='Lost connection to the Pilatus camserver!')
-            md.run()
-            md.destroy()
-        self.disconnect_from_camserver()
-        self.camserverconnect_button.set_label(Gtk.STOCK_CONNECT)
-        for p in self._pilatus_tools:
-            if p in self._tools:
-                self._tools[p].destroy()
-                del self._tools[p]
-        self.update_sensitivities()
-        self.emit('camserver_disconnect')
-    def is_genix_connected(self):
-        return self.genix is not None
-    def disconnect_from_genix(self):
-        if self.is_genix_connected():
-            # self.genix.disconnect()
-            self.genix.shutter_close(False)
-            del self.genix
-            self.genix = None
-            del self.credo.genix
-            self.credo.genix = None
-            self.on_disconnect_from_genix('normal')
-    def connect_to_genix(self, host, port=502):
-        if not self.is_genix_connected():
-            self.genix = genix.GenixConnection(host, port)
-            self.credo.genix = self.genix
-            self.genix.error_handler = self.on_disconnect_from_genix
-        self.update_sensitivities()
-    def on_disconnect_from_genix(self, arg):
-        if arg == 'error':
-            logger.error('Lost connection to genix controller')
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, message_format='Lost connection to the genix controller!')
-            md.run()
-            md.destroy()
-        self.disconnect_from_genix()
-        self.genixconnect_button.set_label(Gtk.STOCK_CONNECT)
-        for p in self._genix_tools:
-            if p in self._tools:
-                self._tools[p].destroy()
-                del self._tools[p]
-        self.update_sensitivities()
-        self.emit('camserver_disconnect')
-
-    def get_pilatus(self):
-        return self.pilatus
-    def get_genix(self):
-        return self.genix
-    def get_credo(self):
-        return self.credo
+            t.set_sensitivity(genix=self.credo.genix.connected(), pilatus=self.credo.pilatus.connected())
     def __del__(self):
         del self.credo

@@ -124,47 +124,28 @@ class BeamAlignment(Gtk.Dialog):
                 self.credo.set_sample(sample.SAXSSample(self.samplename_entry.get_text()))
                 self.credo.set_fileformat('beamtest', 5)
 
-                def _handler(imgdata):
-                    GObject.idle_add(self.on_imagereceived, imgdata)
-                    return False
                 self._images_pending = []
                 self._primask = None
-                self.credo.expose(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(), blocking=False, callback=_handler)
+                self._exposure_callback_handles = {}
+                self._exposure_callback_handles['exposure-done'] = self.credo.connect('exposure-done', self.on_imagereceived)
+                self._exposure_callback_handles['exposure-end'] = self.credo.connect('exposure-end', self.on_exposure_end)
+                self._exposure_callback_handles['exposure-fail'] = self.credo.connect('exposure-fail', self.on_exposure_fail)
+                self.credo.expose(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int())
                 self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             else:
                 self.credo.killexposure()
-                self.on_imagereceived(None)
         else:
             self.hide()
         return True
-    def on_imagereceived(self, imgdata):
-        pri = (self.pri_top_entry.get_value(),
-             self.pri_bottom_entry.get_value(),
-             self.pri_left_entry.get_value(),
-             self.pri_right_entry.get_value())
-        if imgdata is None:  # exposure failed
-            logger.debug('exposure broken.')
-        else:
-            logger.debug('image received.')
-            self._images_pending.append(imgdata)
-            if self._primask is None:
-                self._primask = sastool.classes.SASMask(imgdata.shape)
-                self._primask.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
-            if self.plot_checkbutton.get_active():
-                logger.debug('plotting received image')
-                if self.reuse_checkbutton.get_active():
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
-                    win.set_exposure(imgdata)
-                    win.show_all()
-                    win.present()
-                else:
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow(imgdata)
-                    win.show_all()
-                if not ((pri[0] == pri[1]) and (pri[2] == pri[3])):
-                    win.plot.gca().axis((pri[2], pri[3], pri[1], pri[0]))
-                    win.plot.canvas.draw()
-            if len(self._images_pending) < self.nimages_entry.get_value_as_int():
-                return False
+    def on_exposure_fail(self, credo):
+        logger.error('Exposure failed to load.')
+        return True
+    def on_exposure_end(self, credo, state):
+        for k in self._exposure_callback_handles:
+            self.credo.disconnect(self._exposure_callback_handles[k])
+        self._exposure_callback_handles = {}
+        if not state:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.OK, 'User break!')
         logger.debug('last image received, analyzing images.')
         self.beamposframe.set_sensitive(True)
         self.entrytable.set_sensitive(True)
@@ -209,5 +190,34 @@ class BeamAlignment(Gtk.Dialog):
         self._images_pending = []
         self._primask = None
         gc.collect()
+            
+    def on_imagereceived(self, credo, imgdata):
+        pri = (self.pri_top_entry.get_value(),
+             self.pri_bottom_entry.get_value(),
+             self.pri_left_entry.get_value(),
+             self.pri_right_entry.get_value())
+        if imgdata is None:  # exposure failed
+            logger.debug('exposure broken.')
+        else:
+            logger.debug('image received.')
+            self._images_pending.append(imgdata)
+            if self._primask is None:
+                self._primask = sastool.classes.SASMask(imgdata.shape)
+                self._primask.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
+            if self.plot_checkbutton.get_active():
+                logger.debug('plotting received image')
+                if self.reuse_checkbutton.get_active():
+                    win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
+                    win.set_exposure(imgdata)
+                    win.show_all()
+                    win.present()
+                else:
+                    win = sasgui.plot2dsasimage.PlotSASImageWindow(imgdata)
+                    win.show_all()
+                if not ((pri[0] == pri[1]) and (pri[2] == pri[3])):
+                    win.plot.gca().axis((pri[2], pri[3], pri[1], pri[0]))
+                    win.plot.canvas.draw()
+            if len(self._images_pending) < self.nimages_entry.get_value_as_int():
+                return False
         return False
     
