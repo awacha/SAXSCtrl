@@ -8,7 +8,7 @@ import logging
 
 from widgets import StatusLabel
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 

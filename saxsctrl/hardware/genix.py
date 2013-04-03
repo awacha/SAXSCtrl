@@ -21,13 +21,13 @@ current is finite, as this operation WILL DAMAGE THE POWER SOURCE!!! Be warned.
 
 import modbus_tk.modbus_tcp
 import modbus_tk.defines
-import threading
+import multiprocessing
 import logging
 import time
 from gi.repository import GObject
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 GENIX_IDLE = 0
 GENIX_POWERDOWN = -1
@@ -42,13 +42,37 @@ GENIX_XRAYS_OFF = -8
 class GenixError(StandardError):
     pass
 
+class LoggingLock(object):
+    def __init__(self, name, loglevel=logging.DEBUG):
+        self.lock = multiprocessing.Lock()
+        self.name = name
+        self.loglevel = loglevel
+        self.lockstate = False
+    def acquire(self, *args, **kwargs):
+        logger.log(self.loglevel, 'Acquiring lock: ' + self.name + 'State before: ' + str(self.lockstate))
+        logger.log(self.loglevel, 'Lock is: ' + self.name + str())
+        res = self.lock.acquire(*args, **kwargs)
+        self.lockstate = True
+        logger.log(self.loglevel, 'Acquired lock: ' + self.name)
+        return res
+    def release(self, *args, **kwargs):
+        logger.log(self.loglevel, 'Releasing lock: ' + self.name + 'State before: ' + str(self.lockstate))
+        res = self.lock.release(*args, **kwargs)
+        self.lockstate = False
+        logger.log(self.loglevel, 'Released lock: ' + self.name)
+        return res
+    def __enter__(self):
+        return self.acquire()
+    def __exit__(self, type, value, traceback):
+        return self.release()
+    
 class GenixConnection(GObject.GObject):
     __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'connect-controller':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'disconnect-controller':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     }
-    _comm_lock = threading.Lock()
-    _shutter_lock = threading.Lock()
+    _communications_lock = None
+    _shutter_lock = None
     _shutter_timeout = 1
     _tcp_timeout = 1
     _prevstate = GENIX_IDLE
@@ -57,38 +81,44 @@ class GenixConnection(GObject.GObject):
         self.host = host
         self.port = port
         self.connection = None
+        self._communications_lock = LoggingLock('Communications lock')
+        self._shutter_lock = LoggingLock('Shutter lock')
+        # self._communications_lock = multiprocessing.Lock()
+        # self._shutter_lock = multiprocessing.Lock()
     def do_controller_error(self):
         if self.connected():
             self.disconnect_from_controller()
     def connect_to_controller(self):
-        if self.connected():
-            raise GenixError('Already connected')
-        self.connection = modbus_tk.modbus_tcp.TcpMaster(self.host, self.port)
-        self.connection.set_timeout(self._tcp_timeout)
-        try:
-            self.connection.open()
-            logger.debug('Connected to GeniX at %s:%d' % (self.host, self.port))
-            self.emit('connect-controller')
-        except:
-            self.connection = None
-            raise GenixError('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
+        with self._communications_lock:
+            if self.connected():
+                raise GenixError('Already connected')
+            self.connection = modbus_tk.modbus_tcp.TcpMaster(self.host, self.port)
+            self.connection.set_timeout(self._tcp_timeout)
+            try:
+                self.connection.open()
+                logger.debug('Connected to GeniX at %s:%d' % (self.host, self.port))
+                self.emit('connect-controller')
+            except:
+                self.connection = None
+                raise GenixError('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
     def connected(self):
         return self.connection is not None
     def disconnect_from_controller(self):
-        if not self.connected():
-            raise GenixError('Not connected')
-        self.connection.close()
-        self.connection = None
-        self.emit('disconnect-controller')
+        with self._communications_lock:
+            if not self.connected():
+                raise GenixError('Not connected')
+            self.connection.close()
+            self.connection = None
+            self.emit('disconnect-controller')
     def _read_integer(self, regno):
-        with self._comm_lock:
+        with self._communications_lock:
             try:
                 return self.connection.execute(1, modbus_tk.defines.READ_INPUT_REGISTERS, regno, 1)[0]
             except:
                 self.emit('controller-error')
                 raise GenixError('Communication error on reading integer value.')
     def _write_coil(self, coilno, val):
-        with self._comm_lock:
+        with self._communications_lock:
             try:
                 self.connection.execute(1, modbus_tk.defines.WRITE_SINGLE_COIL, coilno, 1, val)
             except:
@@ -97,12 +127,13 @@ class GenixConnection(GObject.GObject):
     def get_status_bits(self):
         """Read the status bits of GeniX.
         """
-        with self._comm_lock:
+        logging.debug('Acquiring communications lock')
+        with self._communications_lock:
+            logging.debug('Acquired comm. lock')
             try:
                 coils = self.connection.execute(1, modbus_tk.defines.READ_COILS, 210, 36)
             except:
                 self.emit('controller-error')
-                raise
                 raise GenixError('Communication error')
             return coils
     def get_status_int(self, tup=None):
@@ -153,7 +184,9 @@ class GenixConnection(GObject.GObject):
     def isremote(self):
         return self.get_status()['DISTANT_MODE']
     def shutter_open(self, wait_for_completion=True):
+        logger.debug('Acquiring shutter lock.')
         with self._shutter_lock:
+            logger.debug('Checking if we are in remote mode.')
             if not self.isremote():
                 raise GenixError('Not in remote mode')
             logger.debug('Opening shutter.')

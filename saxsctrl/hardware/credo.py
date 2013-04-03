@@ -20,7 +20,7 @@ import multiprocessing
 from . import datareduction
 from . import sample
 logger = logging.getLogger('credo')
-# logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.DEBUG)
 
 class CredoError(Exception):
     pass
@@ -70,8 +70,6 @@ class CredoExposureNotifier(threading.Thread):
             pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
             self.headertemplate.update(pilatusheader)
             self.headertemplate['EndDate'] = datetime.datetime.now()
-            self.headertemplate['GeniX_HT_end'] = self.genix.get_ht()
-            self.headertemplate['GeniX_Current_end'] = self.genix.get_current()
             self.headertemplate.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % self.headertemplate['FSN']))
             logger.debug('Header %s written.' % (self.expparams['headerformat'] % self.headertemplate['FSN']))
             self.headertemplate['FSN'] += 1
@@ -106,6 +104,7 @@ class CredoExpose(multiprocessing.Process):
         self.notifierthread = None
         self._exposurefinished_switch = multiprocessing.Event()
         self._exposurefinished_handle = None
+        self._statelock = multiprocessing.Lock()
     def run(self):
         while not self.killswitch.is_set():
             try:
@@ -119,12 +118,22 @@ class CredoExpose(multiprocessing.Process):
                 try:
                     firstfsn = headertemplate['FSN']
                     if expparams['shuttercontrol']:
+                        logger.info('Opening shutter')
                         self.genix.shutter_open()
+                        logger.info('Shutter should now be opened.')
                     self.userbreakswitch.clear()
+                    logger.info('Executing pilatus.expose()')
+                    with self._statelock:
+                        self._exposurefinished_handle = self.pilatus.connect('camserver-exposurefinished', self.on_exposurefinished)
                     self.pilatus.expose(expparams['exptime'], expparams['exposureformat'] % firstfsn, expparams['expnum'], expparams['dwelltime'])
+                    logger.info('Starting notifier thread.')
                     self.notifierthread.start()
-                    self._exposurefinished_handle = self.pilatus.connect('camserver-exposurefinished', self.on_exposurefinished)
+                    logger.debug('Waiting for exposurefinished_switch.')
                     self._exposurefinished_switch.wait((expparams['exptime'] + expparams['dwelltime']) * expparams['expnum'] + 3)
+                    if self._exposurefinished_switch.is_set():
+                        logger.debug('Exposurefinished switch was set.')
+                    else:
+                        logger.debug('Exposurefinished switch timeout.')
                     if expparams['shuttercontrol']:
                         self.genix.shutter_close()
                 finally:
@@ -133,8 +142,9 @@ class CredoExpose(multiprocessing.Process):
                         self.notifierthread.join()
                     self.notifierthread = None
     def on_exposurefinished(self, pilatus, state, message):
-        self.pilatus.disconnect(self._exposurefinished_handle)
-        self._exposurefinished_switch.set()
+        with self._statelock:
+            self.pilatus.disconnect(self._exposurefinished_handle)
+            self._exposurefinished_switch.set()
         return True
         
 class Credo(GObject.GObject):

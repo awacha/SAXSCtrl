@@ -20,7 +20,7 @@ from gi.repository import Gtk
 import multiprocessing
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class PilatusError(StandardError):
     pass

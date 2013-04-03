@@ -1,3 +1,4 @@
+import collections
 from gi.repository import Gtk
 import matplotlib.pyplot as plt
 import sasgui
@@ -7,9 +8,10 @@ import gc
 from ..hardware import sample
 import logging
 import sastool
+from .spec_filechoosers import FileEntryWithButton
 
 logger = logging.getLogger('beamalignment')
-# logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class BeamAlignment(Gtk.Dialog):
@@ -42,6 +44,12 @@ class BeamAlignment(Gtk.Dialog):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 10000, 1, 10), digits=0)
         tab.attach(self.nimages_entry, 1, 2, row, row + 1)
+        row += 1
+        
+        l = Gtk.Label(label='Initial mask:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.mask_entry = FileEntryWithButton(currentfolder=self.credo.maskpath)
+        tab.attach(self.mask_entry, 1, 2, row, row + 1)
         row += 1
         
         self.plot_checkbutton = Gtk.CheckButton('Plot after exposure')
@@ -103,10 +111,23 @@ class BeamAlignment(Gtk.Dialog):
         
         f = Gtk.Frame(label='Found position:')
         vb.pack_start(f, False, True, 0)
-        self.beamposlabel = Gtk.Label(label='No position yet.')
-        f.add(self.beamposlabel)
-        self.beamposlabel.set_alignment(0, 0.5)
-        
+        tab = Gtk.Table()
+        f.add(tab)
+        l = Gtk.Label(label='Mean value')
+        tab.attach(l, 1, 2, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        l = Gtk.Label(label='Std. value')
+        tab.attach(l, 2, 3, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        l = Gtk.Label(label='# of data')
+        tab.attach(l, 3, 4, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.resultlabels = collections.OrderedDict()
+        for row, name in enumerate(['X Pos', 'Y Pos', 'X RMS', 'Y RMS', 'Total RMS', 'Max intensity', 'Mean intensity', 'RMS intensity', 'Total intensity']):
+            thislabel = {}
+            l = Gtk.Label(label=name); l.set_alignment(0, 0.5)
+            tab.attach(l, 0, 1, row + 1, row + 2, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+            for col, what in enumerate(['mean', 'rms', 'num']):
+                thislabel[what] = Gtk.Label(label='--'); thislabel[what].set_alignment(0, 0.5)
+                tab.attach(thislabel[what], col + 1, col + 2, row + 1, row + 2, xpadding=3)
+            self.resultlabels[name] = thislabel
         self.connect('response', self.on_response)
         vb.show_all()
     def on_threshold_toggled(self, cb, entry):
@@ -125,7 +146,6 @@ class BeamAlignment(Gtk.Dialog):
                 self.credo.set_fileformat('beamtest', 5)
 
                 self._images_pending = []
-                self._primask = None
                 self._exposure_callback_handles = {}
                 self._exposure_callback_handles['exposure-done'] = self.credo.connect('exposure-done', self.on_imagereceived)
                 self._exposure_callback_handles['exposure-end'] = self.credo.connect('exposure-end', self.on_exposure_end)
@@ -140,13 +160,31 @@ class BeamAlignment(Gtk.Dialog):
     def on_exposure_fail(self, credo):
         logger.error('Exposure failed to load.')
         return True
+    def get_beamarea(self):
+        return (self.pri_top_entry.get_value(), self.pri_bottom_entry.get_value(), self.pri_left_entry.get_value(), self.pri_right_entry.get_value()) 
     def on_exposure_end(self, credo, state):
         for k in self._exposure_callback_handles:
             self.credo.disconnect(self._exposure_callback_handles[k])
         self._exposure_callback_handles = {}
         if not state:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.OK, 'User break!')
+            md.run()
+            md.destroy()
+            del md
+            return
         logger.debug('last image received, analyzing images.')
+        try:
+            mask = sastool.classes.SASMask(self.mask_entry.get_filename())
+        except IOError:
+            mask = sastool.classes.SASMask(self._images_pending[0].shape)
+        pri = self.get_beamarea()
+        if (pri[0] - pri[1]) * (pri[2] - pri[3]) == 0:
+            pass  # do not touch the base mask
+        else:
+            mask1 = sastool.classes.SASMask(self._images_pending[0].shape)
+            mask1.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
+            mask &= mask1
+            del mask1
         self.beamposframe.set_sensitive(True)
         self.entrytable.set_sensitive(True)
         self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(True)
@@ -156,68 +194,53 @@ class BeamAlignment(Gtk.Dialog):
             threshold = self.threshold_entry.get_value()
         else:
             threshold = None
-        bcx = []
-        bcy = []
-        Imax = []
-        Isum = []
-        Imean = []
-        Istd = []
+        beampos = []
         for ex in self._images_pending:
             try:
-                bx, by = ex.find_beam_semitransparent(pri, threshold)
-                if self._primask is not None:
-                    Imax.append(ex.max(mask=self._primask))
-                    Isum.append(ex.sum(mask=self._primask))
-                    Imean.append(ex.mean(mask=self._primask))
-                    Istd.append(ex.std(mask=self._primask))
+                if threshold is not None:
+                    beampos.append(ex.find_beam_semitransparent(pri, threshold))
                 else:
-                    Imax.append(ex.Intensity.max())
-                bcx.append(bx); bcy.append(by)
-            except Exception as ex:
-                print ex.message
-                pass
-        if bcx and bcy and Imax:
-            self.beamposlabel.set_text('X (row): ' + str(np.mean(bcx)) + ' +/- ' + str(np.std(bcx)) + ' (from ' + str(len(bcx)) + ' data)' + 
-                                       '\nY (column): ' + str(np.mean(bcy)) + ' +/- ' + str(np.std(bcy)) + ' (from ' + str(len(bcy)) + ' data)' + 
-                                       '\nMax. intensity: ' + str(np.mean(Imax)) + ' +/- ' + str(np.std(Imax)) + ' (from ' + str(len(Imax)) + ' data)' + 
-                                       '\nSum intensity: ' + str(np.mean(Isum)) + ' +/- ' + str(np.std(Isum)) + ' ( from ' + str(len(Isum)) + ' data)' + 
-                                       '\nMean intensity: ' + str(np.mean(Imean)) + ' +/- ' + str(np.std(Imean)) + ' ( from ' + str(len(Imean)) + ' data)' + 
-                                       '\nStddev intensity: ' + str(np.mean(Istd)) + ' +/- ' + str(np.std(Istd)) + ' ( from ' + str(len(Istd)) + ' data)' + 
-                                       '\nFiles loaded: ' + str(len(self._images_pending)))
-            logger.debug('BeamX: %f; BeamY: %f; Imax: %f; Isum: %f; Imean: %f; Istd: %f' % (np.mean(bcx), np.mean(bcy), np.mean(Imax), np.mean(Isum), np.mean(Imean), np.mean(Istd)))
-        else:
-            self.beamposlabel.set_text('Error in beam positioning, try to disable or tune threshold.')
+                    beampos.append(ex.barycenter(mask=mask))
+            except Exception, err:
+                logger.error('Beam finding error: ' + err.message)
+        bcx = [b[0] for b in beampos]
+        bcy = [b[1] for b in beampos]
+        Imax = [ex.max(mask=mask) for ex in self._images_pending]
+        Isum = [ex.sum(mask=mask) for ex in self._images_pending]
+        Imean = [ex.mean(mask=mask) for ex in self._images_pending]
+        Istd = [ex.std(mask=mask) for ex in self._images_pending]
+        sigma = [ex.sigma(mask=mask) for ex in self._images_pending]
+        sigmax = [s[0] for s in sigma]
+        sigmay = [s[1] for s in sigma]
+        sigmatot = [(s[0] ** 2 + s[1] ** 2) ** 0.5 for s in sigma]
+        for name, entity in [('X Pos', bcx), ('Y Pos', bcy), ('X RMS', sigmax), ('Y RMS', sigmay), ('Total RMS', sigmatot), ('Max intensity', Imax),
+                            ('Mean intensity', Imean), ('RMS intensity', Istd), ('Total intensity', Isum)]:
+            self.resultlabels[name]['mean'].set_text(str(np.mean(entity)))
+            self.resultlabels[name]['rms'].set_text(str(np.std(entity)))
+            self.resultlabels[name]['num'].set_text(str(len(entity)))
+        logger.debug('BeamX: %f; BeamY: %f; Imax: %f; Isum: %f; Imean: %f; Istd: %f' % (np.mean(bcx), np.mean(bcy), np.mean(Imax), np.mean(Isum), np.mean(Imean), np.mean(Istd)))
         self._images_pending = []
-        self._primask = None
         gc.collect()
             
     def on_imagereceived(self, credo, imgdata):
         pri = (self.pri_top_entry.get_value(),
-             self.pri_bottom_entry.get_value(),
-             self.pri_left_entry.get_value(),
-             self.pri_right_entry.get_value())
-        if imgdata is None:  # exposure failed
-            logger.debug('exposure broken.')
-        else:
-            logger.debug('image received.')
-            self._images_pending.append(imgdata)
-            if self._primask is None:
-                self._primask = sastool.classes.SASMask(imgdata.shape)
-                self._primask.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
-            if self.plot_checkbutton.get_active():
-                logger.debug('plotting received image')
-                if self.reuse_checkbutton.get_active():
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
-                    win.set_exposure(imgdata)
-                    win.show_all()
-                    win.present()
-                else:
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow(imgdata)
-                    win.show_all()
-                if not ((pri[0] == pri[1]) and (pri[2] == pri[3])):
-                    win.plot.gca().axis((pri[2], pri[3], pri[1], pri[0]))
-                    win.plot.canvas.draw()
-            if len(self._images_pending) < self.nimages_entry.get_value_as_int():
-                return False
+               self.pri_bottom_entry.get_value(),
+               self.pri_left_entry.get_value(),
+               self.pri_right_entry.get_value())
+        logger.debug('image received.')
+        self._images_pending.append(imgdata)
+        if self.plot_checkbutton.get_active():
+            logger.debug('plotting received image')
+            if self.reuse_checkbutton.get_active():
+                win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
+                win.set_exposure(imgdata)
+                win.show_all()
+                win.present()
+            else:
+                win = sasgui.plot2dsasimage.PlotSASImageWindow(imgdata)
+                win.show_all()
+            if not ((pri[0] == pri[1]) and (pri[2] == pri[3])):
+                win.plot.gca().axis((pri[2], pri[3], pri[1], pri[0]))
+                win.plot.canvas.draw()
         return False
     
