@@ -10,9 +10,11 @@ import sasgui
 import datetime
 import os
 from .data_reduction_setup import PleaseWaitInfoBar
+import qrcode
 
 class SingleExposure(Gtk.Dialog):
     _filechooserdialogs = None
+    _exposure_callback_handles = None
     def __init__(self, credo, title='Single exposure', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
@@ -104,11 +106,14 @@ class SingleExposure(Gtk.Dialog):
         
         vb.pack_start(NextFSNMonitor(self.credo, 'Next exposure'), True, True, 0)
         
-        self.credo.connect_callback('samples-changed', self.reload_samples)
+        self._credo_connections = [self.credo.connect('samples-changed', self.reload_samples)]
         self.reload_samples()
         self.connect('response', self.on_response)
         self._datareduction = []
         self._expsleft = 0
+    def do_destroy(self):
+        for c in self._credo_connections:
+            self.credo.disconnect(c)
     def reload_samples(self, *args):
         self.sample_combo.get_model().clear()
         idx = 0
@@ -136,6 +141,14 @@ class SingleExposure(Gtk.Dialog):
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK:
             if self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == Gtk.STOCK_EXECUTE:
+                try:
+                    sastool.classes.SASMask(self.maskfile_entry.get_text())
+                except (NotImplementedError, IOError):
+                    md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, "Please select a valid mask!")
+                    md.run()
+                    md.destroy()
+                    del md
+                    return
                 sam = self.credo.get_samples()[self.sample_combo.get_active()]
                 logger.info('Starting single exposure on sample: ' + str(sam))
                 # make an exposure
@@ -144,21 +157,17 @@ class SingleExposure(Gtk.Dialog):
                 sam = self.credo.get_samples()[self.sample_combo.get_active()]
                 self.credo.set_sample(sam)
                 self.credo.set_fileformat('crd', 5)
-                def _handler(imgdata):
-                    GObject.idle_add(self.on_imagereceived, imgdata)
-                    return False
                 logger.debug('Calling credo.expose')
                 header_template = {'maskid':self.maskfile_entry.get_text()}
-                if isinstance(sam.thickness, sastool.misc.errorvalue.ErrorValue):
-                    header_template['ThicknessError'] = sam.thickness.err
-                
-                self._expsleft = self.nimages_entry.get_value_as_int()
-                self.credo.expose(self.exptime_entry.get_value(), self._expsleft, self.dwelltime_entry.get_value(), blocking=False, callback=_handler, header_template=header_template)
+                self._exposure_callback_handles = {}
+                self._exposure_callback_handles['exposure-done'] = self.credo.connect('exposure-done', self.on_imagereceived)
+                self._exposure_callback_handles['exposure-end'] = self.credo.connect('exposure-end', self.on_exposure_end)
+                self._exposure_callback_handles['exposure-fail'] = self.credo.connect('exposure-fail', self.on_exposure_fail)
+                self.credo.expose(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(), self.dwelltime_entry.get_value(), header_template=header_template)
                 self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             else:
                 # break the exposure
                 self.credo.killexposure()
-                self.on_imagereceived(None)
         elif respid == Gtk.ResponseType.CLOSE:
             self.hide()
             return
@@ -169,7 +178,6 @@ class SingleExposure(Gtk.Dialog):
             return False
         exposure.write(os.path.join(self.credo.eval2dpath, 'crd_%05d.h5' % exposure['FSN']))
         exposure.radial_average().save(os.path.join(self.credo.eval1dpath, 'crd_%05d.txt' % exposure['FSN']))
-        self.on_imagereceived(exposure, skip_datareduction=True)
         self._datareduction.remove(jobidx)
         self.datared_infobar.set_n_jobs(len(self._datareduction))
         if not self._datareduction:  # no more running jobs
@@ -177,6 +185,7 @@ class SingleExposure(Gtk.Dialog):
                 self.credo.datareduction.disconnect(c)
             self.datared_infobar.destroy()
             del self.datared_infobar
+        GObject.idle_add(self.plot_image, exposure)
         return True
     def on_datareduction_message(self, datareduction, jobidx, message):
         if not hasattr(self, '_datareduction'):
@@ -185,53 +194,56 @@ class SingleExposure(Gtk.Dialog):
             return False
         self.datared_infobar.set_label_text(message)
         return True
-    def on_imagereceived(self, exposure, skip_datareduction=False):
-        if exposure is not None:
-            mask = sastool.classes.SASMask(self.maskfile_entry.get_text())
-            exposure.set_mask(mask)
-            if self.datareduction_cb.get_active() and not skip_datareduction:
-                if not hasattr(self, 'datared_infobar'):
-                    self.datared_infobar = PleaseWaitInfoBar()
-                    self.get_content_area().pack_start(self.datared_infobar, False, False, 0)
-                    self.get_content_area().reorder_child(self.datared_infobar, 0)
-                    self.datared_infobar.show_all()
-                    self._datared_connection = [self.credo.datareduction.connect('done', self.on_datareduction_done),
-                                                self.credo.datareduction.connect('message', self.on_datareduction_message)]
-                self._datareduction.append(self.credo.datareduction.do_reduction(exposure))
-                self.datared_infobar.set_n_jobs(len(self._datareduction))
-                return False
-            if self.plot2D_checkbutton.get_active():
-                if self.reuse2D_checkbutton.get_active():
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
-                    win.set_exposure(exposure)
-                    win.show_all()
-                    win.present()
-                else:
-                    def cbfunc(ex, fig, ax):
-                        ax.set_title(str(ex.header))
-                        fig.text(1, 0, self.credo.username + '@CREDO' + str(datetime.datetime.now()), ha='right', va='bottom')
-                    win = sasgui.plot2dsasimage.PlotSASImageWindow(exposure, after_draw_cb=cbfunc)
-                    win.show_all()
-            if self.plot1D_checkbutton.get_active():
-                if self.q_or_pixel_checkbutton.get_active():
-                    rad = exposure.radial_average()
-                else:
-                    rad = exposure.radial_average(pixel=True)
-                if self.reuse2D_checkbutton.get_active():
-                    win = sasgui.plot1dsascurve.PlotSASCurveWindow.get_current_plot()
-                else:
-                    win = sasgui.plot1dsascurve.PlotSASCurveWindow()
-                func = win.__getattribute__(self.plot1d_method.get_active_text())
-                func(rad, label=str(exposure.header))
-                win.legend(loc='best')
-                win.show_all()
-                win.present()
-            self._expsleft -= 1
+    def on_exposure_end(self, credo, state):
+        for k in self._exposure_callback_handles:
+            self.credo.disconnect(self._exposure_callback_handles[k])
+        self._exposure_callback_handles = {}
+        if not state:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.OK, 'User break!')
+            md.run()
+            md.destroy()
+            del md
+        self.entrytab.set_sensitive(True)
+        self.get_widget_for_response(Gtk.ResponseType.CLOSE).set_sensitive(True)
+        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
+    def on_exposure_fail(self, credo):
+        logger.error('Exposure failed to load.')
+        return True
+    def plot_image(self, exposure):
+        if self.plot2D_checkbutton.get_active():
+            if self.reuse2D_checkbutton.get_active():
+                win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
+            else:
+                win = sasgui.plot2dsasimage.PlotSASImageWindow()
+            win.set_exposure(exposure)
+            win.set_bottomrightdata(self.credo.username + '@CREDO ' + str(exposure['Date']))
+            win.set_bottomleftdata(qrcode.make(self.credo.username + '@CREDO://' + str(exposure.header) + ' ' + str(exposure['Date']), box_size=10))
+            win.show_all()
+            win.present()
+        if self.plot1D_checkbutton.get_active():
+            rad = exposure.radial_average(pixel=not self.q_or_pixel_checkbutton.get_active())
+            if self.reuse2D_checkbutton.get_active():
+                win = sasgui.plot1dsascurve.PlotSASCurveWindow.get_current_plot()
+            else:
+                win = sasgui.plot1dsascurve.PlotSASCurveWindow()
+            func = win.__getattribute__(self.plot1d_method.get_active_text())
+            func(rad, label=str(exposure.header))
+            win.legend(loc='best')
+            win.show_all()
+            win.present()
+        return False
+    def on_imagereceived(self, credo, exposure):
+        mask = sastool.classes.SASMask(self.maskfile_entry.get_text())
+        exposure.set_mask(mask)
+        if self.datareduction_cb.get_active():
+            if not hasattr(self, 'datared_infobar'):
+                self.datared_infobar = PleaseWaitInfoBar()
+                self.get_content_area().pack_start(self.datared_infobar, False, False, 0)
+                self.get_content_area().reorder_child(self.datared_infobar, 0)
+                self.datared_infobar.show_all()
+                self._datared_connection = [self.credo.datareduction.connect('done', self.on_datareduction_done),
+                                            self.credo.datareduction.connect('message', self.on_datareduction_message)]
+            self._datareduction.append(self.credo.datareduction.do_reduction(exposure))
+            self.datared_infobar.set_n_jobs(len(self._datareduction))
         else:
-            self._expsleft = 0
-        if not self._expsleft:
-            self.entrytab.set_sensitive(True)
-            self.get_widget_for_response(Gtk.ResponseType.CLOSE).set_sensitive(True)
-            self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
-        return False   
-            
+            GObject.idle_add(self.plot_image, exposure)

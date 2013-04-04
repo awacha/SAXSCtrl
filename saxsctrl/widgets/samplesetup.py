@@ -211,14 +211,11 @@ class SampleListDialog(Gtk.Dialog):
         if respid == RESPONSE_CLOSE:
             self.hide()
         elif respid == RESPONSE_SAVE:
-            cp = ConfigParser.ConfigParser()
-            for i, sam in enumerate(self.sampleliststore):
-                sam[-1].save_to_ConfigParser(cp, 'Sample_%03d' % i)
-            with open(os.path.expanduser('~/.config/credo/samplerc'), 'w+') as f:
-                cp.write(f)
+            self.to_credo()
+            self.credo.save_samples()
         elif respid == RESPONSE_LOAD:
-            for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/samplerc')):
-                self.add_sample(sam)
+            self.credo.load_samples()
+            self.from_credo()
         elif respid == RESPONSE_CLEAR:
             self.sampleliststore.clear()
         elif respid == RESPONSE_REFRESH:

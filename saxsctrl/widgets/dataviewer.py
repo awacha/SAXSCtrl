@@ -8,6 +8,7 @@ from .spec_filechoosers import MaskChooserDialog
 import datetime
 from .data_reduction_setup import DataRedSetup, PleaseWaitDialog
 from ..hardware.datareduction import DataReduction
+import qrcode
 
 class DataViewer(Gtk.Dialog):
     _filechooserdialogs = None
@@ -82,12 +83,12 @@ class DataViewer(Gtk.Dialog):
         
         p = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(p, True, True, 0)
-        self.plot2d = sasgui.PlotSASImage(after_draw_cb=self.plot2d_after_draw_cb)
+        self.plot2d = sasgui.PlotSASImage()
         self.plot2d.set_size_request(200, -1)
-        p.pack1(self.plot2d, True, True)
+        p.pack1(self.plot2d, True, False)
         self.plot1d = sasgui.PlotSASCurve()
         self.plot1d.set_size_request(200, -1)
-        p.pack2(self.plot1d, False, True)
+        p.pack2(self.plot1d, True, False)
         p.set_size_request(-1, 480)
         self.connect('response', self.on_response)
         # self.connect('delete-event', self.hide_on_delete)
@@ -96,9 +97,6 @@ class DataViewer(Gtk.Dialog):
         vb.show_all()
     def on_checkbox_with_entry(self, cb, entry):
         entry.set_sensitive(cb.get_active())
-    def plot2d_after_draw_cb(self, exposure, fig, axes):
-        axes.set_title(str(exposure.header))
-        fig.text(1, 0, self.credo.username + '@CREDO ' + str(datetime.datetime.now()), ha='right', va='bottom')
     def on_data_reduction_callback(self, datared, idx, message_or_exposure):
         if idx != self._datared_jobidx:
             return False
@@ -208,9 +206,17 @@ class DataViewer(Gtk.Dialog):
             del md
         else:
             self.plot2d.set_exposure(ex)
+            self.plot2d.set_bottomrightdata(ex['Owner'] + '@CREDO ' + str(ex['Date']))
+            self.plot2d.set_bottomleftdata(qrcode.make(ex['Owner'] + '@CREDO://' + str(ex.header) + ' ' + str(ex['Date']), box_size=10))
             self.plot1d.cla()
-            self.plot1d.loglog(ex.radial_average())
-            self.plot1d.legend(loc='best')
+            try:
+                rad = ex.radial_average()
+            except sastool.classes.SASExposureException:
+                self.plot1d.gca().text(0.5, 0.5, 'No mask - no radial average.', ha='center', va='center', transform=self.plot1d.gca().transAxes)
+            else:
+                self.plot1d.cla()
+                self.plot1d.loglog(ex.radial_average())
+                self.plot1d.legend(loc='best')
         return False
     def on_editmask(self, widget):
         maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.exposure)

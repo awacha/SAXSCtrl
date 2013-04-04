@@ -163,6 +163,10 @@ class BeamAlignment(Gtk.Dialog):
     def get_beamarea(self):
         return (self.pri_top_entry.get_value(), self.pri_bottom_entry.get_value(), self.pri_left_entry.get_value(), self.pri_right_entry.get_value()) 
     def on_exposure_end(self, credo, state):
+        self.beamposframe.set_sensitive(True)
+        self.entrytable.set_sensitive(True)
+        self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(True)
+        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
         for k in self._exposure_callback_handles:
             self.credo.disconnect(self._exposure_callback_handles[k])
         self._exposure_callback_handles = {}
@@ -185,10 +189,6 @@ class BeamAlignment(Gtk.Dialog):
             mask1.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
             mask &= mask1
             del mask1
-        self.beamposframe.set_sensitive(True)
-        self.entrytable.set_sensitive(True)
-        self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(True)
-        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
         
         if self.threshold_checkbutton.get_active():
             threshold = self.threshold_entry.get_value()

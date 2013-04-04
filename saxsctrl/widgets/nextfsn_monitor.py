@@ -25,6 +25,6 @@ class NextFSNMonitor(Gtk.Frame):
         self.nextfsn_label.set_text(str(self.credo.get_next_fsn()))
     def on_destroy(self, *args):
         for sig, cb in self._credo_conns:
-            self.credo.disconnect(sig, cb)
+            self.credo.disconnect(cb)
         del self._credo_conns
         return False

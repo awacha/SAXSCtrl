@@ -26,67 +26,74 @@ class CredoError(Exception):
     pass
 
 class CredoExposureNotifier(threading.Thread):
-    def __init__(self, expparams, headertemplate, outqueue, userbreak, name=None, group=None):
+    def __init__(self, expparams, headertemplate, outqueue, userbreak, expfinished, name=None, group=None):
         threading.Thread.__init__(self, name=name, group=group)
         self.headertemplate = headertemplate
         self.expparams = expparams
         self.outqueue = outqueue
         self.userbreakswitch = userbreak
+        self.exposurefinishedswitch = expfinished
     def run(self):
-        self.expparams['firstfsn'] = self.headertemplate['FSN']
-        logger.debug('Notifier thread starting. Exptime: %(exptime)f; expnum: %(expnum)d; dwelltime: %(dwelltime)f; filenameformat: %(exposureformat)s; headernameformat: %(headerformat)s; firstfsn: %(firstfsn)d.' % self.expparams)
-        t0 = time.time()
-        for i in range(0, self.expparams['expnum']):
-            t1 = time.time()
-            nextend = t0 + self.expparams['exptime'] * (i + 1) + self.expparams['dwelltime'] * i + 0.005
-            if nextend > t1:
-                logger.debug('Sleeping %f seconds' % (nextend - t1))
-                is_userbreak = self.userbreakswitch.wait(nextend - t1)
-            else:
-                logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
-                is_userbreak = self.userbreakswitch.is_set()
-            if is_userbreak:
-                self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
-                return
-            filename = os.path.join(self.expparams['imagepath'], self.expparams['exposureformat'] % (self.expparams['firstfsn'] + i))
-            try:
-                f = open(filename, 'r')
-                exists = True
-                f.close()
-            except IOError:
-                exists = False
-            while not exists:
-                logger.debug('Waiting for file: ' + filename)
+        try:
+            self.expparams['firstfsn'] = self.headertemplate['FSN']
+            logger.debug('Notifier thread starting. Exptime: %(exptime)f; expnum: %(expnum)d; dwelltime: %(dwelltime)f; filenameformat: %(exposureformat)s; headernameformat: %(headerformat)s; firstfsn: %(firstfsn)d.' % self.expparams)
+            t0 = time.time()
+            for i in range(0, self.expparams['expnum']):
+                t1 = time.time()
+                nextend = t0 + self.expparams['exptime'] * (i + 1) + self.expparams['dwelltime'] * i + 0.005
+                if nextend > t1:
+                    logger.debug('Sleeping %f seconds' % (nextend - t1))
+                    is_userbreak = self.userbreakswitch.wait(nextend - t1)
+                else:
+                    logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
+                    is_userbreak = self.userbreakswitch.is_set()
+                if is_userbreak:
+                    self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
+                    return
+                filename = os.path.join(self.expparams['imagepath'], self.expparams['exposureformat'] % (self.expparams['firstfsn'] + i))
                 try:
                     f = open(filename, 'r')
                     exists = True
                     f.close()
                 except IOError:
                     exists = False
-                if self.userbreakswitch.wait(0.01): 
-                    logger.debug('Killing notifier thread.')
-                    self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
-                    return
-            pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
-            self.headertemplate.update(pilatusheader)
-            self.headertemplate['EndDate'] = datetime.datetime.now()
-            self.headertemplate.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % self.headertemplate['FSN']))
-            logger.debug('Header %s written.' % (self.expparams['headerformat'] % self.headertemplate['FSN']))
-            self.headertemplate['FSN'] += 1
-            try:
-                logger.debug('Loading file.')
-                ex = sastool.classes.SASExposure(filename, dirs=self.expparams['exploaddirs'])
-            except IOError as ioe:
-                print "Tried to load file:", filename
-                print "Folders:", self.expparams['exploaddirs']
-                print "Error text:", ioe.message
-                self.outqueue.put(CredoExpose.EXPOSURE_FAIL)
-            else:
-                logger.debug('File loaded, calling callback.')
-                self.outqueue.put(ex)
-                del ex
-        self.outqueue.put(CredoExpose.EXPOSURE_END)
-        logger.debug('Notifier thread exiting cleanly.')
+                while not exists:
+                    logger.debug('Waiting for file: ' + filename)
+                    try:
+                        f = open(filename, 'r')
+                        exists = True
+                        f.close()
+                    except IOError:
+                        exists = False
+                    if self.userbreakswitch.wait(0.01): 
+                        logger.debug('Killing notifier thread.')
+                        self.outqueue.put(CredoExpose.EXPOSURE_BREAK)
+                        return
+                pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
+                self.headertemplate.update(pilatusheader)
+                self.headertemplate['EndDate'] = datetime.datetime.now()
+                self.headertemplate.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % self.headertemplate['FSN']))
+                logger.debug('Header %s written.' % (self.expparams['headerformat'] % self.headertemplate['FSN']))
+                self.headertemplate['FSN'] += 1
+                try:
+                    logger.debug('Loading file.')
+                    ex = sastool.classes.SASExposure(filename, dirs=self.expparams['exploaddirs'])
+                except IOError as ioe:
+                    print "Tried to load file:", filename
+                    print "Folders:", self.expparams['exploaddirs']
+                    print "Error text:", ioe.message
+                    self.outqueue.put(CredoExpose.EXPOSURE_FAIL)
+                else:
+                    logger.debug('File loaded, calling callback.')
+                    self.outqueue.put(ex)
+                    del ex
+            self.outqueue.put(CredoExpose.EXPOSURE_END)
+            logger.debug('Notifier thread exiting cleanly.')
+        except:
+            self.outqueue.put(CredoExpose.EXPOSURE_FAIL)
+            raise
+        finally:
+            self.exposurefinishedswitch.set()
 
 class CredoExpose(multiprocessing.Process):
     EXPOSURE_END = -1
@@ -113,7 +120,7 @@ class CredoExpose(multiprocessing.Process):
                 continue
             with self.isworking:
                 logger.info('Starting exposure.')
-                self.notifierthread = CredoExposureNotifier(expparams, headertemplate, self.outqueue, self.userbreakswitch)
+                self.notifierthread = CredoExposureNotifier(expparams, headertemplate, self.outqueue, self.userbreakswitch, self._exposurefinished_switch)
                 self.notifierthread.daemon = True
                 try:
                     firstfsn = headertemplate['FSN']
@@ -122,6 +129,7 @@ class CredoExpose(multiprocessing.Process):
                         self.genix.shutter_open()
                         logger.info('Shutter should now be opened.')
                     self.userbreakswitch.clear()
+                    self._exposurefinished_switch.clear()
                     logger.info('Executing pilatus.expose()')
                     with self._statelock:
                         self._exposurefinished_handle = self.pilatus.connect('camserver-exposurefinished', self.on_exposurefinished)
@@ -141,6 +149,7 @@ class CredoExpose(multiprocessing.Process):
                     if self.notifierthread.is_alive():
                         self.notifierthread.join()
                     self.notifierthread = None
+                    self._exposurefinished_switch.clear()
     def on_exposurefinished(self, pilatus, state, message):
         with self._statelock:
             self.pilatus.disconnect(self._exposurefinished_handle)
@@ -192,15 +201,15 @@ class Credo(GObject.GObject):
             self.genix = genixhost
         else:
             self.genix = genix.GenixConnection(genixhost, genixport)
-        self.genix.connect('connect-controller', self.on_equipment_connection_change, 'genix', True)
-        self.genix.connect('disconnect-controller', self.on_equipment_connection_change, 'genix', False)
+        self.genix.connect('connect-controller', self.on_equipment_connection_change, True)
+        self.genix.connect('disconnect-controller', self.on_equipment_connection_change, False)
         # connect Pilatus
         if isinstance(pilatushost, pilatus.PilatusConnection):
             self.pilatus = pilatushost
         else:
             self.pilatus = pilatus.PilatusConnection(pilatushost, pilatusport)
-        self.pilatus.connect('connect-camserver', self.on_equipment_connection_change, 'pilatus', True)
-        self.pilatus.connect('disconnect-camserver', self.on_equipment_connection_change, 'pilatus', False)
+        self.pilatus.connect('connect-camserver', self.on_equipment_connection_change, True)
+        self.pilatus.connect('disconnect-camserver', self.on_equipment_connection_change, False)
         
         # file format changing
         self.do_fileformatchange()
@@ -228,23 +237,29 @@ class Credo(GObject.GObject):
         for name in ['filepath', 'imagepath']:
             self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
         
-    def on_equipment_connection_change(self, credo, equipment, connstate):
-        if equipment in ['pilatus', 'genix']:
+    def on_equipment_connection_change(self, equipment, connstate):
+        if equipment in [self.pilatus, self.genix]:
             if self.pilatus.connected() and self.genix.connected() and self.exposurethread is None:
+                logger.debug('Creating and starting CredoExpose process.')
                 self.exposurethread = CredoExpose(self.pilatus, self.genix)
                 self.exposurethread.daemon = True
                 self.exposurethread.start()
+                logger.debug('CredoExpose process started.')
             elif not (self.pilatus.connected() and self.genix.connected()) and self.exposurethread is not None:
+                logger.debug('Setting killswitch for CredoExpose process')
                 self.exposurethread.killswitch.set()
                 if self.exposurethread.is_alive():
+                    logger.debug('Waiting for CredoExpose to stop')
                     self.exposurethread.join()
-        if equipment == 'pilatus' and connstate:
+                    logger.debug('CredoExpose stopped.')
+                self.exposurethread = None
+        if equipment == self.pilatus and connstate:
             self.emit('connect-pilatus')
-        elif equipment == 'pilatus' and not connstate:
+        elif equipment == self.pilatus and not connstate:
             self.emit('disconnect-pilatus')
-        elif equipment == 'genix' and connstate:
+        elif equipment == self.genix and connstate:
             self.emit('connect-genix')
-        elif equipment == 'genix' and not connstate:
+        elif equipment == self.genix and not connstate:
             self.emit('disconnect-genix')
     def do_fileformatchange(self, crd=None, param=None):
         ff = self.filebegin + '_' + '%%0%dd' % self.fsndigits
@@ -275,7 +290,6 @@ class Credo(GObject.GObject):
         if self._path_changed_blocked:
             self.stop_emission('path-changed')
             return True
-        self.load_samples()
         if hasattr(self, 'datareduction'):
             self.datareduction.datadirs = self.get_exploaddirs()
     def do_setup_changed(self):
@@ -353,6 +367,7 @@ class Credo(GObject.GObject):
         if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
             self.emit('files-changed', filename, event)
     def load_samples(self, *args):
+        logger.debug('Loading samples.')
         for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/sample2rc')):
             self.add_sample(sam)
         if self._samples:
@@ -375,11 +390,15 @@ class Credo(GObject.GObject):
         return pth
     def add_sample(self, sam):
         if not isinstance(sam, sample.SAXSSample):
+            logger.debug('Not adding sample: ' + str(sam) + ' because not a SAXSSample instance.')
             return
         if not [s for s in self._samples if s == sam]:
+            logger.debug('Sample ' + str(sam) + ' added.')
             self._samples.append(sam)
             self._samples.sort()
             self.emit('samples-changed')
+        else:
+            logger.debug('Not adding duplicate sample: ' + str(sam))
     def remove_sample(self, sam):
         modified = False
         for todelete in [s == sam for s in self._samples]:

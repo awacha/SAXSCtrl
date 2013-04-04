@@ -261,7 +261,7 @@ class PilatusCommProcess(multiprocessing.Process):
                 logger.error('Camserver: ' + msg)
             self.handle_event(contextnumber, state, message, time.time())
     def run(self):
-        logging.debug('Starting main communication loop.')
+        logger.debug('Starting main communication loop.')
         # this function constitutes of a main loop, which can be ended via a ''poison-pill'' mechanism.
         try:
             while not self.killswitch.is_set():
@@ -283,7 +283,7 @@ class PilatusCommProcess(multiprocessing.Process):
             self.socket.close()
             self.socket = None
             self.handle_event(1000, state, mesg, time.time())
-            logging.debug('Ending main communication loop.')
+            logger.debug('Ending main communication loop.')
 
 def add_dicts(d1, d2):
     """Summarize two dicts d1 and d2. Keys of d2 should be valid (and defined)
@@ -303,8 +303,9 @@ class PilatusConnection(GObject.GObject):
                                                                                      ('disconnect-camserver', (GObject.SignalFlags.RUN_FIRST, None, ()))])
     _uninterruptible = 0
     lastresults = None
-    camserver_reply_timeout = 0.3
+    camserver_reply_timeout = 0.5
     idle_function_handle = None
+    _exposing = None
     def __init__(self, host='localhost', port=41234):
         GObject.GObject.__init__(self)
         self.host = host
@@ -312,6 +313,7 @@ class PilatusConnection(GObject.GObject):
         self.commprocess = None
         if host is not None:
             self.connect_to_camserver()
+        self._exposing = multiprocessing.Event()
     def poll_commqueue(self, blocking=False, timeout=0.3):
         if not self.connected(): raise PilatusError('Not connected to camserver.')
         handled = []
@@ -344,6 +346,7 @@ class PilatusConnection(GObject.GObject):
             return True
         self.idle_function_handle = GObject.idle_add(_handler)
         self.commprocess.start()
+        self._exposing.clear()
         self.emit('connect-camserver')
     def reconnect_to_camserver(self):
         self.disconnect_from_camserver()
@@ -395,8 +398,12 @@ class PilatusConnection(GObject.GObject):
         expperiodset = self.lastresults['ExpPeriod'][2]['expperiod']
         if abs(expperiodset - exptime - expdwelltime) > 1e-5:
             raise ValueError('Error setting exposure period!')
-        with self.reset_and_wait_for_event(self, 'Exposure'):
-            self.send('Exposure %s' % filename)
+        self._exposing.set()
+        try:
+            with self.reset_and_wait_for_event(self, 'Exposure'):
+                self.send('Exposure %s' % filename)
+        finally:
+            self._exposing.clear()
         if Nimages == 1:
             logger.debug('Starting %f seconds exposure to filename %s.' % (exptime, filename))
         else:
@@ -421,7 +428,8 @@ class PilatusConnection(GObject.GObject):
             logger.debug('Starting waiting loop for command(s): ' + str(self.commandnames))
             self.pconnection.poll_commqueue()  # empty the queue if there are pending events
             time0 = time.time()
-            while all(self.pconnection.lastresults[cmdname][0] is None for cmdname in self.commandnames) and time.time() - time0 <= self.timeout:  # if the result is still not there, give it one more try.
+            while (all(self.pconnection.lastresults[cmdname][0] is None for cmdname in self.commandnames) and 
+                   ((time.time() - time0 <= self.timeout) or self.pconnection._exposing.is_set())):  # if the result is still not there, give it one more try.
                 self.pconnection.poll_commqueue(blocking=True)
             if all(self.pconnection.lastresults[cmdname][0] is None for cmdname in self.commandnames):
                 raise TimeoutError
