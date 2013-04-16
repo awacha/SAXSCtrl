@@ -8,7 +8,7 @@ import sys
 import traceback
 
 from ..hardware import pilatus, genix, credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol
 logger = logging.getLogger('SAXSCtrl')
 
 def my_excepthook(type_, value, traceback_):
@@ -90,7 +90,7 @@ class RootWindow(Gtk.Window):
         self._starttime = time.time()
         self.set_title('SAXS Control -- ROOT')
         self.set_resizable(False)
-        self.credo = credo.Credo()
+        self.credo = credo.Credo(motorhost='pilatus300k:2001')
         self.credo.connect('connect-pilatus', self.on_credo_connect_equipment, 'pilatus', True)
         self.credo.connect('connect-genix', self.on_credo_connect_equipment, 'genix', True)
         self.credo.connect('disconnect-pilatus', self.on_credo_connect_equipment, 'pilatus', False)
@@ -196,6 +196,7 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'Viewer'),
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Setup & Calibration'),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Setup & Calibration'),
+                            Tool(self.credo, 'Motor control', 'Motor control', motorcontrol.MotorMonitor, 'Hardware control')
                             ]
         toolsections = ['Hardware control', 'Scan', 'Setup & Calibration', 'Exposure', 'Viewer']
         toolsections.extend(list(set([t.toolsection for t in self.toolbuttons]) - set(toolsections)))

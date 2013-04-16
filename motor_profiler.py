@@ -5,7 +5,8 @@ import numpy as np
 
 mc = saxsctrl.hardware.tmcl_motor.TMCM351('/dev/ttyUSB0')
 
-mot = saxsctrl.hardware.tmcl_motor.StepperMotor(mc, 0, alias='Sample_Y', positionfolder=None)
+# mot = saxsctrl.hardware.tmcl_motor.StepperMotor(mc, 0, alias='Sample_Y', positionfolder=None)
+mot = saxsctrl.hardware.tmcl_motor.StepperMotor(mc, 1, alias='Sample_X', positionfolder=None)
 
 mot.rot_left(1000)
 
@@ -14,8 +15,8 @@ while mot.is_moving():
 
 speed_start = 10
 speed_end = 2047
-Nspeed = speed_end - speed_start + 1
-dt = 0
+# Nspeed = speed_end - speed_start + 1
+Nspeed = 500
 nsample = 20
 
 data = np.zeros((Nspeed, 3))

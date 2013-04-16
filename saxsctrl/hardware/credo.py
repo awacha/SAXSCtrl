@@ -1,5 +1,6 @@
 from . import genix
 from . import pilatus
+from . import tmcl_motor
 import sastool
 import re
 import os
@@ -170,6 +171,8 @@ class Credo(GObject.GObject):
                     'connect-genix':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'disconnect-pilatus':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'disconnect-genix':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'connect-motors':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'disconnect-motors':(GObject.SignalFlags.RUN_FIRST, None, ()),
                    }
     _credo_state = None
     exposurethread = None
@@ -191,7 +194,7 @@ class Credo(GObject.GObject):
     imagepath = GObject.property(type=str, default='/net/pilatus300k.saxs/disk2/images')
     wavelength = GObject.property(type=float, default=1.54182, minimum=0)
     shuttercontrol = GObject.property(type=bool, default=True)
-    def __init__(self, genixhost=None, pilatushost=None, genixport=502, pilatusport=41234, imagepath='/net/pilatus300k.saxs/disk2/images',
+    def __init__(self, genixhost='genix.saxs', pilatushost='pilatus300k.saxs', motorhost='pilatus300k.saxs', imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
         GObject.GObject.__init__(self)
         self.load_settings()
@@ -199,17 +202,49 @@ class Credo(GObject.GObject):
         # connect GeniX
         if isinstance(genixhost, genix.GenixConnection):
             self.genix = genixhost
-        else:
+        elif isinstance(genixhost, basestring):
+            if ':' in genixhost:
+                genixhost, genixport = genixhost.rsplit(':', 1)
+                genixport = int(genixport)
+            else:
+                genixport = 502
             self.genix = genix.GenixConnection(genixhost, genixport)
+        else:
+            raise ValueError('Invalid type for genixhost!')
         self.genix.connect('connect-controller', self.on_equipment_connection_change, True)
         self.genix.connect('disconnect-controller', self.on_equipment_connection_change, False)
         # connect Pilatus
         if isinstance(pilatushost, pilatus.PilatusConnection):
             self.pilatus = pilatushost
-        else:
+        elif isinstance(pilatushost, basestring):
+            if ':' in pilatushost:
+                pilatushost, pilatusport = pilatushost.rsplit(':', 1)
+                pilatusport = int(pilatusport)
+            else:
+                pilatusport = 41234
             self.pilatus = pilatus.PilatusConnection(pilatushost, pilatusport)
+        else:
+            raise ValueError('Invalid type for pilatushost!')
         self.pilatus.connect('connect-camserver', self.on_equipment_connection_change, True)
         self.pilatus.connect('disconnect-camserver', self.on_equipment_connection_change, False)
+
+        # connect motors
+        if isinstance(motorhost, tmcl_motor.TMCM351):
+            self.tmcm = motorhost
+        elif isinstance(motorhost, basestring):
+            if motorhost.startswith('/dev/'):
+                self.tmcm = tmcl_motor.TMCM351_RS232(motorhost, settingsfile=os.path.expanduser('~/.config/credo/motorrc'))
+            else:
+                if ':' in motorhost:
+                    motorhost, motorport = motorhost.rsplit(':', 1)
+                    motorport = int(motorport)
+                else:
+                    motorport = 2001
+                self.tmcm = tmcl_motor.TMCM351_TCP(motorhost, motorport, settingsfile=os.path.expanduser('~/.config/credo/motorrc'))
+        else:
+            raise ValueError('Invalid type for motorhost!')
+        self.tmcm.connect('driver-disconnect', self.on_equipment_connection_change, False)
+
         
         # file format changing
         self.do_fileformatchange()
@@ -261,6 +296,10 @@ class Credo(GObject.GObject):
             self.emit('connect-genix')
         elif equipment == self.genix and not connstate:
             self.emit('disconnect-genix')
+        elif equipment == self.tmcm and not connstate:
+            self.emit('disconnect-motors')
+        elif equipment == self.tmcm and connstate:
+            self.emit('connect-motors')
     def do_fileformatchange(self, crd=None, param=None):
         ff = self.filebegin + '_' + '%%0%dd' % self.fsndigits
         ff_re = re.compile(self.filebegin + '_' + '(\d{%d,%d})' % (self.fsndigits, self.fsndigits))

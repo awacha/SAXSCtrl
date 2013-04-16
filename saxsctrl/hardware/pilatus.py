@@ -310,10 +310,10 @@ class PilatusConnection(GObject.GObject):
         GObject.GObject.__init__(self)
         self.host = host
         self.port = port
+        self._exposing = multiprocessing.Event()
         self.commprocess = None
         if host is not None:
             self.connect_to_camserver()
-        self._exposing = multiprocessing.Event()
     def poll_commqueue(self, blocking=False, timeout=0.3):
         if not self.connected(): raise PilatusError('Not connected to camserver.')
         handled = []
