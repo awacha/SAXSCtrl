@@ -251,7 +251,7 @@ class TransmissionMeasurement(Gtk.Dialog):
         for i, sam in enumerate(self.credo.get_samples()):
             if sam == self.credo.sample:
                 idx = i
-            self.sample_combo.append_text(u'%s (%.2f°C @%.2f)' % (sam.title, sam.temperature, sam.position))
+            self.sample_combo.append_text(u'%s (%.2f°C @(%.2f,%.2f))' % (sam.title, sam.temperature, sam.positionx, sam.positiony))
         self.sample_combo.set_active(idx)
     def on_response(self, dlg, respid):
         if (respid == Gtk.ResponseType.APPLY or respid == Gtk.ResponseType.OK) and self._transm is not None:

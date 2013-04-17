@@ -5,7 +5,8 @@ from sastool.misc.errorvalue import ErrorValue
 
 class SAXSSample(object):
     title = None
-    position = 0.0
+    positiony = 0.0
+    positionx = 0.0
     thickness = 1.0
     transmission = 1.0
     temperature = 25.0
@@ -23,10 +24,11 @@ class SAXSSample(object):
             lis.append(obj)
         del cp
         return lis
-    def __init__(self, title, position=0.0, thickness=1.0, transmission=1.0, temperature=25.0, preparedby='Anonymous', preparetime=None, distminus=0.0):
+    def __init__(self, title, positiony=0.0, positionx=0.0, thickness=1.0, transmission=1.0, temperature=25.0, preparedby='Anonymous', preparetime=None, distminus=0.0):
         if isinstance(title, SAXSSample):
             self.title = title.title
-            self.position = title.position
+            self.positionx = title.positionx
+            self.positiony = title.positiony
             self.thickness = title.thickness
             self.transmission = title.transmission
             self.temperature = title.temperature
@@ -35,7 +37,8 @@ class SAXSSample(object):
             self.distminus = title.distminus
         else:
             self.title = title
-            self.position = position
+            self.positionx = positionx
+            self.positiony = positiony
             self.thickness = thickness
             self.transmission = transmission
             self.temperature = temperature
@@ -48,9 +51,12 @@ class SAXSSample(object):
         if not cp.has_section(sectionname):
             cp.add_section(sectionname)
         cp.set(sectionname, 'Title', self.title)
-        cp.set(sectionname, 'Position', float(self.position))
-        if isinstance(self.position, ErrorValue):
-            cp.set(sectionname, 'PositionError', self.position.err)
+        cp.set(sectionname, 'PositionX', float(self.positionx))
+        if isinstance(self.positionx, ErrorValue):
+            cp.set(sectionname, 'PositionXError', self.positionx.err)
+        cp.set(sectionname, 'PositionY', float(self.positiony))
+        if isinstance(self.positiony, ErrorValue):
+            cp.set(sectionname, 'PositionYError', self.positiony.err)
         cp.set(sectionname, 'Thickness', float(self.thickness))
         if isinstance(self.thickness, ErrorValue):
             cp.set(sectionname, 'ThicknessError', self.thickness.err)
@@ -69,7 +75,7 @@ class SAXSSample(object):
         for name, attr in [('Title', 'title'), ('Preparedby', 'preparedby') ]:
             if cp.has_option(sectionname, name):
                 self.__setattr__(attr, cp.get(sectionname, name))
-        for name, attr in [('Position', 'position'), ('Thickness', 'thickness'), ('Transmission', 'transmission'),
+        for name, attr in [('Position', 'positiony'), ('PositionY', 'positiony'), ('PositionX', 'positionx'), ('Thickness', 'thickness'), ('Transmission', 'transmission'),
                            ('Temperature', 'temperature'), ('Distminus', 'distminus')]:
             if cp.has_option(sectionname, name):
                 self.__setattr__(attr, cp.getfloat(sectionname, name))
@@ -78,11 +84,11 @@ class SAXSSample(object):
         if cp.has_option(sectionname, 'Preparetime'):
             self.preparetime = dateutil.parser.parse(cp.get(sectionname, 'Preparetime'))
     def __repr__(self):
-        return 'SAXSSample(%s, %.2f, %.4f, %.4f, %.2f)' % (self.title, self.position, self.thickness, self.transmission, self.temperature)
+        return 'SAXSSample(%s, (%.3f, %.03f), %.4f, %.4f, %.2f)' % (self.title, self.positionx, self.positiony, self.thickness, self.transmission, self.temperature)
     def __str__(self):
-        return 'SAXSSample(%s, %.2f, %.4f, %.4f, %.2f)' % (self.title, self.position, self.thickness, self.transmission, self.temperature)
+        return 'SAXSSample(%s, (%.3f, %.03f), %.4f, %.4f, %.2f)' % (self.title, self.positionx, self.positiony, self.thickness, self.transmission, self.temperature)
     def __unicode__(self):
-        return u'SAXSSample(%s, %.2f, %.4f, %.4f, %.2f)' % (self.title, self.position, self.thickness, self.transmission, self.temperature)
+        return u'SAXSSample(%s, (%.3f, %.03f) %.4f, %.4f, %.2f)' % (self.title, self.positionx, self.positiony, self.thickness, self.transmission, self.temperature)
     def __eq__(self, other):
         if not isinstance(other, SAXSSample):
             return False
@@ -102,7 +108,7 @@ class SAXSSample(object):
         return not self.__lt__(other)
     def get_header(self):
         hed = {'Title':self.title, 'Preparedby':self.preparedby, 'Preparetime':self.preparetime}
-        for attr, key in [('thickness', 'Thickness'), ('transmission', 'Transm'), ('position', 'PosSample'), ('temperature', 'Temperature'), ('distminus', 'DistMinus')]:
+        for attr, key in [('thickness', 'Thickness'), ('transmission', 'Transm'), ('positiony', 'PosSample'), ('positionx', 'PosSampleX'), ('temperature', 'Temperature'), ('distminus', 'DistMinus')]:
             hed[key] = float(self.__getattribute__(attr)) 
             if isinstance(self.__getattribute__(attr), ErrorValue):
                 hed[key + 'Error'] = self.__getattribute__(attr).err

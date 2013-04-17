@@ -20,45 +20,63 @@ class MotorError(StandardError):
 class TMCM351(GObject.GObject):
     __gsignals__ = {'motors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'driver-disconnect':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'driver-connect':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-start':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (object, float)),
+                    'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (object, float, float, float)),
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (object, bool, bool))
+                    'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (object, bool, bool)),
+                    'motor-settings-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     }
     def __init__(self, settingsfile=None, settingssaveinterval=10):
         GObject.GObject.__init__(self)
         self.comm_lock = multiprocessing.Lock()
         self.motors = {}
         self.f_clk = 16000000
-        self.kill_settingssaver = threading.Event()
-        self.settingssaver = None
         self.settingsfile = settingsfile
-        if settingsfile is not None:
-            self.settingssaver = GObject.timeout_add_seconds(int(settingssaveinterval), self.save_settings)
-    def is_connected(self):
+        self.settingsfile_in_use = False
+    def connected(self):
         return False
     def __del__(self):
-        if self.settingssaver is not None:
-            GObject.source_remove(self.settingssaver)
-            self.settingssaver = None
         for m in self.motors[:]:
             del self.motors[m]
-            
-    def save_settings(self):
-        cp = ConfigParser.ConfigParser()
-        cp.read(self.settingsfile)
-        for m in self.motors:
-            self.motors[m].save_to_configparser(cp)
-        with open(self.settingsfile, 'w') as f:
-            cp.write(f)
-        return True
-    def load_settings(self):
-        cp = ConfigParser.ConfigParser()
-        cp.read(self.settingsfile)
-        for name in cp.sections():
-            if name not in self.motors:
-                mot = self.add_motor(0, name)
-            self.motors[name].load_from_configparser(cp)
+    def do_driver_connect(self):
+        self.load_settings()
+    def save_settings(self, filename=None):
+        if self.settingsfile_in_use:
+            return
+        self.settingsfile_in_use = True
+        try:
+            if filename is None:
+                filename = self.settingsfile
+            if filename is None:
+                return
+            cp = ConfigParser.ConfigParser()
+            cp.read(filename)
+            for m in self.motors:
+                self.motors[m].save_to_configparser(cp)
+            with open(filename, 'w') as f:
+                cp.write(f)
+            print "Saved TMCM351 settings to " + filename
+            return True
+        finally:
+            self.settingsfile_in_use = False
+    def load_settings(self, filename=None):
+        if self.settingsfile_in_use:
+            return
+        self.settingsfile_in_use = True
+        try:
+            if filename is None:
+                filename = self.settingsfile
+            if filename is None:
+                return
+            cp = ConfigParser.ConfigParser()
+            cp.read(filename)
+            for name in cp.sections():
+                if name not in self.motors:
+                    mot = self.add_motor(0, name)
+                self.motors[name].load_from_configparser(cp)
+        finally:
+            self.settingsfile_in_use = False
     def do_communication(self, cmd):
         raise NotImplementedError
     def send_and_recv(self, instruction, type_=0, mot_bank=0, value=0):
@@ -104,9 +122,10 @@ class TMCM351(GObject.GObject):
     def add_motor(self, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf'))):
         mot = StepperMotor(self, mot_idx, name, alias, step_to_cal, softlimits, self.f_clk)
         mot.connect('motor-start', lambda m:self.emit('motor-start', m))
-        mot.connect('motor-report', lambda m, pos: self.emit('motor-report', m, pos))
+        mot.connect('motor-report', lambda m, pos, speed, load: self.emit('motor-report', m, pos, speed, load))
         mot.connect('motor-stop', lambda m:self.emit('motor-stop', m))
         mot.connect('motor-limit', lambda m, left, right:self.emit('motor-limit', m, left, right))
+        mot.connect('settings-changed', lambda m:self.emit('motor-settings-changed', m))
         self.emit('motors-changed')
         return mot
     def moving(self):
@@ -120,8 +139,8 @@ class TMCM351_RS232(TMCM351):
         if not self.rs232.isOpen():
             raise MotorError('Cannot open RS-232 port ' + str(serial_device))
         self.rs232.timeout = timeout
-        self.load_settings()
-    def is_connected(self):
+        self.emit('driver-connect')
+    def connected(self):
         return self.rs232 is not None and self.rs232.isOpen()
     def do_communication(self, cmd):
         with self.comm_lock:
@@ -136,50 +155,56 @@ class TMCM351_RS232(TMCM351):
         return result
 
 class TMCM351_TCP(TMCM351):
-    def __init__(self, host, port, timeout=1, settingsfile=None, settingssaveinterval=10):
-        TMCM351.__init__(self, settingsfile, settingssaveinterval)
+    def __init__(self, host=None, port=2001, timeout=1, settingsfile=None):
+        TMCM351.__init__(self, settingsfile)
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.socket = None
+        if self.host is not None:
+            self.connect_to_controller()
+    def connected(self):
+        return self.socket is not None
+    def connect_to_controller(self):
+        if self.connected():
+            raise MotorError('Already connected.')
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ip = socket.gethostbyname(host)
-            self.socket.connect((ip, port))
-            self.host = host
-            self.port = port
+            ip = socket.gethostbyname(self.host)
+            self.socket.connect((ip, self.port))
         except socket.gaierror:
             self.socket = None
             raise PilatusError('Cannot resolve host name.')
         except socket.error:
             self.socket = None
             raise PilatusError('Cannot connect to server.')
-        self.timeout = timeout
-        self.socket.settimeout(timeout)
-        self.load_settings()
-    def is_connected(self):
-        return self.socket is not None
+        self.socket.settimeout(self.timeout)
+        self.emit('driver-connect')
+    def disconnect_from_controller(self):
+        if not self.connected():
+            raise MotorError('Not connected!')
+        self.socket.close()
+        self.socket = None
+        self.emit('driver-disconnect')        
     def do_communication(self, cmd):
         with self.comm_lock:
-            if self.socket is None:
+            if not self.connected():
                 raise MotorError('Cannot communicate: socket not open.')
             readable, exceptional = select.select([self.socket], [], [self.socket], 0)[0:3:2]
             if exceptional:
-                self.socket.close()
-                self.socket = None
-                self.emit('driver-disconnect')
+                self.disconnect_from_controller()
                 raise MotorError('Communication error.')
             while readable:
                 res = self.socket.recv(9)
                 if not res:
-                    self.socket.close()
-                    self.socket = None
-                    self.emit('driver-disconnect')
+                    self.disconnect_from_controller()
                     raise MotorError('Socket closed.')
                 readable = select.select([self.socket], [], [], 0)[0]
             writable, exceptional = select.select([], [self.socket], [self.socket], 0)[1:3]
             if not writable:
                 raise MotorError('Cannot write socket.')
             if exceptional:
-                self.socket.close()
-                self.socket = None
-                self.emit('driver-disconnect')
+                self.disconnect_from_controller()
                 raise MotorError('Communication error.')
             chars_sent = 0
             while chars_sent < len(cmd):
@@ -194,9 +219,7 @@ class TMCM351_TCP(TMCM351):
                     break
                 readable = select.select([self.socket], [], [], 1)[0]
             if result == '':
-                self.socket.close()
-                self.socket = None
-                self.emit('driver-disconnect')
+                self.disconnect_from_controller()
                 raise MotorError('Communication error. Controller may not be connected')
             if len(result) != 9:
                 raise MotorError('Invalid message received: *' + result + '*' + str(len(result)))
@@ -204,10 +227,17 @@ class TMCM351_TCP(TMCM351):
                 
 class StepperMotor(GObject.GObject):
     __gsignals__ = {'motor-start':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (float,)),
+                    'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (float, float, float)),
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (bool, bool)),
+                    'settings-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     }
+    mot_idx = GObject.property(type=int, default=0, minimum=0, maximum=100)
+    alias = GObject.property(type=str, default='<unknown motor>')
+    name = GObject.property(type=str, default='<unknown motor>')
+    step_to_cal = GObject.property(type=float, default=1 / 200.0)
+    f_clk = GObject.property(type=int, default=16000000)
+    softlimits = GObject.property(type=object)
     settings_timeout = 60
     def __init__(self, driver, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf')), f_clk=16000000):
         GObject.GObject.__init__(self)
@@ -224,8 +254,11 @@ class StepperMotor(GObject.GObject):
         self.f_clk = f_clk
         self.softlimits = softlimits
         self.driver().motors[self.name] = self
-        self.limit_check = GObject.timeout_add_seconds(1, self.check_limits)
         self.limitdata = None
+        for p in list(self.props):
+            self.connect('notify::' + p.name, lambda mot, prop:self.emit('settings-changed'))
+    def do_settings_changed(self):
+        self.driver().save_settings()
     def __del__(self):
         if self.limit_check is not None:
             GObject.source_remove(self.limit_check)
@@ -241,12 +274,16 @@ class StepperMotor(GObject.GObject):
         return True
     def do_motor_start(self):
         GObject.idle_add(self.motor_monitor)
+    def do_motor_stop(self):
+        self.driver().save_settings()
     def motor_monitor(self):
         pos = self.get_pos()
         if (min(self.softlimits) > pos) or (max(self.softlimits) < pos):
             self.stop()
-        self.emit('motor-report', self.get_pos())
-        if self.is_moving():
+        ismoving = self.is_moving()
+        self.emit('motor-report', self.get_pos(), self.get_speed(), self.get_load())
+        self.check_limits()
+        if ismoving:
             return True
         else:
             self.emit('motor-stop')
@@ -282,28 +319,21 @@ class StepperMotor(GObject.GObject):
         if cp.has_option(self.name, 'Pos_raw'):
             self.calibrate_pos(cp.getint(self.name, 'Pos_raw'), raw=True)
     def refresh_settings(self, paramname=None):
+        print "Refreshing settings."
         params = [('Max_speed', 4), ('Max_accel', 5), ('Max_current', 6), ('Standby_current', 7),
                   ('Right_limit_disable', 12), ('Left_limit_disable', 13), ('Ustep_resol', 140),
                   ('Ramp_div', 153), ('Pulse_div', 154), ('Mixed_decay_threshold', 203),
                   ('Freewheeling_delay', 204), ('Stallguard_threshold', 205), ('Fullstep_threshold', 211)]
         if paramname is not None:
             params = [p for p in params if p[0] == paramname]
+        changed = False
         for name, idx in params:
-            self.settings[name] = self.driver().execute(6, idx, self.mot_idx)
-#         self.settings['Max_speed'] = self.driver().execute(6, 4, self.mot_idx)
-#         self.settings['Max_accel'] = self.driver().execute(6, 5, self.mot_idx)
-#         self.settings['Max_current'] = self.driver().execute(6, 6, self.mot_idx)
-#         self.settings['Standby_current'] = self.driver().execute(6, 7, self.mot_idx)
-#         self.settings['Right_limit_disable'] = self.driver().execute(6, 12, self.mot_idx)
-#         self.settings['Left_limit_disable'] = self.driver().execute(6, 13, self.mot_idx)
-#         self.settings['Ustep_resol'] = self.driver().execute(6, 140, self.mot_idx)
-#         self.settings['Ramp_div'] = self.driver().execute(6, 153, self.mot_idx)
-#         self.settings['Pulse_div'] = self.driver().execute(6, 154, self.mot_idx)
-#         self.settings['Mixed_decay_threshold'] = self.driver().execute(6, 203, self.mot_idx)
-#         self.settings['Freewheeling_delay'] = self.driver().execute(6, 204, self.mot_idx)
-#         self.settings['Stallguard_threshold'] = self.driver().execute(6, 205, self.mot_idx)
-#         self.settings['Fullstep_threshold'] = self.driver().execute(6, 211, self.mot_idx)
+            newval = self.driver().execute(6, idx, self.mot_idx)
+            if name not in self.settings or newval != self.settings[name]:
+                self.settings[name] = newval
+                changed = True
         self.settings['__timestamp__'] = time.time()
+        self.emit('settings-changed') 
     def get_load(self):
         return self.driver().execute(6, 206, self.mot_idx)
     def get_accel(self, raw=False):
@@ -393,6 +423,13 @@ class StepperMotor(GObject.GObject):
         if make_default:
             self.driver().execute(7, 6, self.mot_idx)
         self.refresh_settings('Max_current')
+    def get_max_raw_current(self):
+        return (self.get_settings()['Max_current'])
+    def set_max_raw_current(self, I, make_default=False):
+        self.driver().execute(5, 6, self.mot_idx, I)
+        if make_default:
+            self.driver().execute(7, 6, self.mot_idx)
+        self.refresh_settings('Max_current')
     def get_max_rms_current(self):
         return (self.get_settings()['Max_current'] * 2.8) / 255
     def set_max_rms_current(self, Irms, make_default=False):
@@ -404,6 +441,13 @@ class StepperMotor(GObject.GObject):
         return (self.get_settings()['Standby_current'] * 4.0) / 255
     def set_standby_peak_current(self, Ipeak, make_default=False):
         self.driver().execute(5, 7, self.mot_idx, (Ipeak * 255) / 4)
+        if make_default:
+            self.driver().execute(7, 7, self.mot_idx)
+        self.refresh_settings('Standby_current')
+    def get_standby_raw_current(self):
+        return (self.get_settings()['Standby_current'])
+    def set_standby_raw_current(self, I, make_default=False):
+        self.driver().execute(5, 7, self.mot_idx, I)
         if make_default:
             self.driver().execute(7, 7, self.mot_idx)
         self.refresh_settings('Standby_current')
@@ -485,19 +529,19 @@ class StepperMotor(GObject.GObject):
         self.refresh_settings('Fullstep_threshold')
     def conv_speed_raw(self, speed_phys):
         settings = self.get_settings()
-        return speed_phys * 2 ** settings['Pulse_div'] * 2048.0 * 32 * 2 ** settings['Ustep_resol'] / (self.step_to_cal * self.f_clk)
+        return int(speed_phys * 2 ** settings['Pulse_div'] * 2048.0 * 32 * 2 ** settings['Ustep_resol'] / (self.step_to_cal * self.f_clk))
     def conv_speed_phys(self, speed_raw):
         settings = self.get_settings()
         return self.step_to_cal * speed_raw * self.f_clk / (2 ** settings['Pulse_div'] * 2048.0 * 32 * 2 ** settings['Ustep_resol'])
     def conv_pos_raw(self, pos_phys):
         settings = self.get_settings()
-        return pos_phys / self.step_to_cal * 2 ** settings['Ustep_resol']
+        return int(pos_phys / self.step_to_cal * 2 ** settings['Ustep_resol'])
     def conv_pos_phys(self, pos_raw):
         settings = self.get_settings()
         return pos_raw * self.step_to_cal / 2 ** settings['Ustep_resol']
     def conv_accel_raw(self, accel_phys):
         settings = self.get_settings()
-        return accel_phys / (self.f_clk ** 2 * self.step_to_cal) * (2 ** (settings['Pulse_div'] + settings['Ramp_div'] + 29) * 2 ** settings['Ustep_resol']) 
+        return int(accel_phys / (self.f_clk ** 2 * self.step_to_cal) * (2 ** (settings['Pulse_div'] + settings['Ramp_div'] + 29) * 2 ** settings['Ustep_resol'])) 
     def conv_accel_phys(self, accel_raw):
         settings = self.get_settings()
         return self.f_clk ** 2 * accel_raw / (2 ** (settings['Pulse_div'] + settings['Ramp_div'] + 29)) * (self.step_to_cal / 2 ** settings['Ustep_resol']) 
@@ -554,9 +598,12 @@ class StepperMotor(GObject.GObject):
             physpos = self.conv_pos_phys(pos)
         if (min(self.softlimits) > physpos) or (physpos > max(self.softlimits)):
             raise MotorError('Cannot calibrate outside software limits')
-        maxspeed = self.get_max_speed(raw=True)
-        self.set_max_speed(0, raw=True)
+        # set driver in velocity mode, since if we are in position mode, setting either the actual or the
+        # target position will move the motor.
+        self.driver().execute(5, 138, self.mot_idx, 2)
         self.set_pos(pos, raw=True)
         self.set_target_pos(pos, raw=True)
-        self.set_max_speed(maxspeed, raw=True)
-        
+        self.emit('settings-changed')
+    def store_to_EEPROM(self):
+        for idx in [4, 5, 6, 7, 12, 13, 140, 153, 154, 203, 204, 205, 211]:
+            self.driver().execute(7, idx, self.mot_idx)

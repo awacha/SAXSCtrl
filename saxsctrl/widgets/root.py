@@ -7,7 +7,7 @@ import resource
 import sys
 import traceback
 
-from ..hardware import pilatus, genix, credo
+from ..hardware import pilatus, genix, credo, tmcl_motor
 from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, timedscan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol
 logger = logging.getLogger('SAXSCtrl')
 
@@ -38,13 +38,14 @@ def my_excepthook(type_, value, traceback_):
 # sys.excepthook = my_excepthook
 
 class Tool(object):
-    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', genixneeded=False, pilatusneeded=False):
+    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', genixneeded=False, pilatusneeded=False, motorneeded=False):
         self.credo = credo
         self.buttonname = buttonname
         self.windowname = windowname
         self.windowclass = windowclass
         self.genixneeded = genixneeded
         self.pilatusneeded = pilatusneeded
+        self.motorneeded = motorneeded
         self.toolsection = toolsection
         self.window = None
         self.button = None
@@ -67,14 +68,18 @@ class Tool(object):
             self.button = Gtk.Button(self.buttonname)
             self.button.connect('clicked', self.createwindow)
         return self.button
-    def set_sensitivity(self, genix=False, pilatus=False):
+    def set_sensitivity(self, genix=False, pilatus=False, motor=False):
         if self.window is not None:
             if not (((not self.genixneeded) or genix) and 
-                    ((not self.pilatusneeded) or pilatus)):
-                self.window.hide()
+                    ((not self.pilatusneeded) or pilatus) and
+                    ((not self.motorneeded) or motor)):
+                self.window.destroy()
+                del self.window
+                self.window = None
         if self.button is not None:
             self.button.set_sensitive(((not self.genixneeded) or genix) and 
-                                      ((not self.pilatusneeded) or pilatus))
+                                      ((not self.pilatusneeded) or pilatus) and
+                                      ((not self.motorneeded) or motor))
     def on_delete(self, *args):
         self.window.destroy()
         del self.window
@@ -90,11 +95,13 @@ class RootWindow(Gtk.Window):
         self._starttime = time.time()
         self.set_title('SAXS Control -- ROOT')
         self.set_resizable(False)
-        self.credo = credo.Credo(motorhost='pilatus300k:2001')
+        self.credo = credo.Credo()
         self.credo.connect('connect-pilatus', self.on_credo_connect_equipment, 'pilatus', True)
         self.credo.connect('connect-genix', self.on_credo_connect_equipment, 'genix', True)
+        self.credo.connect('connect-motors', self.on_credo_connect_equipment, 'motors', True)
         self.credo.connect('disconnect-pilatus', self.on_credo_connect_equipment, 'pilatus', False)
         self.credo.connect('disconnect-genix', self.on_credo_connect_equipment, 'genix', False)
+        self.credo.connect('disconnect-motors', self.on_credo_connect_equipment, 'motors', False)
         
         vb = Gtk.VBox()
         self.add(vb)
@@ -141,6 +148,16 @@ class RootWindow(Gtk.Window):
         self.genixconnect_button = Gtk.Button(stock=Gtk.STOCK_CONNECT)
         tab.attach(self.genixconnect_button, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.genixconnect_button.connect('clicked', self.on_genix_connect)
+        row += 1
+
+        l = Gtk.Label(label='Motor controller host:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.motorhost_entry = Gtk.Entry()
+        self.motorhost_entry.set_text('pilatus300k.saxs:2001')
+        tab.attach(self.motorhost_entry, 1, 2, row, row + 1)
+        self.motorconnect_button = Gtk.Button(stock=Gtk.STOCK_CONNECT)
+        tab.attach(self.motorconnect_button, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.motorconnect_button.connect('clicked', self.on_motor_connect)
         row += 1
 
         l = Gtk.Label(label='Image path:'); l.set_alignment(0, 0.5)
@@ -196,7 +213,7 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'Viewer'),
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Setup & Calibration'),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Setup & Calibration'),
-                            Tool(self.credo, 'Motor control', 'Motor control', motorcontrol.MotorMonitor, 'Hardware control')
+                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware control', motorneeded=True)
                             ]
         toolsections = ['Hardware control', 'Scan', 'Setup & Calibration', 'Exposure', 'Viewer']
         toolsections.extend(list(set([t.toolsection for t in self.toolbuttons]) - set(toolsections)))
@@ -238,6 +255,10 @@ class RootWindow(Gtk.Window):
             self.genixconnect_button.set_label(Gtk.STOCK_DISCONNECT)
         elif equipment == 'genix' and not state:
             self.genixconnect_button.set_label(Gtk.STOCK_CONNECT)
+        elif equipment == 'motors' and state:
+            self.motorconnect_button.set_label(Gtk.STOCK_DISCONNECT)
+        elif equipment == 'motors' and not state:
+            self.motorconnect_button.set_label(Gtk.STOCK_CONNECT)
         self.update_sensitivities()
     def on_camserver_connect(self, button):
         if self.credo.pilatus.connected():
@@ -278,6 +299,25 @@ class RootWindow(Gtk.Window):
                 md.run()
                 md.destroy()
                 return
+    def on_motor_connect(self, button):
+        if self.credo.tmcm.connected():
+            self.credo.tmcm.disconnect_from_controller()
+        else:
+            host = self.motorhost_entry.get_text()
+            if ':' in host:
+                host, port = host.rsplit(':', 1)
+                port = int(port)
+            else:
+                port = 2001
+            try:
+                self.credo.tmcm.host = host
+                self.credo.tmcm.port = port
+                self.credo.tmcm.connect_to_controller()
+            except tmcl_motor.MotorError:
+                md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, message_format='Cannot connect to motor controller!')
+                md.run()
+                md.destroy()
+                return
     def on_pathbutton(self, button, entry, action):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}
@@ -291,6 +331,6 @@ class RootWindow(Gtk.Window):
         return True
     def update_sensitivities(self):
         for t in self.toolbuttons:
-            t.set_sensitivity(genix=self.credo.genix.connected(), pilatus=self.credo.pilatus.connected())
+            t.set_sensitivity(genix=self.credo.genix.connected(), pilatus=self.credo.pilatus.connected(), motor=self.credo.tmcm.connected())
     def __del__(self):
         del self.credo

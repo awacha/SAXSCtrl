@@ -57,6 +57,13 @@ class InstrumentSetup(Gtk.Dialog):
         self.shuttercontrol_entry.set_alignment(0, 0.5)
         tab.attach(self.shuttercontrol_entry, 0, 2, row, row + 1)
         self.shuttercontrol_entry.set_active(True)
+        row += 1
+        
+        self.motorcontrol_entry = Gtk.CheckButton('Move motors')
+        self.motorcontrol_entry.set_alignment(0, 0.5)
+        tab.attach(self.motorcontrol_entry, 0, 2, row, row + 1)
+        self.motorcontrol_entry.set_active(True)
+        row += 1
         
         self.update_from_credo()
         
@@ -73,22 +80,29 @@ class InstrumentSetup(Gtk.Dialog):
         return False
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK or respid == Gtk.ResponseType.APPLY:
-            for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol']:
-                widget = self.__getattribute__(attrname + '_entry')
-                if isinstance(widget, Gtk.SpinButton):
-                    value = widget.get_value()
-                elif isinstance(widget, Gtk.Entry):
-                    value = widget.get_text()
-                elif isinstance(widget, Gtk.ToggleButton):
-                    value = widget.get_active()
-                if self.credo.__getattribute__(attrname) != value:
-                    print "Setting credo property: ", attrname, " to ", value
-                    self.credo.set_property(attrname, value)
+            try:
+                self.credo.delay_setup_changed(True)
+                self.credo.delay_path_changed(True)
+                for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol', 'motorcontrol']:
+                    widget = self.__getattribute__(attrname + '_entry')
+                    if isinstance(widget, Gtk.SpinButton):
+                        value = widget.get_value()
+                    elif isinstance(widget, Gtk.Entry):
+                        value = widget.get_text()
+                    elif isinstance(widget, Gtk.ToggleButton):
+                        value = widget.get_active()
+                    else:
+                        raise NotImplementedError
+                    if self.credo.__getattribute__(attrname) != value:
+                        self.credo.set_property(attrname, value)
+            finally:
+                self.credo.delay_setup_changed(False)
+                self.credo.delay_path_changed(False)
         if respid != Gtk.ResponseType.APPLY:
             self.hide()
         return True
     def update_from_credo(self):
-        for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol']:
+        for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol', 'motorcontrol']:
             widget = self.__getattribute__(attrname + '_entry')
             value = self.credo.get_property(attrname)
             if isinstance(widget, Gtk.SpinButton):

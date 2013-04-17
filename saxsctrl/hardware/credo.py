@@ -181,6 +181,8 @@ class Credo(GObject.GObject):
     _samples = None
     _setup_changed_blocked = False
     _path_changed_blocked = False
+    _setup_changed_needed = False
+    _path_changed_needed = False
     filebegin = GObject.property(type=str, default='crd')
     fsndigits = GObject.property(type=int, default=5, minimum=1, maximum=100)
     username = GObject.property(type=str, default='Anonymous')
@@ -194,7 +196,8 @@ class Credo(GObject.GObject):
     imagepath = GObject.property(type=str, default='/net/pilatus300k.saxs/disk2/images')
     wavelength = GObject.property(type=float, default=1.54182, minimum=0)
     shuttercontrol = GObject.property(type=bool, default=True)
-    def __init__(self, genixhost='genix.saxs', pilatushost='pilatus300k.saxs', motorhost='pilatus300k.saxs', imagepath='/net/pilatus300k.saxs/disk2/images',
+    motorcontrol = GObject.property(type=bool, default=True)
+    def __init__(self, genixhost=None, pilatushost=None, motorhost=None, imagepath='/net/pilatus300k.saxs/disk2/images',
                  filepath='/home/labuser/credo_data/current', filebegin='crd', digitsinfsn=5):
         GObject.GObject.__init__(self)
         self.load_settings()
@@ -209,6 +212,8 @@ class Credo(GObject.GObject):
             else:
                 genixport = 502
             self.genix = genix.GenixConnection(genixhost, genixport)
+        elif genixhost is None:
+            self.genix = genix.GenixConnection(None)
         else:
             raise ValueError('Invalid type for genixhost!')
         self.genix.connect('connect-controller', self.on_equipment_connection_change, True)
@@ -223,11 +228,13 @@ class Credo(GObject.GObject):
             else:
                 pilatusport = 41234
             self.pilatus = pilatus.PilatusConnection(pilatushost, pilatusport)
+        elif pilatushost is None:
+            self.pilatus = pilatus.PilatusConnection(None)
         else:
             raise ValueError('Invalid type for pilatushost!')
         self.pilatus.connect('connect-camserver', self.on_equipment_connection_change, True)
         self.pilatus.connect('disconnect-camserver', self.on_equipment_connection_change, False)
-
+        
         # connect motors
         if isinstance(motorhost, tmcl_motor.TMCM351):
             self.tmcm = motorhost
@@ -241,9 +248,12 @@ class Credo(GObject.GObject):
                 else:
                     motorport = 2001
                 self.tmcm = tmcl_motor.TMCM351_TCP(motorhost, motorport, settingsfile=os.path.expanduser('~/.config/credo/motorrc'))
+        elif motorhost is None:
+            self.tmcm = tmcl_motor.TMCM351_TCP(None, settingsfile=os.path.expanduser('~/.config/credo/motorrc'))
         else:
             raise ValueError('Invalid type for motorhost!')
         self.tmcm.connect('driver-disconnect', self.on_equipment_connection_change, False)
+        self.tmcm.connect('driver-connect', self.on_equipment_connection_change, True)
 
         
         # file format changing
@@ -267,11 +277,10 @@ class Credo(GObject.GObject):
         self._setup_filewatchers()
         self.load_samples()
         # emit signals if parameters change
-        for name in ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol']:
+        for name in ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol', 'motorcontrol']:
             self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
         for name in ['filepath', 'imagepath']:
             self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
-        
     def on_equipment_connection_change(self, equipment, connstate):
         if equipment in [self.pilatus, self.genix]:
             if self.pilatus.connected() and self.genix.connected() and self.exposurethread is None:
@@ -327,12 +336,14 @@ class Credo(GObject.GObject):
         return re.compile(self._credo_state['fileformat_re'].pattern + '\.cbf')
     def do_path_changed(self):
         if self._path_changed_blocked:
+            self._path_changed_needed = True
             self.stop_emission('path-changed')
             return True
         if hasattr(self, 'datareduction'):
             self.datareduction.datadirs = self.get_exploaddirs()
     def do_setup_changed(self):
         if self._setup_changed_blocked:
+            self._setup_changed_needed = True
             self.stop_emission('setup-changed')
             return True
         self.save_settings()
@@ -349,8 +360,8 @@ class Credo(GObject.GObject):
         cp = ConfigParser.ConfigParser()
         cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
         try:
-            self._setup_changed_blocked = True
-            self._path_changed_blocked = True
+            self.delay_path_changed(True)
+            self.delay_setup_changed(True)
             for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
                                     ('filter', 'Filter')]:
                 if cp.has_option('CREDO', option):
@@ -359,15 +370,13 @@ class Credo(GObject.GObject):
                                     ('wavelength', 'Wavelength')]:
                 if cp.has_option('CREDO', option):
                     self.set_property(attrname, cp.getfloat('CREDO', option))
-            for attrname, option in [('shuttercontrol', 'Shutter_control')]:
+            for attrname, option in [('shuttercontrol', 'Shutter_control'), ('motorcontrol', 'Move_motors')]:
                 if cp.has_option('CREDO', option):
                     self.set_property(attrname, cp.getboolean('CREDO', option))
         finally:
-            self._setup_changed_blocked = False
-            self._path_changed_blocked = False
+            self.delay_path_changed(False)
+            self.delay_setup_changed(False)
         del cp
-        self.emit('setup-changed')
-        self.emit('path-changed')
     def save_settings(self):
         cp = ConfigParser.ConfigParser()
         cp.read(os.path.expanduser('~/.config/credo/credo2rc'))
@@ -375,7 +384,7 @@ class Credo(GObject.GObject):
             cp.add_section('CREDO')
         for attrname, option in [('username', 'User'), ('projectname', 'Project'), ('filepath', 'File_path'), ('imagepath', 'Image_path'),
                                 ('filter', 'Filter'), ('dist', 'Distance'), ('pixelsize', 'Pixel_size'), ('beamposx', 'Beam_X'), ('beamposy', 'Beam_Y'),
-                                ('wavelength', 'Wavelength'), ('shuttercontrol', 'Shutter_control')]:
+                                ('wavelength', 'Wavelength'), ('shuttercontrol', 'Shutter_control'), ('motorcontrol', 'Move_motors')]:
             cp.set('CREDO', option, self.get_property(attrname))
         if not os.path.exists(os.path.expanduser('~/.config/credo')):
             os.makedirs(os.path.expanduser('~/.config/credo'))
@@ -384,6 +393,16 @@ class Credo(GObject.GObject):
             cp.write(f)
         del cp
         return False
+    def delay_setup_changed(self, state):
+        self._setup_changed_blocked = state
+        if state == False and self._setup_changed_needed:
+            self._setup_changed_needed = False
+            self.emit('setup-changed')
+    def delay_path_changed(self, state):
+        self._path_changed_blocked = state
+        if state == False and self._path_changed_needed:
+            self._path_changed_needed = False
+            self.emit('path-changed')
     def _setup_filewatchers(self):
         if self._filewatchers is None:
             self._filewatchers = []
@@ -585,4 +604,7 @@ class Credo(GObject.GObject):
             self.shutter = 0
         del self.pilatus
         del self.genix
+        del self.tmcm
         gc.collect()
+
+        

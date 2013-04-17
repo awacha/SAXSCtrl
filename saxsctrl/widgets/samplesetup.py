@@ -45,11 +45,18 @@ class SampleSetup(Gtk.Dialog):
         self.thickness_entry.connect('value-changed', self.on_change_entry, 'thickness')
         row += 1
 
-        l = Gtk.Label(label='Position:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='X position:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.position_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -100, 100, 0.1, 1), digits=3)
-        tab.attach(self.position_entry, 1, 2, row, row + 1)
-        self.position_entry.connect('value-changed', self.on_change_entry, 'position')
+        self.positionx_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -100, 100, 0.1, 1), digits=3)
+        tab.attach(self.positionx_entry, 1, 2, row, row + 1)
+        self.positionx_entry.connect('value-changed', self.on_change_entry, 'positionx')
+        row += 1
+
+        l = Gtk.Label(label='Y position:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.positiony_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -100, 100, 0.1, 1), digits=3)
+        tab.attach(self.positiony_entry, 1, 2, row, row + 1)
+        self.positiony_entry.connect('value-changed', self.on_change_entry, 'positiony')
         row += 1
         
         l = Gtk.Label(label='Distance decrease:'); l.set_alignment(0, 0.5)
@@ -107,17 +114,19 @@ class SampleSetup(Gtk.Dialog):
         title = self.samplename_entry.get_text()
         temperature = self.temperature_entry.get_value()
         thickness = self.thickness_entry.get_value()
-        position = self.position_entry.get_value()
+        positionx = self.positionx_entry.get_value()
+        positiony = self.positiony_entry.get_value()
         transmission = self.transmission_entry.get_value()
         preparedby = self.preparedby_entry.get_text()
         preparetime = self.preparetime_entry.get_date()
         distminus = self.distminus_entry.get_value()
-        return sample.SAXSSample(title, position, thickness, transmission, temperature, preparedby, datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
+        return sample.SAXSSample(title, positionx, positiony, thickness, transmission, temperature, preparedby, datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
     def set_sample(self, sam):
         self.samplename_entry.set_text(sam.title)
         self.temperature_entry.set_value(sam.temperature)
         self.thickness_entry.set_value(sam.thickness)
-        self.position_entry.set_value(sam.position)
+        self.positionx_entry.set_value(sam.positionx)
+        self.positiony_entry.set_value(sam.positiony)
         self.transmission_entry.set_value(sam.transmission)
         self.preparedby_entry.set_text(sam.preparedby)
         self.preparetime_entry.select_month(sam.preparetime.month - 1, sam.preparetime.year)
@@ -160,7 +169,8 @@ class SampleListDialog(Gtk.Dialog):
                                              GObject.TYPE_STRING,  # preparation time
                                              GObject.TYPE_DOUBLE,  # thickness
                                              GObject.TYPE_DOUBLE,  # temperature
-                                             GObject.TYPE_DOUBLE,  # position
+                                             GObject.TYPE_DOUBLE,  # positionX
+                                             GObject.TYPE_DOUBLE,  # positionY
                                              GObject.TYPE_DOUBLE,  # distminus
                                              GObject.TYPE_STRING,  # transmission (string, because +/- error can be given)
                                              GObject.TYPE_PYOBJECT,  # the Sample object itself
@@ -178,11 +188,13 @@ class SampleListDialog(Gtk.Dialog):
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Temperature (°C)', cr, text=4))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Position', cr, text=5))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'X Position', cr, text=5))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Dist.decr.', cr, text=6))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Y Position', cr, text=6))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Transmission', cr, text=7))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Dist.decr.', cr, text=7))
+        cr = Gtk.CellRendererText()
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Transmission', cr, text=8))
         self.sampletreeview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self.sampletreeview.set_headers_visible(True)
         self.sampletreeview.set_rules_hint(True)
@@ -193,9 +205,9 @@ class SampleListDialog(Gtk.Dialog):
         if sam is None:
             sam = sample.SAXSSample('-- no title --', preparedby=self.credo.username)
         if index is not None:
-            self.sampleliststore.insert_after(index, ('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
+            self.sampleliststore.insert_after(index, ('', '', '', 0.0, 0.0, 0.0, 0.0, 0.0, '', sam))
         else:
-            self.sampleliststore.append(('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
+            self.sampleliststore.append(('', '', '', 0.0, 0.0, 0.0, 0.0, 0.0, '', sam))
         self.update_liststore()
     def update_liststore(self):
         for row in self.sampleliststore:
@@ -204,9 +216,10 @@ class SampleListDialog(Gtk.Dialog):
             row[2] = str(row[-1].preparetime.date())
             row[3] = row[-1].thickness
             row[4] = row[-1].temperature
-            row[5] = row[-1].position
-            row[6] = row[-1].distminus
-            row[7] = unicode(row[-1].transmission)
+            row[5] = row[-1].positionx
+            row[6] = row[-1].positiony
+            row[7] = row[-1].distminus
+            row[8] = unicode(row[-1].transmission)
     def on_response(self, dialog, respid):
         if respid == RESPONSE_CLOSE:
             self.hide()
