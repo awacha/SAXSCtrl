@@ -66,13 +66,6 @@ class SampleSetup(Gtk.Dialog):
         self.distminus_entry.connect('value-changed', self.on_change_entry, 'distminus')
         row += 1
         
-        l = Gtk.Label(label=u'Temperature (°C):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.temperature_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(25, -273, 1000, 0.1, 1), digits=2)
-        tab.attach(self.temperature_entry, 1, 2, row, row + 1)
-        self.temperature_entry.connect('value-changed', self.on_change_entry, 'temperature')
-        row += 1
-
         l = Gtk.Label(label=u'Transmission:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.transmission_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.5, 0, 1, 0.1, 1), digits=4)
@@ -112,7 +105,6 @@ class SampleSetup(Gtk.Dialog):
             self._changelist.append((entry, attr))
     def get_sample(self):
         title = self.samplename_entry.get_text()
-        temperature = self.temperature_entry.get_value()
         thickness = self.thickness_entry.get_value()
         positionx = self.positionx_entry.get_value()
         positiony = self.positiony_entry.get_value()
@@ -120,10 +112,9 @@ class SampleSetup(Gtk.Dialog):
         preparedby = self.preparedby_entry.get_text()
         preparetime = self.preparetime_entry.get_date()
         distminus = self.distminus_entry.get_value()
-        return sample.SAXSSample(title, positionx, positiony, thickness, transmission, temperature, preparedby, datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
+        return sample.SAXSSample(title, positionx, positiony, thickness, transmission, preparedby, datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
     def set_sample(self, sam):
         self.samplename_entry.set_text(sam.title)
-        self.temperature_entry.set_value(sam.temperature)
         self.thickness_entry.set_value(sam.thickness)
         self.positionx_entry.set_value(sam.positionx)
         self.positiony_entry.set_value(sam.positiony)
@@ -163,12 +154,10 @@ class SampleListDialog(Gtk.Dialog):
         sw = Gtk.ScrolledWindow()
         sw.set_size_request(400, 300)
         vb.pack_start(sw, False, True, 0)
-        # title, preparedby, preparetime, thickness, temperature, position, transmission
         self.sampleliststore = Gtk.ListStore(GObject.TYPE_STRING,  # title 
                                              GObject.TYPE_STRING,  # prepared by
                                              GObject.TYPE_STRING,  # preparation time
                                              GObject.TYPE_DOUBLE,  # thickness
-                                             GObject.TYPE_DOUBLE,  # temperature
                                              GObject.TYPE_DOUBLE,  # positionX
                                              GObject.TYPE_DOUBLE,  # positionY
                                              GObject.TYPE_DOUBLE,  # distminus
@@ -186,15 +175,13 @@ class SampleListDialog(Gtk.Dialog):
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(Gtk.TreeViewColumn('Thickness (cm)', cr, text=3))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Temperature (°C)', cr, text=4))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'X Position', cr, text=4))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'X Position', cr, text=5))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Y Position', cr, text=5))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Y Position', cr, text=6))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Dist.decr.', cr, text=6))
         cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Dist.decr.', cr, text=7))
-        cr = Gtk.CellRendererText()
-        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Transmission', cr, text=8))
+        self.sampletreeview.append_column(Gtk.TreeViewColumn(u'Transmission', cr, text=7))
         self.sampletreeview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self.sampletreeview.set_headers_visible(True)
         self.sampletreeview.set_rules_hint(True)
@@ -205,9 +192,9 @@ class SampleListDialog(Gtk.Dialog):
         if sam is None:
             sam = sample.SAXSSample('-- no title --', preparedby=self.credo.username)
         if index is not None:
-            self.sampleliststore.insert_after(index, ('', '', '', 0.0, 0.0, 0.0, 0.0, 0.0, '', sam))
+            self.sampleliststore.insert_after(index, ('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
         else:
-            self.sampleliststore.append(('', '', '', 0.0, 0.0, 0.0, 0.0, 0.0, '', sam))
+            self.sampleliststore.append(('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
         self.update_liststore()
     def update_liststore(self):
         for row in self.sampleliststore:
@@ -215,11 +202,10 @@ class SampleListDialog(Gtk.Dialog):
             row[1] = row[-1].preparedby
             row[2] = str(row[-1].preparetime.date())
             row[3] = row[-1].thickness
-            row[4] = row[-1].temperature
-            row[5] = row[-1].positionx
-            row[6] = row[-1].positiony
-            row[7] = row[-1].distminus
-            row[8] = unicode(row[-1].transmission)
+            row[4] = row[-1].positionx
+            row[5] = row[-1].positiony
+            row[6] = row[-1].distminus
+            row[7] = unicode(row[-1].transmission)
     def on_response(self, dialog, respid):
         if respid == RESPONSE_CLOSE:
             self.hide()
@@ -267,3 +253,46 @@ class SampleListDialog(Gtk.Dialog):
         for sam in self.credo.get_samples():
             self.add_sample(sam)
             
+class SampleSelector(Gtk.ComboBoxText):
+    __gsignals__ = {'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                  }
+    autorefresh = GObject.property(type=bool, default=True)
+    def __init__(self, credo, autorefresh=True):
+        Gtk.ComboBox.__init__(self)
+        self.credo = credo
+        self.credo.connect('samples-changed', lambda credo:self.reload_samples())
+        self.autorefresh = autorefresh
+        def _ar_handler(credo, sam):
+            if self.autorefresh:
+                self.set_sample(sam)
+        self.credo.connect('sample-changed', _ar_handler)
+        self.samplelist = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT)
+        self.set_model(self.samplelist)
+        self.set_entry_text_column(0)
+        self.reload_samples()
+        self.show_all()
+    def reload_samples(self):
+        if self.get_active() >= 0 and self.get_active() < len(self.samplelist):
+            sam_before = self.samplelist[self.get_active()][-1]
+        else:
+            sam_before = None
+        self.samplelist.clear()
+        self.samplelist.append((str('-- UNKNOWN --'), None))
+        idx = 0
+        for i, sam in enumerate(self.credo.get_samples()):
+            print sam
+            if sam == self.credo.sample:
+                idx = i
+            self.samplelist.append((str(sam), sam))
+        self.set_active(idx)
+        if self.samplelist[self.get_active()][-1] != sam_before:
+            self.emit('sample-changed', self.samplelist[self.get_active()][-1])
+    def set_sample(self, sam):
+        for i, row in enumerate(self.samplelist):
+            if row[-1] == sam:
+                self.set_active(i)
+                self.emit('sample-changed', sam)
+                return
+        raise ValueError('Sample not in list!')
+    def get_sample(self):
+        return self.samplelist[self.get_active()][-1]

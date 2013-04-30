@@ -128,7 +128,7 @@ PilatusCommand('CamSetup', 2, [("\s*Camera definition:\n\s+(?P<cameradef>.*)\n\s
                                
 
 class PilatusCommProcess(multiprocessing.Process):
-    iotimeout = 0.1
+    iotimeout = 0.7
     mesglen = 20
     def __init__(self, host, port=41234, name=None, group=None):
         multiprocessing.Process.__init__(self, name=name, group=group)
@@ -299,11 +299,11 @@ def add_dicts(d1, d2):
             
 class PilatusConnection(GObject.GObject):
     __gsignals__ = dict([c.get_gsignal() for c in PilatusCommand.get_instances()] + [('camserver-error', (GObject.SignalFlags.RUN_FIRST, None, (str,))),
-                                                                                     ('connect-camserver', (GObject.SignalFlags.RUN_FIRST, None, ())),
-                                                                                     ('disconnect-camserver', (GObject.SignalFlags.RUN_FIRST, None, ()))])
+                                                                                     ('connect-equipment', (GObject.SignalFlags.RUN_FIRST, None, ())),
+                                                                                     ('disconnect-equipment', (GObject.SignalFlags.RUN_FIRST, None, ()))])
     _uninterruptible = 0
     lastresults = None
-    camserver_reply_timeout = 0.5
+    camserver_reply_timeout = 0.7
     idle_function_handle = None
     _exposing = None
     def __init__(self, host='localhost', port=41234):
@@ -347,7 +347,7 @@ class PilatusConnection(GObject.GObject):
         self.idle_function_handle = GObject.idle_add(_handler)
         self.commprocess.start()
         self._exposing.clear()
-        self.emit('connect-camserver')
+        self.emit('connect-equipment')
     def reconnect_to_camserver(self):
         self.disconnect_from_camserver()
         self.connect_to_camserver()
@@ -358,7 +358,7 @@ class PilatusConnection(GObject.GObject):
         self.commprocess.disconnect_from_camserver()
         self.commprocess.join()
         self.commprocess = None
-        self.emit('disconnect-camserver')
+        self.emit('disconnect-equipment')
     def connected(self):
         """Return if connected to camserver"""
         return self.commprocess is not None

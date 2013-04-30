@@ -4,7 +4,7 @@ import time
 
 host = 'genix.saxs'
 
-logger = logging.getLogger('genix')
+logger = logging.getLogger(__name__)
 formatter = logging.Formatter('%(asctime)s|%(created)d|%(message)s')
 handler = logging.FileHandler('genixlog.txt', mode='a')
 logger.addHandler(handler)

@@ -4,8 +4,9 @@ import saxsctrl.widgets
 import os
 import subprocess
 import gc
+import multiprocessing
 
-logger = logging.root
+logger = logging.getLogger('saxsctrl')
 logger.setLevel(logging.DEBUG)
 handler = logging.handlers.TimedRotatingFileHandler(os.path.expanduser('~/SAXSCtrl.log'), 'D')
 formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
@@ -19,7 +20,7 @@ class LogException(Exception):
     pass
 
 class ELOG_Handler(logging.Handler):
-    def __init__(self, hostname='bionano.mta-kk', port='8080', username='system', password='metsysoderc', logbook='CREDO', type_='System', authorname='CREDO System'):
+    def __init__(self, hostname='bionano.mta-kk', port='8080', username='system', password='metsysoderc', logbook='CREDO_SYS', type_='System', authorname='CREDO System'):
         logging.Handler.__init__(self)
         self.hostname = hostname
         self.port = port

@@ -12,15 +12,15 @@ import ConfigParser
 from gi.repository import GObject
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class MotorError(StandardError):
     pass
 
 class TMCM351(GObject.GObject):
     __gsignals__ = {'motors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'driver-disconnect':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'driver-connect':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'connect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'disconnect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-start':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (object, float, float, float)),
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
@@ -37,10 +37,8 @@ class TMCM351(GObject.GObject):
     def connected(self):
         return False
     def __del__(self):
-        for m in self.motors[:]:
+        for m in self.motors.keys():
             del self.motors[m]
-    def do_driver_connect(self):
-        self.load_settings()
     def save_settings(self, filename=None):
         if self.settingsfile_in_use:
             return
@@ -139,7 +137,7 @@ class TMCM351_RS232(TMCM351):
         if not self.rs232.isOpen():
             raise MotorError('Cannot open RS-232 port ' + str(serial_device))
         self.rs232.timeout = timeout
-        self.emit('driver-connect')
+        self.load_settings()
     def connected(self):
         return self.rs232 is not None and self.rs232.isOpen()
     def do_communication(self, cmd):
@@ -150,7 +148,7 @@ class TMCM351_RS232(TMCM351):
         if not result:
             self.rs232.close()
             self.rs232 = None
-            self.emit('driver-disconnect')
+            self.emit('disconnect-equipment')
             raise MotorError('Communication error. Controller may not be connected')
         return result
 
@@ -168,24 +166,34 @@ class TMCM351_TCP(TMCM351):
     def connect_to_controller(self):
         if self.connected():
             raise MotorError('Already connected.')
+        logger.debug('Connecting to TCP/RS232 converter.')
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ip = socket.gethostbyname(self.host)
             self.socket.connect((ip, self.port))
         except socket.gaierror:
             self.socket = None
-            raise PilatusError('Cannot resolve host name.')
+            raise MotorError('Cannot resolve host name.')
         except socket.error:
             self.socket = None
-            raise PilatusError('Cannot connect to server.')
+            raise MotorError('Cannot connect to server.')
         self.socket.settimeout(self.timeout)
-        self.emit('driver-connect')
+        logger.debug('Checking if RS232 communication is available')
+        try:
+            self.get_version()
+        except MotorError:
+            raise
+        logger.debug('TCP and RS232 both OK.')
+        self.load_settings()
+        self.emit('connect-equipment')
     def disconnect_from_controller(self):
         if not self.connected():
             raise MotorError('Not connected!')
+        self.socket.shutdown(socket.SHUT_RDWR)
         self.socket.close()
+        del self.socket
         self.socket = None
-        self.emit('driver-disconnect')        
+        GObject.idle_add(lambda dummy: (self.emit('disconnect-equipment') and False), None)
     def do_communication(self, cmd):
         with self.comm_lock:
             if not self.connected():
@@ -211,6 +219,7 @@ class TMCM351_TCP(TMCM351):
                 chars_sent += self.socket.send(cmd[chars_sent:])
             readable, exceptional = select.select([self.socket], [], [self.socket], self.timeout)[0:3:2]
             if not readable:
+                self.disconnect_from_controller()
                 raise MotorError('Communication error. Controller may not be connected')
             result = ''
             while readable:
@@ -317,7 +326,8 @@ class StepperMotor(GObject.GObject):
         if cp.has_option(self.name, 'Soft_right'):
             self.softlimits = (self.softlimits[0], cp.getfloat(self.name, 'Soft_right'))
         if cp.has_option(self.name, 'Pos_raw'):
-            self.calibrate_pos(cp.getint(self.name, 'Pos_raw'), raw=True)
+            if self.driver().connected():
+                self.calibrate_pos(cp.getint(self.name, 'Pos_raw'), raw=True);
     def refresh_settings(self, paramname=None):
         print "Refreshing settings."
         params = [('Max_speed', 4), ('Max_accel', 5), ('Max_current', 6), ('Standby_current', 7),
@@ -607,3 +617,5 @@ class StepperMotor(GObject.GObject):
     def store_to_EEPROM(self):
         for idx in [4, 5, 6, 7, 12, 13, 140, 153, 154, 203, 204, 205, 211]:
             self.driver().execute(7, idx, self.mot_idx)
+    def __str__(self):
+        return self.name + ' (' + self.alias + ')'

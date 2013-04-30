@@ -5,13 +5,15 @@ import gc
 import re
 import ConfigParser
 import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 import functools
 from gi.repository import GObject
 import multiprocessing
 from multiprocessing import Queue
 import uuid
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 class ExpSelector(object):
     """Select an exposure (using headers) which fulfills several criteria."""

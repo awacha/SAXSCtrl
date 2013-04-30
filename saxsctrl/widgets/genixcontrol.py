@@ -4,7 +4,7 @@ import itertools
 from gi.repository import GObject
 from gi.repository import Gdk
 import logging
-
+import multiprocessing
 
 from widgets import StatusLabel
 logger = logging.getLogger(__name__)

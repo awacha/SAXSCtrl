@@ -2,6 +2,8 @@ from ..hardware import tmcl_motor
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import Gdk
+from .widgets import ToolDialog
+import multiprocessing
 
 import logging
 logger = logging.getLogger(__name__)
@@ -73,13 +75,11 @@ class MotorMonitor(Gtk.Dialog):
         self.show_all()
         self.connect('response', self.on_response)
     def on_response(self, dlg, response):
-        self.destroy()
+        self.hide()
         
-class MotorDriver(Gtk.Dialog):
-    def __init__(self, credo, motorname, title='Motor control', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=None):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_resizable(False)
-        self.credo = credo
+class MotorDriver(ToolDialog):
+    def __init__(self, credo, motorname, title='Motor control', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
+        ToolDialog.__init__(self, credo, title, parent, flags, buttons)
         self.motorname = motorname
         self.motorconns = []
         vbox = self.get_content_area()
@@ -90,14 +90,15 @@ class MotorDriver(Gtk.Dialog):
         row = 0
         l = Gtk.Label('Move ' + motorname + ' to:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.posentry = Gtk.Entry()
-        self.posentry.set_text('0')
+        self.posentry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e20, 1e20, 0.1, 1), digits=3)
         self.posentry.connect('activate', self.on_move)
+        self.posentry.connect('value-changed', self.on_move)
         tab.attach(self.posentry, 1, 2, row, row + 1)
         self.unitentry = Gtk.ComboBoxText()
         self.unitentry.append_text('physical units')
         self.unitentry.append_text('microsteps')
         self.unitentry.set_active(0)
+        self.unitentry.connect('changed', self.on_unitentry_changed)
         tab.attach(self.unitentry, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         row += 1
 
@@ -303,10 +304,20 @@ class MotorDriver(Gtk.Dialog):
         ex.connect('notify::expanded', lambda expander, paramspec:self.refresh_settings())
     
         self.show_all()
+    def on_unitentry_changed(self, combo):
+        if self.unitentry.get_active_text() == 'microsteps':
+            self.posentry.set_adjustment(Gtk.Adjustment(self.get_motor().conv_pos_raw(self.posentry.get_value()),
+                                                        - 1e20, 1e20, 10, 100))
+            self.posentry.set_digits(0)
+        else:
+            self.posentry.set_adjustment(Gtk.Adjustment(self.get_motor().conv_pos_phys(self.posentry.get_value()),
+                                                        - 1000, 1000, 0.1, 10))
+            self.posentry.set_digits(3)
+            
     def on_motor_report(self, motor, pos, speed, load):
         if self.unitentry.get_active():
             pos = motor.conv_pos_raw(pos)
-        self.posentry.set_text(str(pos))
+        # self.posentry.set_value(pos)
         return False
     def on_motor_stop(self, motor):
         for c in self.motorconns:
@@ -487,9 +498,9 @@ class MotorDriver(Gtk.Dialog):
             self.motorconns.append(self.get_motor().connect('motor-stop', self.on_motor_stop))
             
             if self.relativecb.get_active():
-                self.get_motor().moverel(float(self.posentry.get_text()), raw=bool(self.unitentry.get_active()))
+                self.get_motor().moverel(float(self.posentry.get_value()), raw=bool(self.unitentry.get_active()))
             else:
-                self.get_motor().moveto(float(self.posentry.get_text()), raw=bool(self.unitentry.get_active()))
+                self.get_motor().moveto(float(self.posentry.get_value()), raw=bool(self.unitentry.get_active()))
         except tmcl_motor.MotorError as me:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
             md.set_title('TMCM351 error')

@@ -68,8 +68,8 @@ class LoggingLock(object):
     
 class GenixConnection(GObject.GObject):
     __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'connect-controller':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'disconnect-controller':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'connect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'disconnect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     }
     _communications_lock = None
     _shutter_lock = None
@@ -83,6 +83,8 @@ class GenixConnection(GObject.GObject):
         self.connection = None
         self._communications_lock = LoggingLock('Communications lock')
         self._shutter_lock = LoggingLock('Shutter lock')
+        if host is not None:
+            self.connect_to_controller()
         # self._communications_lock = multiprocessing.Lock()
         # self._shutter_lock = multiprocessing.Lock()
     def do_controller_error(self):
@@ -96,10 +98,11 @@ class GenixConnection(GObject.GObject):
             self.connection.set_timeout(self._tcp_timeout)
             try:
                 self.connection.open()
-                logger.debug('Connected to GeniX at %s:%d' % (self.host, self.port))
-                self.emit('connect-controller')
+                logger.info('Connected to GeniX at %s:%d' % (self.host, self.port))
+                self.emit('connect-equipment')
             except:
                 self.connection = None
+                logger.error('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
                 raise GenixError('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
     def connected(self):
         return self.connection is not None
@@ -109,7 +112,7 @@ class GenixConnection(GObject.GObject):
                 raise GenixError('Not connected')
             self.connection.close()
             self.connection = None
-            self.emit('disconnect-controller')
+            self.emit('disconnect-equipment')
     def _read_integer(self, regno):
         with self._communications_lock:
             try:

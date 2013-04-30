@@ -22,8 +22,10 @@ import logging
 import time
 import glob
 from widgets import StatusLabel
+import multiprocessing
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class PilatusStatus(Gtk.Frame):
     _monitor_timeout = 1

@@ -1,4 +1,4 @@
-__all__ = ['credo', 'genix', 'pilatus', 'sample', 'tmcl_motor']
+__all__ = ['credo', 'genix', 'pilatus', 'sample', 'tmcl_motor', 'virtualpointdetector']
 
 import credo
 import genix

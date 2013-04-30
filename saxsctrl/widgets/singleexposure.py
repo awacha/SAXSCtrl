@@ -4,7 +4,11 @@ import logging
 import sastool
 from .spec_filechoosers import MaskChooserDialog
 from .nextfsn_monitor import NextFSNMonitor
-logger = logging.getLogger('singleexposure')
+from .samplesetup import SampleSelector
+from .widgets import ExposureInterface
+import multiprocessing
+
+logger = logging.getLogger(__name__)
 from gi.repository import GObject
 import sasgui
 import datetime
@@ -12,9 +16,8 @@ import os
 from .data_reduction_setup import PleaseWaitInfoBar
 import qrcode
 
-class SingleExposure(Gtk.Dialog):
+class SingleExposure(Gtk.Dialog, ExposureInterface):
     _filechooserdialogs = None
-    _exposure_callback_handles = None
     def __init__(self, credo, title='Single exposure', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
@@ -28,7 +31,7 @@ class SingleExposure(Gtk.Dialog):
         
         l = Gtk.Label(label='Sample:'); l.set_alignment(0, 0.5)
         self.entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.sample_combo = Gtk.ComboBoxText()
+        self.sample_combo = SampleSelector(self.credo)
         self.entrytab.attach(self.sample_combo, 1, 2, row, row + 1)
         row += 1
         
@@ -106,23 +109,9 @@ class SingleExposure(Gtk.Dialog):
         
         vb.pack_start(NextFSNMonitor(self.credo, 'Next exposure'), True, True, 0)
         
-        self._credo_connections = [self.credo.connect('samples-changed', self.reload_samples)]
-        self.reload_samples()
         self.connect('response', self.on_response)
         self._datareduction = []
         self._expsleft = 0
-    def do_destroy(self):
-        for c in self._credo_connections:
-            self.credo.disconnect(c)
-    def reload_samples(self, *args):
-        self.sample_combo.get_model().clear()
-        idx = 0
-        for i, sam in enumerate(self.credo.get_samples()):
-            if sam == self.credo.sample:
-                idx = i
-            self.sample_combo.append_text(u'%s (%.2f°C @(%.2f, %.2f))' % (sam.title, sam.temperature, sam.positionx, sam.positiony))
-        self.sample_combo.set_active(idx)
-            
     def on_loadmaskbutton(self, button, entry, action):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}
@@ -149,21 +138,15 @@ class SingleExposure(Gtk.Dialog):
                     md.destroy()
                     del md
                     return
-                sam = self.credo.get_samples()[self.sample_combo.get_active()]
+                sam = self.sample_combo.get_sample()
+                self.credo.set_sample(sam)
                 logger.info('Starting single exposure on sample: ' + str(sam))
                 # make an exposure
-                self.entrytab.set_sensitive(False)
-                self.get_widget_for_response(Gtk.ResponseType.CLOSE).set_sensitive(False)
-                sam = self.credo.get_samples()[self.sample_combo.get_active()]
-                self.credo.set_sample(sam)
                 self.credo.set_fileformat('crd', 5)
                 logger.debug('Calling credo.expose')
                 header_template = {'maskid':self.maskfile_entry.get_text()}
-                self._exposure_callback_handles = {}
-                self._exposure_callback_handles['exposure-done'] = self.credo.connect('exposure-done', self.on_imagereceived)
-                self._exposure_callback_handles['exposure-end'] = self.credo.connect('exposure-end', self.on_exposure_end)
-                self._exposure_callback_handles['exposure-fail'] = self.credo.connect('exposure-fail', self.on_exposure_fail)
-                self.credo.expose(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(), self.dwelltime_entry.get_value(), header_template=header_template)
+                self.start_exposure(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(), self.dwelltime_entry.get_value(), header_template=header_template,
+                                    insensitive=[self.entrytab, self.get_widget_for_response(Gtk.ResponseType.CLOSE)])
                 self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             else:
                 # break the exposure
@@ -195,20 +178,8 @@ class SingleExposure(Gtk.Dialog):
         self.datared_infobar.set_label_text(message)
         return True
     def on_exposure_end(self, credo, state):
-        for k in self._exposure_callback_handles:
-            self.credo.disconnect(self._exposure_callback_handles[k])
-        self._exposure_callback_handles = {}
-        if not state:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.OK, 'User break!')
-            md.run()
-            md.destroy()
-            del md
-        self.entrytab.set_sensitive(True)
-        self.get_widget_for_response(Gtk.ResponseType.CLOSE).set_sensitive(True)
+        ExposureInterface.on_exposure_end(self, credo, state)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
-    def on_exposure_fail(self, credo):
-        logger.error('Exposure failed to load.')
-        return True
     def plot_image(self, exposure):
         if self.plot2D_checkbutton.get_active():
             if self.reuse2D_checkbutton.get_active():
@@ -232,7 +203,7 @@ class SingleExposure(Gtk.Dialog):
             win.show_all()
             win.present()
         return False
-    def on_imagereceived(self, credo, exposure):
+    def on_exposure_done(self, credo, exposure):
         mask = sastool.classes.SASMask(self.maskfile_entry.get_text())
         exposure.set_mask(mask)
         if self.datareduction_cb.get_active():

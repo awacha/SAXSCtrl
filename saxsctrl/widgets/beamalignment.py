@@ -9,25 +9,26 @@ from ..hardware import sample
 import logging
 import sastool
 from .spec_filechoosers import FileEntryWithButton
+from .widgets import ToolDialog, ExposureInterface
+import multiprocessing
 
-logger = logging.getLogger('beamalignment')
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class BeamAlignment(Gtk.Dialog):
+class BeamAlignment(ToolDialog, ExposureInterface):
     _images_pending = []
-    def __init__(self, credo, title='Beam alignment', parent=None, flags=0, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+    def __init__(self, credo, title='Beam alignment'):
+        ToolDialog.__init__(self, title, parent, flags, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
         self.set_default_response(Gtk.ResponseType.OK)
-        self.credo = credo
+
         vb = self.get_content_area()
         tab = Gtk.Table()
         self.entrytable = tab
         vb.pack_start(tab, False, True, 0)
-        self.set_resizable(False)
         row = 0
         
-        l = Gtk.Label(label='Sample name:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Measurement name:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.samplename_entry = Gtk.Entry()
         self.samplename_entry.set_text('-- please fill --')
@@ -139,17 +140,11 @@ class BeamAlignment(Gtk.Dialog):
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK:
             if self.beamposframe.get_sensitive():
-                self.beamposframe.set_sensitive(False)
-                self.entrytable.set_sensitive(False)
-                self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(False)
                 self.credo.set_sample(sample.SAXSSample(self.samplename_entry.get_text()))
                 self.credo.set_fileformat('beamtest', 5)
-
                 self._images_pending = []
-                self._exposure_callback_handles = {}
-                self._exposure_callback_handles['exposure-done'] = self.credo.connect('exposure-done', self.on_imagereceived)
-                self._exposure_callback_handles['exposure-end'] = self.credo.connect('exposure-end', self.on_exposure_end)
-                self._exposure_callback_handles['exposure-fail'] = self.credo.connect('exposure-fail', self.on_exposure_fail)
+                self.start_exposure(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(),
+                                    insensitive=[self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)])
                 self.credo.expose(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int())
                 self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             else:
@@ -157,25 +152,11 @@ class BeamAlignment(Gtk.Dialog):
         else:
             self.hide()
         return True
-    def on_exposure_fail(self, credo):
-        logger.error('Exposure failed to load.')
-        return True
     def get_beamarea(self):
         return (self.pri_top_entry.get_value(), self.pri_bottom_entry.get_value(), self.pri_left_entry.get_value(), self.pri_right_entry.get_value()) 
     def on_exposure_end(self, credo, state):
-        self.beamposframe.set_sensitive(True)
-        self.entrytable.set_sensitive(True)
-        self.get_widget_for_response(Gtk.ResponseType.CANCEL).set_sensitive(True)
+        ExposureInterface.on_exposure_end(self, credo, state)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
-        for k in self._exposure_callback_handles:
-            self.credo.disconnect(self._exposure_callback_handles[k])
-        self._exposure_callback_handles = {}
-        if not state:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.OK, 'User break!')
-            md.run()
-            md.destroy()
-            del md
-            return
         logger.debug('last image received, analyzing images.')
         try:
             mask = sastool.classes.SASMask(self.mask_entry.get_filename())
@@ -222,7 +203,7 @@ class BeamAlignment(Gtk.Dialog):
         self._images_pending = []
         gc.collect()
             
-    def on_imagereceived(self, credo, imgdata):
+    def on_exposure_done(self, credo, imgdata):
         pri = (self.pri_top_entry.get_value(),
                self.pri_bottom_entry.get_value(),
                self.pri_left_entry.get_value(),
