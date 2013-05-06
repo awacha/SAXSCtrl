@@ -19,7 +19,7 @@ logger.setLevel(logging.DEBUG)
 class BeamAlignment(ToolDialog, ExposureInterface):
     _images_pending = []
     def __init__(self, credo, title='Beam alignment'):
-        ToolDialog.__init__(self, title, parent, flags, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
         self.set_default_response(Gtk.ResponseType.OK)
 
         vb = self.get_content_area()
@@ -145,7 +145,6 @@ class BeamAlignment(ToolDialog, ExposureInterface):
                 self._images_pending = []
                 self.start_exposure(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(),
                                     insensitive=[self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)])
-                self.credo.expose(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int())
                 self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             else:
                 self.credo.killexposure()

@@ -27,7 +27,7 @@ import time
 from gi.repository import GObject
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 GENIX_IDLE = 0
 GENIX_POWERDOWN = -1
@@ -81,12 +81,12 @@ class GenixConnection(GObject.GObject):
         self.host = host
         self.port = port
         self.connection = None
-        self._communications_lock = LoggingLock('Communications lock')
-        self._shutter_lock = LoggingLock('Shutter lock')
+        # self._communications_lock = LoggingLock('Communications lock')
+        # self._shutter_lock = LoggingLock('Shutter lock')
+        self._communications_lock = multiprocessing.Lock()
+        self._shutter_lock = multiprocessing.Lock()
         if host is not None:
             self.connect_to_controller()
-        # self._communications_lock = multiprocessing.Lock()
-        # self._shutter_lock = multiprocessing.Lock()
     def do_controller_error(self):
         if self.connected():
             self.disconnect_from_controller()

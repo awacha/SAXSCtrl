@@ -4,6 +4,8 @@ import sastool
 import os
 import re
 
+
+
 class MaskChooserDialog(Gtk.FileChooserDialog):
     def __init__(self, title='Select mask file...', parent=None, action=Gtk.FileChooserAction.OPEN, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
         Gtk.FileChooserDialog.__init__(self, title, parent, action, buttons)
@@ -25,8 +27,8 @@ RESPONSE_REFRESH = 1
 RESPONSE_OPEN = 2
 
 class FileEntryWithButton(Gtk.HBox):
-    _filechooserdialogs = None
-    def __init__(self, dialogtitle='Open file...', dialogaction=Gtk.FileChooserAction.OPEN, currentfolder=None, *args):
+    _filechooserdialog = None
+    def __init__(self, dialogtitle='Open file...', dialogaction=Gtk.FileChooserAction.OPEN, currentfolder=None, dialogclass=Gtk.FileChooserDialog, * args):
         Gtk.HBox.__init__(self, *args)
         self.entry = Gtk.Entry()
         self.pack_start(self.entry, True, True, 0)
@@ -35,25 +37,25 @@ class FileEntryWithButton(Gtk.HBox):
         self.dialogtitle = dialogtitle
         self.currentfolder = currentfolder
         self.button.connect('clicked', self.on_button, self.entry, dialogaction)
+        self.dialogclass = dialogclass
     def get_path(self):
         return self.entry.get_text()
     get_filename = get_path
     def on_button(self, button, entry, action):
-        if self._filechooserdialogs is None:
-            self._filechooserdialogs = {}
-        if entry not in self._filechooserdialogs:
-            self._filechooserdialogs[entry] = MaskChooserDialog(self.dialogtitle, self.get_toplevel(), action, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        if self._filechooserdialog is None:
+            self._filechooserdialog = self.dialogclass(self.dialogtitle, self.get_toplevel(),
+                                                       action, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
             if self.currentfolder is not None:
                 if callable(self.currentfolder):
-                    self._filechooserdialogs[entry].set_current_folder(self.currentfolder())
+                    self._filechooserdialog.set_current_folder(self.currentfolder())
                 else:
-                    self._filechooserdialogs[entry].set_current_folder(self.currentfolder)
+                    self._filechooserdialog.set_current_folder(self.currentfolder)
         if entry.get_text():
-            self._filechooserdialogs[entry].set_filename(entry.get_text())
-        response = self._filechooserdialogs[entry].run()
+            self._filechooserdialog.set_filename(entry.get_text())
+        response = self._filechooserdialog.run()
         if response == Gtk.ResponseType.OK:
-            entry.set_text(self._filechooserdialogs[entry].get_filename())
-        self._filechooserdialogs[entry].hide()
+            entry.set_text(self._filechooserdialog.get_filename())
+        self._filechooserdialog.hide()
         return True
     def set_filename(self, filename):
         self.entry.set_text(filename)
@@ -77,7 +79,7 @@ class ExposureOpenDialog(Gtk.Dialog):
         self.fileprefix_entry.append_text('crd_%05d')
         self.fileprefix_entry.append_text('beamtest_%05d')
         self.fileprefix_entry.append_text('transmission_%05d')
-        self.fileprefix_entry.append_text('timedscan_%05d')
+        self.fileprefix_entry.append_text('scan_%05d')
         self.fileprefix_entry.set_active(0)
         self.fileprefix_entry.connect('changed', self.reload)
         tab.attach(self.fileprefix_entry, 1, 2, row, row + 1)

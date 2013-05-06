@@ -5,11 +5,15 @@ import os
 import subprocess
 import gc
 import multiprocessing
+import sys
 
 logger = logging.getLogger('saxsctrl')
 logger.setLevel(logging.DEBUG)
 handler = logging.handlers.TimedRotatingFileHandler(os.path.expanduser('~/SAXSCtrl.log'), 'D')
 formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+handler = logging.StreamHandler(sys.stderr)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 

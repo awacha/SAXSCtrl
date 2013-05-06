@@ -73,16 +73,22 @@ class TMCM351(GObject.GObject):
                 if name not in self.motors:
                     mot = self.add_motor(0, name)
                 self.motors[name].load_from_configparser(cp)
+            self.settingsfile = filename
         finally:
             self.settingsfile_in_use = False
     def do_communication(self, cmd):
         raise NotImplementedError
-    def send_and_recv(self, instruction, type_=0, mot_bank=0, value=0):
-        cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
-        cmd = cmd + (sum(cmd) % 256,)
-        logger.debug('About to send TMCL command: ' + ''.join(hex(x) for x in cmd))
-        cmd = ''.join(chr(x) for x in cmd)
+    def send_and_recv(self, instruction=None, type_=0, mot_bank=0, value=0):
+        if instruction is not None:
+            cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
+            cmd = cmd + (sum(cmd) % 256,)
+            logger.debug('About to send TMCL command: ' + ''.join(hex(x) for x in cmd))
+            cmd = ''.join(chr(x) for x in cmd)
+        else:
+            cmd = None
         result = self.do_communication(cmd)
+        if len(result) == 0:
+            return 0, None
         logger.debug('Got TMCL result: ' + ''.join(hex(ord(x)) for x in result))
         # validate checksum
         if not (sum(ord(x) for x in result[:-1]) % 256 == ord(result[-1])):
@@ -129,6 +135,23 @@ class TMCM351(GObject.GObject):
     def moving(self):
         """Return currently moving motors"""
         return [m for m in self.motors if self.motors[m].is_moving()]
+    def get_motor(self, idx):
+        return [self.motors[m] for m in self.motors if self.motors[m].mot_idx == idx][0]
+    def moveto_motor(self, idx, pos):
+        self.execute(4, 0, idx, pos)
+        self.execute(138, 0, 0, 2 ** idx)
+        GObject.idle_add(self._wait_for_targetreachedevent)
+    def moverel_motor(self, idx, pos):
+        self.execute(4, 1, idx, pos)
+        self.execute(138, 0, 0, 2 ** idx)
+    def _wait_for_targetreachedevent(self):
+        status, value = self.send_and_recv(None)
+        if value is not None:
+            for idx in range(3):
+                if value & 2 ** idx:
+                    self.get_motor(idx).emit('motor-stop')
+            return False
+        return True
     
 class TMCM351_RS232(TMCM351):
     def __init__(self, serial_device, timeout=1, settingsfile=None, settingssaveinterval=10):
@@ -137,15 +160,17 @@ class TMCM351_RS232(TMCM351):
         if not self.rs232.isOpen():
             raise MotorError('Cannot open RS-232 port ' + str(serial_device))
         self.rs232.timeout = timeout
+        self.rs232.flushInput()
         self.load_settings()
     def connected(self):
         return self.rs232 is not None and self.rs232.isOpen()
     def do_communication(self, cmd):
         with self.comm_lock:
-            self.rs232.flushInput()
-            self.rs232.write(cmd)
+            if cmd is not None:
+                self.rs232.write(cmd)
             result = self.rs232.read(9)
-        if not result:
+            self.rs232.flushInput()
+        if not result and cmd is not None:
             self.rs232.close()
             self.rs232 = None
             self.emit('disconnect-equipment')
@@ -208,15 +233,16 @@ class TMCM351_TCP(TMCM351):
                     self.disconnect_from_controller()
                     raise MotorError('Socket closed.')
                 readable = select.select([self.socket], [], [], 0)[0]
-            writable, exceptional = select.select([], [self.socket], [self.socket], 0)[1:3]
-            if not writable:
-                raise MotorError('Cannot write socket.')
-            if exceptional:
-                self.disconnect_from_controller()
-                raise MotorError('Communication error.')
-            chars_sent = 0
-            while chars_sent < len(cmd):
-                chars_sent += self.socket.send(cmd[chars_sent:])
+            if cmd is not None:
+                writable, exceptional = select.select([], [self.socket], [self.socket], 0)[1:3]
+                if not writable:
+                    raise MotorError('Cannot write socket.')
+                if exceptional:
+                    self.disconnect_from_controller()
+                    raise MotorError('Communication error.')
+                chars_sent = 0
+                while chars_sent < len(cmd):
+                    chars_sent += self.socket.send(cmd[chars_sent:])
             readable, exceptional = select.select([self.socket], [], [self.socket], self.timeout)[0:3:2]
             if not readable:
                 self.disconnect_from_controller()
@@ -227,7 +253,7 @@ class TMCM351_TCP(TMCM351):
                 if len(result) == 9:
                     break
                 readable = select.select([self.socket], [], [], 1)[0]
-            if result == '':
+            if result == '' and cmd is not None:
                 self.disconnect_from_controller()
                 raise MotorError('Communication error. Controller may not be connected')
             if len(result) != 9:
@@ -289,10 +315,10 @@ class StepperMotor(GObject.GObject):
         pos = self.get_pos()
         if (min(self.softlimits) > pos) or (max(self.softlimits) < pos):
             self.stop()
-        ismoving = self.is_moving()
-        self.emit('motor-report', self.get_pos(), self.get_speed(), self.get_load())
+        speed = self.get_speed()
+        self.emit('motor-report', pos, self.get_speed(), self.get_load())
         self.check_limits()
-        if ismoving:
+        if speed != 0:
             return True
         else:
             self.emit('motor-stop')
@@ -569,7 +595,7 @@ class StepperMotor(GObject.GObject):
         self.driver().execute(1, 0, self.mot_idx, speed)
     def stop(self):
         self.driver().execute(3, 0, self.mot_idx, 0)
-    def moveto(self, pos, raw=False):
+    def moveto(self, pos, raw=False, blocking=False):
         moving = self.driver().moving()
         if moving and self.name not in moving:
             raise MotorError('Another motor is currently moving.')
@@ -582,7 +608,10 @@ class StepperMotor(GObject.GObject):
             raise MotorError('Target position outside software limits')
         self.emit('motor-start')
         self.driver().execute(4, 0, self.mot_idx, pos)
-    def moverel(self, pos, raw=False):
+        if blocking:
+            while self.is_moving():
+                GObject.main_context_default().iteration(True)                
+    def moverel(self, pos, raw=False, blocking=False):
         moving = self.driver().moving()
         if moving and self.name not in moving:
             raise MotorError('Another motor is currently moving.')
@@ -596,6 +625,9 @@ class StepperMotor(GObject.GObject):
             raise MotorError('Target position outside software limits')
         self.emit('motor-start')
         self.driver().execute(4, 1, self.mot_idx, pos)
+        if blocking:
+            while self.is_moving():
+                GObject.main_context_default().iteration(True)                
     def get_settings(self):
         if not self.settings or self.settings['__timestamp__'] < time.time() - self.settings_timeout:
             self.refresh_settings()

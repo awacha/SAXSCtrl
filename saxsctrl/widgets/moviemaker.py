@@ -10,11 +10,11 @@ import re
 
 
 class MovieMaker(Gtk.Dialog):
-    def __init__(self, credo, scanname, title='Create movie from scan', parent=None, flags=0, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+    def __init__(self, credo, scan, title='Create movie from scan', parent=None, flags=0, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.CANCEL)
         self.credo = credo
-        self.scanname = scanname
+        self.scan = scan
         vb = self.get_content_area()
         self.pritable = Gtk.Table()
         
@@ -106,11 +106,11 @@ class MovieMaker(Gtk.Dialog):
             self.on_run()
             return
     def on_run(self):
-        scan = Scan(os.path.join(self.credo.scanpath, self.scanname) + '.txt')
         fig = plt.figure()
         self.pri_frame.set_sensitive(False)
         self.entrytable.set_sensitive(False)
-        fileformat = self.scanname + '_%05d.cbf'
+        scanname = 'scan_' + str(self.scan.fsn)
+        fileformat = 'scan_%05d.cbf'
         self.progress.show_all()
         self.get_widget_for_response(Gtk.ResponseType.OK).set_sensitive(False)
         kwargs_for_plot2d = {'qrange_on_axis':False, 'drawmask':False, 'crosshair':False}
@@ -123,36 +123,39 @@ class MovieMaker(Gtk.Dialog):
             axis = (self.prileft_entry.get_value(), self.priright_entry.get_value(), self.pribottom_entry.get_value(), self.pritop_entry.get_value())
         else:
             axis = None
-        for i in range(1, len(scan) + 1):
+        for i in [int[fsn] for fsn in self.scan['FSN']]:
             ex = sastool.classes.SASExposure(fileformat % i, dirs=self.credo.get_exploaddirs())
             fig.clf()
             ex.plot2d(**kwargs_for_plot2d)
             if axis is not None:
                 plt.gca().axis(axis)
-            fig.gca().set_title(self.scanname)
+            fig.gca().set_title(scanname)
             fig.text(1, 0, '%s@CREDO %s' % (ex['Owner'], str(ex['Date'])), ha='right', va='bottom')
-            if not os.path.isdir(os.path.join(self.credo.moviepath, self.scanname)):
-                os.mkdir(os.path.join(self.credo.moviepath, self.scanname))
-            fig.savefig(os.path.join(self.credo.moviepath, self.scanname, (fileformat % i).replace('.cbf', '.png')))
+            if not os.path.isdir(os.path.join(self.credo.moviepath, scanname)):
+                os.mkdir(os.path.join(self.credo.moviepath, scanname))
+            fig.savefig(os.path.join(self.credo.moviepath, scanname, (fileformat % i).replace('.cbf', '.png')))
             del ex
-            self.pulse(float(i) / len(scan))
+            self.pulse(float(i) / len(self.scan))
             if self._userbreak:
                 break
         # fig.close()
         del fig
-        if (i < len(scan)):
+        if (i < len(self.scan)):
             return False
-        filespresent = [f for f in os.listdir(self.credo.moviepath) if f.startswith(self.scanname) and f.endswith('.avi')]
-        if not filespresent:
-            outname = self.scanname + '.avi'
+        moviefilespresent = [f for f in os.listdir(self.credo.moviepath) if f.startswith(scanname) and f.endswith('.avi')]
+        if not moviefilespresent:
+            outname = scanname + '.avi'
         else:
             try:
-                outname = self.scanname + 'm%03d.avi' % (max([int(m.group(1)) for m in [m for m in [re.match(self.scanname + 'm(?P<num>\d+).avi', f) for f in filespresent ] if m is not None]]) + 1)
+                outname = scanname + 'm%03d.avi' % (max([int(m.group(1)) for m in 
+                                                         [m for m in 
+                                                          [re.match(scanname + 'm(?P<num>\d+).avi', f) 
+                                                           for f in filespresent ] if m is not None]]) + 1)
             except ValueError:
-                outname = self.scanname + 'm001.avi'
+                outname = scanname + 'm001.avi'
         cwd = os.getcwd()
         def _encoder_thread():
-            os.chdir(os.path.join(self.credo.moviepath, self.scanname))
+            os.chdir(os.path.join(self.credo.moviepath, scanname))
             os.system('mencoder mf://*.png -mf w=800:h=600:fps=%d:type=png -ovc lavc -lavcopts vcodec=mpeg4:mbd=2:trell -oac copy -o ../%s' % (self.fps_entry.get_value_as_int(), outname))
             os.chdir(cwd)
         encthread = threading.Thread(name='Encoding_movie', target=_encoder_thread)
@@ -163,7 +166,7 @@ class MovieMaker(Gtk.Dialog):
             while Gtk.events_pending():
                 Gtk.main_iteration()
         GObject.source_remove(_pulser)
-        shutil.rmtree(os.path.join(self.credo.moviepath, self.scanname))
+        shutil.rmtree(os.path.join(self.credo.moviepath, scanname))
         self.get_widget_for_response(Gtk.ResponseType.OK).set_sensitive(True)
         self.pri_frame.set_sensitive(True)
         self.entrytable.set_sensitive(True)

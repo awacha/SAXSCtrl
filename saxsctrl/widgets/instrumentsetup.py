@@ -80,9 +80,8 @@ class InstrumentSetup(Gtk.Dialog):
         return False
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK or respid == Gtk.ResponseType.APPLY:
-            try:
-                self.credo.delay_setup_changed(True)
-                self.credo.delay_path_changed(True)
+            modified = []
+            with self.credo.freeze_notify():
                 for attrname in ['wavelength', 'beamposx', 'beamposy', 'dist', 'pixelsize', 'filter', 'shuttercontrol', 'motorcontrol']:
                     widget = self.__getattribute__(attrname + '_entry')
                     if isinstance(widget, Gtk.SpinButton):
@@ -95,9 +94,9 @@ class InstrumentSetup(Gtk.Dialog):
                         raise NotImplementedError
                     if self.credo.__getattribute__(attrname) != value:
                         self.credo.set_property(attrname, value)
-            finally:
-                self.credo.delay_setup_changed(False)
-                self.credo.delay_path_changed(False)
+                        modified.append(attrname)
+            if modified:
+                self.credo.emit('setup-changed')
         if respid != Gtk.ResponseType.APPLY:
             self.hide()
         return True

@@ -43,7 +43,7 @@ class ToolDialog(Gtk.Dialog):
         self.set_resizable(False)
     
 class ExposureInterface(object):
-    def start_exposure(self, exptime, nimages=1, dwelltime=None, header_template={}, sensitive=[], insensitive=[], virtualdetectors=[]):
+    def start_exposure(self, exptime, nimages=1, dwelltime=0.003, header_template={}, sensitive=[], insensitive=[]):
         if not hasattr(self, '_exposure_signal_handles'):
             self._exposure_signal_handles = {}
         if self._exposure_signal_handles:
@@ -51,7 +51,7 @@ class ExposureInterface(object):
         self._exposure_signal_handles['exposure-done'] = self.credo.connect('exposure-done', self.on_exposure_done)
         self._exposure_signal_handles['exposure-end'] = self.credo.connect('exposure-end', self.on_exposure_end)
         self._exposure_signal_handles['exposure-fail'] = self.credo.connect('exposure-fail', self.on_exposure_fail)
-        self._expose_args = (exptime, nimages, dwelltime, header_template, virtualdetectors)
+        self._expose_args = (exptime, nimages, dwelltime, header_template)
         self.credo.expose(*self._expose_args)
         for s in sensitive:
             try:

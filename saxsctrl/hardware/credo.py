@@ -27,76 +27,25 @@ logger.setLevel(logging.DEBUG)
 class CredoError(Exception):
     pass
 
-class CredoExposureNotifier(threading.Thread):
-    def __init__(self, expparams, headertemplate, outqueue, userbreak, expfinished, name='CredoExposureNotifier', group=None):
-        threading.Thread.__init__(self, name=name, group=group)
-        self.headertemplate = headertemplate
-        self.expparams = expparams
-        self.outqueue = outqueue
-        self.userbreakswitch = userbreak
-        self.exposurefinishedswitch = expfinished
-    def run(self):
-        try:
-            self.expparams['firstfsn'] = self.headertemplate['FSN']
-            logger.debug('Notifier thread starting. Exptime: %(exptime)f; expnum: %(expnum)d; dwelltime: %(dwelltime)f; filenameformat: %(exposureformat)s; headernameformat: %(headerformat)s; firstfsn: %(firstfsn)d.' % self.expparams)
-            t0 = time.time()
-            for i in range(0, self.expparams['expnum']):
-                t1 = time.time()
-                nextend = t0 + self.expparams['exptime'] * (i + 1) + self.expparams['dwelltime'] * i + 0.005
-                if nextend > t1:
-                    logger.debug('Sleeping %f seconds' % (nextend - t1))
-                    is_userbreak = self.userbreakswitch.wait(nextend - t1)
-                else:
-                    logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
-                    is_userbreak = self.userbreakswitch.is_set()
-                if is_userbreak:
-                    self.outqueue.put((CredoExpose.EXPOSURE_BREAK, None))
-                    return
-                filename = os.path.join(self.expparams['imagepath'], self.expparams['exposureformat'] % (self.expparams['firstfsn'] + i))
-                try:
-                    f = open(filename, 'r')
-                    exists = True
-                    f.close()
-                except IOError:
-                    exists = False
-                while not exists:
-                    logger.debug('Waiting for file: ' + filename)
-                    try:
-                        f = open(filename, 'r')
-                        exists = True
-                        f.close()
-                    except IOError:
-                        exists = False
-                    if self.userbreakswitch.wait(0.01): 
-                        logger.debug('Killing notifier thread.')
-                        self.outqueue.put((CredoExpose.EXPOSURE_BREAK, None))
-                        return
-                pilatusheader = sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
-                self.headertemplate.update(pilatusheader)
-                self.headertemplate['EndDate'] = datetime.datetime.now()
-                self.headertemplate.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % self.headertemplate['FSN']))
-                logger.debug('Header %s written.' % (self.expparams['headerformat'] % self.headertemplate['FSN']))
-                self.headertemplate['FSN'] += 1
-                try:
-                    logger.debug('Loading file.')
-                    ex = sastool.classes.SASExposure(filename, dirs=self.expparams['exploaddirs'])
-                except IOError as ioe:
-                    print "Tried to load file:", filename
-                    print "Folders:", self.expparams['exploaddirs']
-                    print "Error text:", ioe.message
-                    self.outqueue.put((CredoExpose.EXPOSURE_FAIL, ioe.message))
-                else:
-                    logger.debug('Reading out virtual detectors.')
-                    for vd in self.expparams['virtualdetectors']:
-                        ex.header['VirtDet_' + vd.name] = vd.readout(ex)
-                    self.outqueue.put((CredoExpose.EXPOSURE_DONE, ex))
-                    del ex
-            logger.debug('Notifier thread exiting cleanly.')
-        except Exception, exc:
-            self.outqueue.put((CredoExpose.EXPOSURE_FAIL, exc.message))
-            raise
-        finally:
-            self.exposurefinishedswitch.set()
+class CredoFileWatch(GObject.GObject):
+    __gsignals__ = {'monitor-event':(GObject.SignalFlags.RUN_FIRST, None, (str, object)),
+                  }    
+    def __init__(self, folders=[]):
+        GObject.GObject.__init__(self)
+        self.monitors = []
+        self.setup(folders)
+    def setup(self, folders):
+        for monitor, connection in self.monitors:
+            monitor.cancel()
+            monitor.disconnect(connection)
+        self.monitors = []
+        for folder in folders:
+            dirmonitor = Gio.file_new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.NONE, None)
+            self.monitors.append((dirmonitor, dirmonitor.connect('changed', self.on_monitor_event)))
+    def on_monitor_event(self, monitor, filename, otherfilename, event):
+        if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
+            self.emit('monitor-event', filename, event)
+
 
 class CredoExpose(multiprocessing.Process):
     EXPOSURE_END = -1
@@ -112,65 +61,117 @@ class CredoExpose(multiprocessing.Process):
         self.userbreakswitch = multiprocessing.Event()
         self.pilatus = pilatus
         self.genix = genix
-        self.notifierthread = None
-        self._exposurefinished_switch = multiprocessing.Event()
-        self._exposurefinished_handle = None
-        self._statelock = multiprocessing.Lock()
+    def operate_shutter(self, to_state):
+        if to_state:
+            logger.debug('Opening shutter')
+            try:
+                self.genix.shutter_open()
+            except genix.GenixError as ge:
+                self.outqueue.put((self.EXPOSURE_FAIL, ge.message))
+                logger.error('Shutter timeout on opening.')
+            logger.debug('Shutter should now be open.')
+        else:
+            logger.debug('Closing shutter')
+            try:
+                self.genix.shutter_close()
+            except genix.GenixError as ge:
+                self.outqueue.put((self.EXPOSURE_FAIL, ge.message))
+                logger.error('Shutter timeout on closing.')
+            logger.debug('Shutter should now be closed.')
+    def try_to_read_header(self, filename):
+        try:
+            return sastool.io.twodim.readcbf(filename, load_header=True, load_data=False)[0]
+        except IOError:
+            return None
+    def process_exposure(self, filename):
+        # try to load the header from the CBF file.
+        pilatusheader = self.try_to_read_header(filename)
+        while pilatusheader is None:
+            # if not successful, wait a bit and try again.
+            logger.debug('Waiting for file: ' + filename)
+            # not a simple sleep but wait on the userbreak switch.
+            if self.userbreakswitch.wait(0.01):
+                logger.debug('Killing notifier thread.')
+                self.outqueue.put((CredoExpose.EXPOSURE_BREAK, None))
+                return False
+            pilatusheader = self.try_to_read_header(filename)
+        
+        # do some fine adjustments on the header template:
+        # a) include the CBF header written by camserver.
+        self.headertemplate.update(pilatusheader)
+        # b) set the end date to the current time.
+        self.headertemplate['EndDate'] = datetime.datetime.now()
+        # and save the header to the parampath.
+        self.headertemplate.write(os.path.join(self.expparams['parampath'], self.expparams['headerformat'] % self.headertemplate['FSN']))
+        logger.debug('Header %s written.' % (self.expparams['headerformat'] % self.headertemplate['FSN']))
+        # Increment the file sequence number.
+        self.headertemplate['FSN'] += 1
+        
+        # Now try to load the exposure, with the header.
+        try:
+            logger.debug('Loading file.')
+            ex = sastool.classes.SASExposure(filename, dirs=[self.expparams['parampath'], self.expparams['imagepath']])
+        except IOError as ioe:
+            # This should not happen, since we have written the header and read the CBF file before. But noone knows...
+            self.outqueue.put((CredoExpose.EXPOSURE_FAIL, ioe.message))
+        else:
+            logger.debug('Reading out virtual detectors.')
+            for vd in self.expparams['virtualdetectors']:
+                if isinstance(vd, virtualpointdetector.VirtualPointDetectorExposure):
+                    ex.header['VirtDet_' + vd.name] = vd.readout(ex)
+                elif isinstance(vd, virtualpointdetector.VirtualPointDetectorEpoch):
+                    ex.header['VirtDet_' + vd.name] = vd.readout()
+                elif isinstance(vd, virtualpointdetector.VirtualPointDetectorGenix):
+                    ex.header['VirtDet_' + vd.name] = vd.readout(self.genix)
+            # put the final exposure object to the output queue.
+            self.outqueue.put((CredoExpose.EXPOSURE_DONE, ex))
+            del ex
+        return True
     def run(self):
         while not self.killswitch.is_set():
             try:
-                expparams, headertemplate = self.inqueue.get(block=True, timeout=1)
+                self.expparams, self.headertemplate = self.inqueue.get(block=True, timeout=1)
             except multiprocessing.queues.Empty:
                 continue
             with self.isworking:
-                logger.info('Starting exposure.')
-                self.notifierthread = CredoExposureNotifier(expparams, headertemplate, self.outqueue, self.userbreakswitch, self._exposurefinished_switch)
-                self.notifierthread.daemon = True
+                self.userbreakswitch.clear()  # reset user break state.
+                logger.debug('Starting exposure in CredoExposure process.')
                 try:
-                    firstfsn = headertemplate['FSN']
-                    if expparams['shuttercontrol']:
-                        logger.info('Opening shutter')
-                        try:
-                            self.genix.shutter_open()
-                        except genix.GenixError as ge:
-                            self.outqueue.put((self.EXPOSURE_FAIL, ge.message))
-                            logger.error('Shutter timeout on opening.')
-                            continue
-                        logger.info('Shutter should now be opened.')
-                    self.userbreakswitch.clear()
-                    self._exposurefinished_switch.clear()
-                    logger.info('Executing pilatus.expose()')
-                    with self._statelock:
-                        self._exposurefinished_handle = self.pilatus.connect('camserver-exposurefinished', self.on_exposurefinished)
-                    self.pilatus.expose(expparams['exptime'], expparams['exposureformat'] % firstfsn, expparams['expnum'], expparams['dwelltime'])
-                    logger.info('Starting notifier thread.')
-                    self.notifierthread.start()
-                    logger.debug('Waiting for exposurefinished_switch.')
-                    self._exposurefinished_switch.wait((expparams['exptime'] + expparams['dwelltime']) * expparams['expnum'] + 3)
-                    if self._exposurefinished_switch.is_set():
-                        logger.debug('Exposurefinished switch was set.')
+                    filenameformat = os.path.join(self.expparams['imagepath'], self.expparams['exposureformat'])
+                    self.expparams['firstfsn'] = self.headertemplate['FSN']
+                    # open the safety shutter if needed.
+                    if self.expparams['shuttercontrol']: self.operate_shutter(True)
+                    if 'quick' in self.expparams and self.expparams['quick']:
+                        logger.debug('Quick exposure')
+                        self.pilatus.expose_defaults(self.expparams['exposureformat'] % self.expparams['firstfsn'])
                     else:
-                        logger.debug('Exposurefinished switch timeout.')
-                    if expparams['shuttercontrol']:
-                        try:
-                            self.genix.shutter_close()
-                        except genix.GenixError as ge:
-                            self.outqueue.put((self.EXPOSURE_FAIL, ge.message))
-                            logger.error('Shutter timeout on closing.')
-                            continue
+                        logger.debug('Normal exposure')
+                        self.pilatus.expose(self.expparams['exptime'], self.expparams['exposureformat'] % self.expparams['firstfsn'], self.expparams['expnum'], self.expparams['dwelltime'])
+                    t0 = time.time()
+                    for i in range(0, self.expparams['expnum']):
+                        # wait for each exposure. Check for user break inbetween.
+                        t1 = time.time()
+                        nextend = t0 + self.expparams['exptime'] * (i + 1) + self.expparams['dwelltime'] * i + 0.005
+                        if nextend > t1:
+                            logger.debug('Sleeping %f seconds' % (nextend - t1))
+                            is_userbreak = self.userbreakswitch.wait(nextend - t1)
+                        else:
+                            logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
+                            is_userbreak = self.userbreakswitch.is_set()
+                        if is_userbreak or not self.process_exposure(filenameformat % (self.expparams['firstfsn'] + i)):
+                            # process_exposure() returns False if a userbreak occurs.
+                            self.outqueue.put((CredoExpose.EXPOSURE_BREAK, None))
+                            break  # break the for loop.
+                    # close the safety shutter if needed.
+                    if self.expparams['shuttercontrol']: self.operate_shutter(False)
+                except Exception, exc:
+                    # catch all exceptions and put an error state in the output queue, then re-raise.
+                    self.outqueue.put((CredoExpose.EXPOSURE_FAIL, exc.message))
+                    raise
                 finally:
-                    self.notifierthread.userbreakswitch.set()
-                    if self.notifierthread.is_alive():
-                        self.notifierthread.join()
-                    self.notifierthread = None
-                    self._exposurefinished_switch.clear()
+                    # signal the end.
                     self.outqueue.put((CredoExpose.EXPOSURE_END, None))
-                    
-    def on_exposurefinished(self, pilatus, state, message):
-        with self._statelock:
-            self.pilatus.disconnect(self._exposurefinished_handle)
-            self._exposurefinished_switch.set()
-        return True
+                    logger.debug('Returning from work.')
         
 class Credo(GObject.GObject):
     __gsignals__ = {'path-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -184,8 +185,10 @@ class Credo(GObject.GObject):
                     'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
                     'equipment-connection':(GObject.SignalFlags.RUN_FIRST, None, (str, bool, object)),
                     'scan-dataread':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'scan-end':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'scan-end':(GObject.SignalFlags.RUN_FIRST, None, (object, bool)),
                     'virtualpointdetectors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'scan-phase':(GObject.SignalFlags.RUN_LAST, None, (str,)),
+                    'scan-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,))
                    }
     __equipments__ = {'GENIX':{'class':genix.GenixConnection, 'attrib':'genix', 'port':502, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
                       'PILATUS':{'class':pilatus.PilatusConnection, 'attrib':'pilatus', 'port':41234, 'connectfunc':'connect_to_camserver', 'disconnectfunc':'disconnect_from_camserver'},
@@ -219,8 +222,9 @@ class Credo(GObject.GObject):
     tmcmhost = GObject.property(type=str, default='')
     virtdetcfgfile = GObject.property(type=str, default='')
     virtualpointdetectors = None
+    _scanstore = None
     # changing any of the properties in this list will trigger a setup-changed event.
-    setup_properties = ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol', 'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile']
+    setup_properties = ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol', 'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile', 'imagepath', 'filepath']
     # changing any of the properties in this list will trigger a path-changed event.
     path_properties = ['filepath', 'imagepath']
     def __init__(self, genixhost=None, pilatushost=None, motorhost=None, imagepath='/net/pilatus300k.saxs/disk2/images',
@@ -228,6 +232,8 @@ class Credo(GObject.GObject):
         GObject.GObject.__init__(self)
         self.exposing = None
         self.scanning = None
+        self.filewatch = CredoFileWatch()
+        self.filewatch.connect('monitor-event', self.on_filemonitor)
         self.load_settings()
         self._credo_state = {}
         self.load_virtdetcfg(None, True)
@@ -249,7 +255,8 @@ class Credo(GObject.GObject):
         self.connect('notify::filebegin', self.do_fileformatchange)
         self.connect('notify::fsndigits', self.do_fileformatchange)
         
-        self.connect('notify::scanfile', lambda obj, param:self.init_scanfile())
+        self.connect('notify::scanfile', lambda obj, param:self.reload_scanfile())
+        self.reload_scanfile()
         # samples
         self._samples = []
         self.sample = None
@@ -261,8 +268,8 @@ class Credo(GObject.GObject):
         self.datareduction.set_property('headerformat', self.fileformat + '.param')
         self.datareduction.set_property('datadirs', self.get_exploaddirs())
         self.datareduction.save_state()
-
-        self._setup_filewatchers()
+        self.emit('path-changed')
+        
         self.load_samples()
         # emit signals if parameters change
         for name in self.setup_properties:
@@ -285,6 +292,7 @@ class Credo(GObject.GObject):
             raise NotImplementedError('Unknown equipment ' + type_)
         attrib = self.__equipments__[type_]['attrib']
         cls = self.__equipments__[type_]['class']
+        equip = None
         if isinstance(host, cls):
             setattr(self, attrib, host)
             host = host.host
@@ -297,7 +305,8 @@ class Credo(GObject.GObject):
                 port = self.__equipments__[type_]['port']
             logger.info('Connecting to equipment: ' + type_ + ' at ' + host + ':' + str(port))
             if not hasattr(self, attrib):
-                setattr(self, attrib, cls(host, port))
+                equip = cls(host, port)
+                setattr(self, attrib, equip)
             else:
                 setattr(getattr(self, attrib), 'host', host)
                 setattr(getattr(self, attrib), 'port', port)
@@ -305,7 +314,8 @@ class Credo(GObject.GObject):
         elif host is None:
             if not hasattr(self, attrib):
                 logger.info('Creating dummy connection to equipment: ' + type_)
-                setattr(self, attrib, cls(None))
+                equip = cls(None)
+                setattr(self, attrib, equip)
             elif getattr(getattr(self, attrib), 'connected')():
                 logger.info('Disconnecting from equipment: ' + type_)
                 getattr(getattr(self, attrib), self.__equipments__[type_]['disconnectfunc'])()
@@ -317,14 +327,16 @@ class Credo(GObject.GObject):
                 self.set_property(attrib + 'host', host + ':' + str(port))
             else:
                 self.set_property(attrib + 'host', '__None__')
-        
-        getattr(self, attrib).connect('connect-equipment', self.on_equipment_connection_change, True)
-        getattr(self, attrib).connect('disconnect-equipment', self.on_equipment_connection_change, False)
+        if equip is not None:
+            equip.connect('connect-equipment', self.on_equipment_connection_change, True)
+            equip.connect('disconnect-equipment', self.on_equipment_connection_change, False)
+            if equip.connected():
+                self.on_equipment_connection_change(equip, True)
         if not getattr(self, attrib).connected():
             logger.error('Equipment not connected at the end of connection procedure: ' + type_)
         self.save_settings()
     def on_equipment_connection_change(self, equipment, connstate):
-        if equipment in [self.pilatus, self.genix]:
+        if hasattr(self, 'pilatus') and hasattr(self, 'genix') and equipment in [self.pilatus, self.genix]:
             if self.pilatus.connected() and self.genix.connected() and self.exposurethread is None:
                 logger.debug('Creating and starting CredoExpose process.')
                 self.exposurethread = CredoExpose(self.pilatus, self.genix)
@@ -339,11 +351,11 @@ class Credo(GObject.GObject):
                     self.exposurethread.join()
                     logger.debug('CredoExpose stopped.')
                 self.exposurethread = None
-        if equipment == self.pilatus:
+        if hasattr(self, 'pilatus') and equipment == self.pilatus:
             self.emit('equipment-connection', 'pilatus', connstate, self.pilatus)
-        elif equipment == self.genix:
+        elif hasattr(self, 'genix') and equipment == self.genix:
             self.emit('equipment-connection', 'genix', connstate, self.genix)
-        elif equipment == self.tmcm:
+        elif hasattr(self, 'tmcm') and equipment == self.tmcm:
             self.emit('equipment-connection', 'motors', connstate, self.tmcm)
         else:
             raise NotImplementedError
@@ -374,7 +386,7 @@ class Credo(GObject.GObject):
     def do_path_changed(self):
         if hasattr(self, 'datareduction'):
             self.datareduction.datadirs = self.get_exploaddirs()
-        self._setup_filewatchers()
+        self.filewatch.setup([self.imagepath] + sastool.misc.find_subdirs(self.filepath))
     def do_setup_changed(self): self.save_settings()
     def load_settings(self):
         cp = ConfigParser.ConfigParser()
@@ -426,27 +438,15 @@ class Credo(GObject.GObject):
             cp.write(f)
         del cp
         return False
-    def _setup_filewatchers(self):
-        if self._filewatchers is None:
-            self._filewatchers = []
-        for fw, cbid in self._filewatchers:
-            fw.disconnect(cbid)
-            fw.cancel()
-            self._filewatchers.remove((fw, cbid))
-            del fw
-        for folder in [self.imagepath] + sastool.misc.find_subdirs(self.filepath):
-            fw = Gio.file_new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.NONE, None)
-            self._filewatchers.append((fw, fw.connect('changed', self._on_filewatch)))
-    def _on_filewatch(self, monitor, filename, otherfilename, event):
+    def on_filemonitor(self, monitor, filename, event):
         if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED) and self._nextfsn_cache is not None:
-            basename = filename.get_basename()
+            basename = os.path.split(filename)[1]
             if basename:
                 for regex in self._nextfsn_cache.keys():
                     m = regex.match(basename)
                     if m is not None:
                         self._nextfsn_cache[regex] = int(m.group(1)) + 1
-        if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
-            self.emit('files-changed', filename, event)
+                        self.emit('files-changed', filename, event)
     def load_samples(self, *args):
         logger.debug('Loading samples.')
         for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/sample2rc')):
@@ -526,15 +526,15 @@ class Credo(GObject.GObject):
     
     def killexposure(self):
         self.pilatus.stopexposure()
-        self.exposurethread.userbreakswitch.set()
+        # self.exposurethread.userbreakswitch.set()
 
-    def expose(self, exptime, expnum=1, dwelltime=0.003, header_template=None):
+    def expose(self, exptime, expnum=1, dwelltime=0.003, header_template=None, quick=False):
         logger.debug('Credo.exposure running.')
         expparams = {'shuttercontrol':bool(self.shuttercontrol), 'exptime':exptime, 'expnum':expnum,
                      'dwelltime':dwelltime, 'exposureformat':self.exposureformat, 'headerformat':self.headerformat,
                      'imagepath':self.imagepath, 'parampath':self.parampath, 'exploaddirs':self.get_exploaddirs(),
-                     'virtualdetectors':self.virtualpointdetectors}
-        if not self.exposurethread.isworking.get_value():
+                     'virtualdetectors':self.virtualpointdetectors, 'quick':quick}
+        if self.exposurethread.isworking.get_value() == 0:
             raise CredoError('Another exposure is running!')
         if self.sample is None:
             raise CredoError('No sample defined.')
@@ -584,7 +584,7 @@ class Credo(GObject.GObject):
             self.emit('exposure-done', data)
             return True
         else:
-            raise NotImplementedError
+            raise NotImplementedError('Invalid exposure phase')
     def trim_detector(self, threshold=4024, gain=None, blocking=False):
         if gain is None:
             gain = self.pilatus.getthreshold()['gain']
@@ -610,11 +610,11 @@ class Credo(GObject.GObject):
             self._credo_state['fileformat_re'] = ff_re
             self.emit('setup-changed')
     def set_shutter(self, state):
-        if bool(val):
+        if bool(state):
             self.genix.shutter_open()
         else:
             self.genix.shutter_close()
-        self.emit('shutter')
+        self.emit('shutter', state)
     def get_shutter(self):
         return self.genix.shutter_state()
     shutter = GObject.property(type=bool, default=False, getter=get_shutter, setter=set_shutter)
@@ -628,7 +628,7 @@ class Credo(GObject.GObject):
         if self.pilatus.connected():
             lis += ['Pilatus threshold']
         return lis
-    def scan(self, start, end, step, countingtime, waittime, header_template, shutter=False):
+    def scan(self, start, end, step, countingtime, waittime, header_template={}, shutter=False, autoreturn=False):
         """Set-up and start a scan measurement.
         
         Inputs:
@@ -639,28 +639,51 @@ class Credo(GObject.GObject):
             waittime: least wait time in seconds. Moving the motors does not contribute to this!
             header_template: template header for expose()
             shutter: if the shutter is to be closed between exposures.
+            autoreturn: if the scan device should be returned to the starting state at the end.
         """
+        logger.debug('Initializing scan.')
         if self.scanning is not None:
+            # do not run two scans parallelly.
             raise CredoError('Already executing a scan!')
+
+        # interpret self.scandevice (which is always a string). If it corresponds to a motor, get it.
         scandevice = self.scandevice
-        virtualdetectors = self.virtualpointdetectors
         if scandevice in [m.name for m in self.get_motors()]:
             scandevice = [m for m in self.get_motors() if m.name == scandevice][0]
         elif scandevice in [m.alias for m in self.get_motors()]:
             scandevice = [m for m in self.get_motors() if m.alias == scandevice][0]
         elif scandevice in [str(m) for m in self.get_motors()]:
             scandevice = [m for m in self.get_motors() if str(m) == scandevice][0]
-        
+
+        # now adjust parameters depending on the scan device selected.
+        vdnames = [vd.name for vd in self.virtualpointdetectors]
         if scandevice == 'Time':
-            columns = ['Time'] + [vd.name for vd in virtualdetectors]
+            columns = ['Time', 'FSN'] + vdnames 
             start = 0
             end = step
             step = 1
+            autoreturn = None
         elif scandevice == 'Pilatus threshold':
-            columns = ['Threshold'] + [vd.name for vd in virtualdetectors]
-        elif scandevice in [m.name for m in self.get_motors()]:
-            columns = [self.scanning] + [vd.name for vd in virtualdetectors]
-        self.init_scanfile()
+            columns = ['Threshold', 'FSN'] + vdnames
+            if autoreturn:
+                autoreturn = self.pilatus.getthreshold()['threshold']
+            else:
+                autoreturn = None
+        elif scandevice in self.get_motors():
+            columns = [self.scandevice, 'FSN'] + vdnames
+            if autoreturn:
+                autoreturn = scandevice.get_pos()
+            else:
+                autoreturn = None
+        else:
+            raise NotImplementedError('Invalid scan device: ' + repr(scandevice))
+        
+        # check if the scan will end.
+        if step * (end - start) <= 0:
+            raise ValueError('Invalid start, step, end values for scanning.')
+        
+        logger.debug('Initializing scan object.')
+        # Initialize the scan object
         scan = sastool.classes.scan.SASScan(columns, (end - start) / step + 1)
         scan.motors = self.get_motors()
         scan.motorpos = [m.get_pos() for m in self.get_motors()]
@@ -668,29 +691,47 @@ class Credo(GObject.GObject):
         scan.countingtype = scan.COUNTING_TIME
         scan.countingvalue = countingtime
         scan.fsn = None
-        scan.start_record_mode(command, (end - start) / step + 1, self.scanfile)
+        scan.start_record_mode(command, (end - start) / step + 1, self._scanstore)
+
+        # initialize the internal scan state dictionary.
         self.scanning = {'device':scandevice, 'start':start, 'end':end, 'step':step,
                          'countingtime':countingtime, 'waittime':waittime,
-                         'virtualdetectors':virtualdetectors, 'oldshutter':self.shuttercontrol,
-                         'scan':scan, 'idx':0, header_template:header_template, 'kill':False}
+                         'virtualdetectors':self.virtualpointdetectors, 'oldshutter':self.shuttercontrol,
+                         'scan':scan, 'idx':0, 'header_template':header_template, 'kill':False, 'where':None, 'shutter':shutter, 'autoreturn':autoreturn}
+        logger.debug('Initialized the internal state dict.')
+        
         if self.shuttercontrol != shutter:
-            self.shuttercontrol = shutter
+            with self.freeze_notify():
+                self.shuttercontrol = shutter
+                
+        # go to the next step.
+        logger.debug('Going to the first step.')
         if self.scan_to_next_step():
+            if self.scanning['oldshutter']:
+                self.shutter = True
             if self.scanning['device'] == 'Time' and not shutter:
                 self.expose(self.scanning['countingtime'], self.scanning['end'], self.scanning['waittime'],
-                            self.scanning['header_template'], self.scanning['virtualdetectors'])
+                            self.scanning['header_template'])
             else:
-                self.expose(self.scanning['countingtime'], 1, 0.003, self.scanning['header_template'],
-                            self.scanning['virtualdetectors'])
+                self.expose(self.scanning['countingtime'], 1, 0.003, self.scanning['header_template'])
+            self.emit('scan-phase', 'Scan sequence started.')
+        else:
+            self.emit('scan-phase', 'Premature scan end!')
+            self.emit('scan-end', self.scanning['scan'], False)
+        return scan
     def killscan(self, wait_for_this_exposure_to_end=False):
         if not wait_for_this_exposure_to_end:
             self.killexposure()
         if self.scanning is not None:
             self.scanning['kill'] = True
+        self.emit('scan-phase', 'Stopping scan sequence.')
     def scan_to_next_step(self):
+        logger.debug('Going to next step.')
         if self.scanning['kill']:
+            logger.debug('Not going to next step: kill!')
             return False    
         if self.scanning['device'] == 'Time':
+            self.scanning['where'] = time.time()
             return True
         elif self.scanning['device'] == 'Pilatus threshold':
             gain = self.pilatus.getthreshold()['gain']
@@ -698,55 +739,120 @@ class Credo(GObject.GObject):
             if threshold > self.scanning['end']:
                 return False
             try:
+                self.emit('scan-phase', 'Setting threshold to %.0f eV (%s)' % (threshold, gain))
                 self.pilatus.setthreshold(threshold, gain, blocking=True)
+                if abs(self.pilatus.getthreshold()['threshold'] - threshold) > 1:
+                    logger.error('Cannot set threshold for pilatus to the desired value.')
+                    self.emit('scan-fail', 'Error setting threshold: could not set to desired value.')
+                    return False
             except pilatus.PilatusError as pe:
-                raise CredoError('Cannot set threshold: ' + pe.message)
+                logger.error('Cannot set threshold: PilatusError(' + pe.message + ')')
+                self.emit('scan-fail', 'PilatusError while setting threshold: ' + pe.message)
+                return False
+            self.scanning['where'] = threshold
+            self.scanning['idx'] += 1
+            logger.debug('Set threshold successfully.')
             return True
         else:
             pos = self.scanning['start'] + self.scanning['idx'] * self.scanning['step']
             if pos > self.scanning['end']:
                 return False
             try:
+                self.emit('scan-phase', 'Moving motor %s to %.3f' % (str(self.scanning['device']), pos))
                 self.scanning['device'].moveto(pos)
                 while self.scanning['device'].is_moving():
-                    GObject.main_context_default.iteration(True)
+                    for i in range(100):
+                        GObject.main_context_default().iteration(False)
+                        if not GObject.main_context_default().pending():
+                            break
+                if abs(pos - self.scanning['device'].get_pos()) > 0.001:
+                    self.emit('scan-fail', 'Motor positioning failure, could not move to destination.')
+                    logger.error('Motor positioning failure, could not move to destination.')
+                    return False
             except tmcl_motor.MotorError as me:
-                raise CredoError('Cannot move motor:' + me.message)
+                logger.error('Cannot move motor. MotorError(' + me.message + ')')
+                self.emit('scan-fail', 'MotorError while moving motor: ' + me.message)
+                return False
+            self.scanning['where'] = pos
+            self.scanning['idx'] += 1
+            logger.debug('Moved motor successfully.')
             return True
-    
     def do_exposure_done(self, ex):
         if self.scanning is not None:
-            self.scanning['scan'].append([ex.header['VirtDet_' + vd.name] for vd in self.scanning['virtualdetectors']])
+            logger.debug('Exposure in scanning is done, preparing to emit scan-dataread signal.')
+            dets = tuple([float(ex.header['VirtDet_' + vd.name]) for vd in self.scanning['virtualdetectors']])
+            if self.scanning['device'] == 'Time':
+                e = float(ex['CBF_Date'].strftime('%s.%f'))
+                if self.scanning['start'] == 0:
+                    self.scanning['start'] = e
+                res = (e - self.scanning['start'], ex['FSN']) + dets
+            else:
+                res = (self.scanning['where'], ex['FSN']) + dets
+            self.scanning['scan'].append(res)
+            logger.debug('Emitting scan-dataread signal')
             self.emit('scan-dataread', self.scanning['scan'])
+            logger.debug('Emitted scan-dataread signal')
         return False
     def do_exposure_end(self, status):
         self.exposing = None
         if self.scanning is not None:
-            if self.scanning['device'] == 'Time' and not shutter:
+            if self.scanning['device'] == 'Time' and not self.shuttercontrol:
                 pass  # do nothing, we are finished with the timed scan
-            else:
-                if self.scan_to_next_step():
-                    GObject.timeout_add(int(self.scanning['waittime'] * 1000), self.expose,
-                                        self.scanning['countingtime'], 1, 0.003,
-                                        self.scanning['header_template'], self.scanning['virtualdetectors'])
+            elif not status:
+                pass
+            elif self.scan_to_next_step():
+                self.emit('scan-phase', 'Waiting for %.3f seconds' % self.scanning['waittime'])
+                def _handler(exptime, nimages, dwelltime, headertemplate):
+                    self.emit('scan-phase', 'Exposing for %.3f seconds' % exptime)
+                    self.expose(exptime, nimages, dwelltime, headertemplate, quick=True)
                     return False
-                else:
-                    # scan ended, no next step.
-                    pass
-            self.scanning['scan'].stop_record_mode()
-            self.emit('scan-end', self.scanning['scan'])
-            self.scanning = None
+                logger.debug('Queueing next exposure.')
+                GObject.timeout_add(int(self.scanning['waittime'] * 1000), _handler,
+                                    self.scanning['countingtime'], 1, 0.003,
+                                    self.scanning['header_template'])
+                return False
+            if self.scanning['kill']: status = False
+            logger.debug('Emitting scan-end signal.')
+            self.emit('scan-end', self.scanning['scan'], status)
         return False
-    def do_scan_end(self, scn):
+    def do_scan_end(self, scn, status):
+        if self.scanning['oldshutter']:
+            logger.debug('Closing shutter at the end of scan.')
+            self.shutter = False
+        with self.freeze_notify():
+            self.shuttercontrol = self.scanning['oldshutter']
+        self.scanning['scan'].stop_record_mode()
+        if self.scanning['autoreturn'] is not None:
+            self.emit('scan-phase', 'Auto-returning...')
+            if self.scanning['device'] == 'Pilatus threshold':
+                gain = self.pilatus.getthreshold()['gain']
+                self.pilatus.setthreshold(self.scanning['autoreturn'], gain, blocking=True)
+            else:
+                self.scanning['device'].moveto(self.scanning['autoreturn'])
+                while self.scanning['device'].is_moving():
+                    for i in range(100):
+                        GObject.main_context_default().iteration(False)
+                        if not GObject.main_context_default().pending():
+                            break
+        logger.debug('Removing internal scan state dict.')
         self.scanning = None
+        self.emit('scan-phase', 'Scan sequence done.')
         return False
+    def do_scan_phase(self, phase):
+        logger.debug('Scan phase: ' + phase)
+        for i in range(100):
+            GObject.main_context_default().iteration(False)
+            if not GObject.main_context_default().pending():
+                break
     def do_exposure_fail(self, msg):
         if self.scanning is not None:
             self.scanning = None
         return False
-    def init_scanfile(self):
-        if not os.path.exists(self.scanfile):
-            sastool.classes.scan.init_spec_file(self.scanfile, 'CREDO spec file', self.get_motors())
+    def reload_scanfile(self):
+        if isinstance(self._scanstore, sastool.classes.SASScanStore):
+            self._scanstore.finalize()
+            del self._scanstore
+        self._scanstore = sastool.classes.SASScanStore(self.scanfile, 'CREDO spec file', [str(m) for m in self.get_motors()])
         return
     def __del__(self):
         self.pilatus.disconnect()
@@ -803,4 +909,4 @@ class Credo(GObject.GObject):
             vpd.write_to_configparser(cp)
         with open(filename, 'w') as f:
             cp.write(f)
-        
+    

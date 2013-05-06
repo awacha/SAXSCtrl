@@ -20,7 +20,7 @@ from gi.repository import Gtk
 import multiprocessing
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class PilatusError(StandardError):
     pass
@@ -322,6 +322,8 @@ class PilatusConnection(GObject.GObject):
                 cmd, status, dic, epoch, message = self.commprocess.outqueue.get(blocking, timeout)
             except multiprocessing.queues.Empty:
                 break
+            except AttributeError:  # this can happen if self.commprocess becomes None. In this case we should also exit.
+                raise  # re-raise this, so the _handler() function will catch.
             if self.lastresults[cmd][0] != epoch:
                 self.lastresults[cmd] = (epoch, status, dic)
             else:
@@ -333,6 +335,14 @@ class PilatusConnection(GObject.GObject):
         return len(handled)
     def do_camserver_Exit(self, status, message):
         self.disconnect_from_camserver()
+    def do_camserver_Exposure(self, status, exptime, exptype, expdatetime):
+        self._exposing.set()
+    def do_camserver_ExpEnd(self, status, message):
+        self._exposing.clear()
+    def do_camserver_exposurefinished(self, status, message):
+        self._exposing.clear()
+    def do_camserver_K(self, status, message):
+        self._exposing.clear()
     def connect_to_camserver(self):
         if self.connected():
             raise PilatusError('Already connected')
@@ -342,7 +352,11 @@ class PilatusConnection(GObject.GObject):
         self.commprocess = PilatusCommProcess(self.host, self.port)
         self.commprocess.daemon = True
         def _handler():
-            self.poll_commqueue(blocking=False)
+            try:
+                self.poll_commqueue(blocking=False)
+            except AttributeError:  # if self.commprocess became None, i.e. the communications have been closed down.
+                # unregister ourselves from the idle source.
+                return False
             return True
         self.idle_function_handle = GObject.idle_add(_handler)
         self.commprocess.start()
@@ -382,7 +396,17 @@ class PilatusConnection(GObject.GObject):
         with self.reset_and_wait_for_event(self, 'SetAckInt'):
             self.send('SetAckInt')
         return self.lastresults['SetAckInt'][2]['ackint']
-    def expose(self, exptime, filename, Nimages=1, expdwelltime=0.003):
+    
+    def expose_defaults(self, filename):
+        with self.reset_and_wait_for_event(self, 'Exposure'):
+            self.send('Exposure %s' % filename)
+        logger.debug('Starting exposure with defaults values.')
+        return self.lastresults['Exposure'][2]
+        
+    def expose(self, exptime, filename, Nimages=1, expdwelltime=None):
+        if expdwelltime is None:
+            expdwelltime = 0.003
+        logger.info('Starting the exposure of ' + str(Nimages) + ' images, each for ' + str(exptime) + ' secs. Filename: ' + str(filename) + '; dwell time ' + str(expdwelltime))
         with self.reset_and_wait_for_event(self, 'ExpTime', timeout=1):
             self.send('ExpTime %f' % exptime)
         exptimeset = self.lastresults['ExpTime'][2]['exptime']
@@ -398,12 +422,8 @@ class PilatusConnection(GObject.GObject):
         expperiodset = self.lastresults['ExpPeriod'][2]['expperiod']
         if abs(expperiodset - exptime - expdwelltime) > 1e-5:
             raise ValueError('Error setting exposure period!')
-        self._exposing.set()
-        try:
-            with self.reset_and_wait_for_event(self, 'Exposure'):
-                self.send('Exposure %s' % filename)
-        finally:
-            self._exposing.clear()
+        with self.reset_and_wait_for_event(self, 'Exposure'):
+            self.send('Exposure %s' % filename)
         if Nimages == 1:
             logger.debug('Starting %f seconds exposure to filename %s.' % (exptime, filename))
         else:
@@ -424,7 +444,11 @@ class PilatusConnection(GObject.GObject):
             logger.debug('Resetting last results for command(s): ' + str(self.commandnames))
             for cn in self.commandnames:
                 self.pconnection.lastresults[cn] = (None, None, None)
-        def __exit__(self, *args, **kwargs):
+            logger.debug('Reset done.')
+        def __exit__(self, exc_type, exc_value, traceback):
+            if exc_type is not None:
+                logger.error('An exception occurred before waiting for results: ' + exc_value.message)
+                return False
             logger.debug('Starting waiting loop for command(s): ' + str(self.commandnames))
             self.pconnection.poll_commqueue()  # empty the queue if there are pending events
             time0 = time.time()
@@ -435,6 +459,7 @@ class PilatusConnection(GObject.GObject):
                 raise TimeoutError
             if any([self.pconnection.lastresults[c][1] == 'ERR' for c in self.commandnames if self.pconnection.lastresults[c][0] is not None]):
                 raise PilatusError('Camserver returned status ERR.')
+            return False
     def stopexposure(self):
         logger.debug('Stopping running exposure.')
         self.send('k')

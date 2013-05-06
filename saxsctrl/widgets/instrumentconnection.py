@@ -3,7 +3,7 @@ from ..hardware import pilatus, genix, credo, tmcl_motor
 
 class InstrumentConnections(Gtk.Dialog):
     _filechooserdialogs = None
-    def __init__(self, credo, title='Connections', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
+    def __init__(self, credo, title='Connections', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_resizable(False)
         self.connect('response', lambda dialog, response_id:self.hide())
@@ -78,6 +78,8 @@ class InstrumentConnections(Gtk.Dialog):
         self.credo.connect('notify::scanfile', lambda crd, par:self.scanfile_entry.set_text(crd.scanfile))
         row += 1
         self.set_button_images()
+        self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
+        self.connect('response', self.on_response)
         self.show_all()
     def set_button_images(self):
         for btn, equipment in [(self.camserverconnect_button, 'pilatus'), (self.genixconnect_button, 'genix'), (self.motorconnect_button, 'tmcm')]:
@@ -134,8 +136,20 @@ class InstrumentConnections(Gtk.Dialog):
         response = self._filechooserdialogs[entry].run()
         if response == Gtk.ResponseType.OK:
             entry.set_text(self._filechooserdialogs[entry].get_filename())
+            self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
         self._filechooserdialogs[entry].hide()
         return True
+    
     def on_entry_changed(self, entry, entrytext):
-        with self.credo.freeze_notify():
-            self.credo.__setattr__(entrytext, entry.get_text())
+        self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
+        
+    def on_response(self, slf, response):
+        if response in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY):
+            for widget, prop in [(self.imagepath_entry, 'imagepath'), (self.filepath_entry, 'filepath'), (self.scanfile_entry, 'scanfile')]:
+                if self.credo.get_property(prop) != widget.get_text():
+                    print "Updating " + prop + ' with ' + widget.get_text()
+                    self.credo.set_property(prop, widget.get_text())
+            self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
+        if response not in (Gtk.ResponseType.APPLY,):
+            self.hide()
+        return True
