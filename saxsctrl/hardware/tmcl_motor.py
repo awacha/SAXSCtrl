@@ -3,6 +3,7 @@ import logging
 import time
 import struct
 import multiprocessing
+import multiprocessing.queues
 import threading
 import os
 import socket
@@ -12,10 +13,14 @@ import ConfigParser
 from gi.repository import GObject
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class MotorError(StandardError):
     pass
+
+TMCM_STATUS_DISCONNECTED = 'disconnected'
+TMCM_STATUS_IDLE = 'idle'
+TMCM_STATUS_MOVING = 'moving'
 
 class TMCM351(GObject.GObject):
     __gsignals__ = {'motors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -26,7 +31,9 @@ class TMCM351(GObject.GObject):
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (object, bool, bool)),
                     'motor-settings-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ())
                     }
+    status = GObject.property(type=str, default=TMCM_STATUS_DISCONNECTED)
     def __init__(self, settingsfile=None, settingssaveinterval=10):
         GObject.GObject.__init__(self)
         self.comm_lock = multiprocessing.Lock()
@@ -34,6 +41,22 @@ class TMCM351(GObject.GObject):
         self.f_clk = 16000000
         self.settingsfile = settingsfile
         self.settingsfile_in_use = False
+        self.cmdqueue = multiprocessing.queues.Queue()
+        self.connect('notify::status', self._status_notify)
+    def is_idle(self):
+        return self.status in (TMCM_STATUS_DISCONNECTED, TMCM_STATUS_IDLE)
+    def _status_notify(self, myself, prop):
+        if self.is_idle():
+            self.emit('idle')
+    def do_connect_equipment(self):
+        if self.status != TMCM_STATUS_IDLE:
+            self.status = TMCM_STATUS_IDLE
+        GObject.idle_add(self._check_queue)
+    def motorstop(self, flushqueue=True):
+        if flushqueue:
+            self._flush_queue()
+        for m in self.moving():
+            m.stop()
     def connected(self):
         return False
     def __del__(self):
@@ -82,14 +105,14 @@ class TMCM351(GObject.GObject):
         if instruction is not None:
             cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
             cmd = cmd + (sum(cmd) % 256,)
-            logger.debug('About to send TMCL command: ' + ''.join(hex(x) for x in cmd))
+            logger.debug('About to send TMCL command: ' + ''.join(('%02x' % x) for x in cmd))
             cmd = ''.join(chr(x) for x in cmd)
         else:
             cmd = None
         result = self.do_communication(cmd)
         if len(result) == 0:
             return 0, None
-        logger.debug('Got TMCL result: ' + ''.join(hex(ord(x)) for x in result))
+        logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
         # validate checksum
         if not (sum(ord(x) for x in result[:-1]) % 256 == ord(result[-1])):
             raise MotorError('Checksum error on received data!')
@@ -130,6 +153,8 @@ class TMCM351(GObject.GObject):
         mot.connect('motor-stop', lambda m:self.emit('motor-stop', m))
         mot.connect('motor-limit', lambda m, left, right:self.emit('motor-limit', m, left, right))
         mot.connect('settings-changed', lambda m:self.emit('motor-settings-changed', m))
+        if mot.name not in self.motors:
+            self.motors[mot.name] = mot
         self.emit('motors-changed')
         return mot
     def moving(self):
@@ -137,21 +162,71 @@ class TMCM351(GObject.GObject):
         return [m for m in self.motors if self.motors[m].is_moving()]
     def get_motor(self, idx):
         return [self.motors[m] for m in self.motors if self.motors[m].mot_idx == idx][0]
-    def moveto_motor(self, idx, pos):
-        self.execute(4, 0, idx, pos)
-        self.execute(138, 0, 0, 2 ** idx)
-        GObject.idle_add(self._wait_for_targetreachedevent)
-    def moverel_motor(self, idx, pos):
-        self.execute(4, 1, idx, pos)
-        self.execute(138, 0, 0, 2 ** idx)
-    def _wait_for_targetreachedevent(self):
-        status, value = self.send_and_recv(None)
-        if value is not None:
-            for idx in range(3):
-                if value & 2 ** idx:
-                    self.get_motor(idx).emit('motor-stop')
+    def do_motor_stop(self, mot):
+        # a motor movement is finished, re-register the queue checking idle handler.
+        GObject.idle_add(self._check_queue)
+    def _movemotor(self, idx, pos, raw=False, relative=False, queued=True):
+        logger.debug('_movemotor was called with idx=%d, pos=%d, raw=%s, relative=%s' % (idx, pos, raw, relative))
+        motor = self.get_motor(idx)
+        logger.debug('Motor name is: ' + motor.name)
+        if not raw:
+            physpos = pos
+            pos = motor.conv_pos_raw(pos)
+        else:
+            physpos = motor.conv_pos_phys(pos)
+        if motor.next_idle_position is None:
+            motor.next_idle_position = motor.get_pos()
+        logger.debug('physpos: %g; pos: %g; next_idle_pos: %g.' % (physpos, pos, motor.next_idle_position))
+        if self.moving() and not queued:
+            raise MotorError('Cannot move motor %s: A motor is currently moving.' % motor.name)
+        if relative:
+            absphyspos = physpos + motor.next_idle_position
+        else:
+            absphyspos = physpos
+        logger.debug('absphyspos: %g' % absphyspos)
+        if (min(motor.softlimits) > absphyspos) or (absphyspos > max(motor.softlimits)):
+            raise MotorError('Target position outside software limits')
+        # update the next idle position of the current motor.
+        motor.next_idle_position = absphyspos
+        logger.debug('Queueing movement: %d, %g, %s' % (idx, pos, relative))
+        self.cmdqueue.put((idx, pos, relative))
+    def _do_move(self, idx, rawpos, relative):
+        logger.debug('Do-move: %d, %g, %s' % (idx, rawpos, relative))
+        motor = self.get_motor(idx)
+        moving = self.moving()
+        if moving and motor.name not in moving:
+            raise MotorError('Another motor is currently moving.')
+        motor.emit('motor-start')
+        self.execute(4, int(relative), idx, rawpos)
+    def _check_queue(self):
+        if not self.connected():
+            # if the motor controller is not connected (or has been disconnected),
+            # unregister this idle handle by returning False.
             return False
-        return True
+        try:
+            idx, rawpos, relative = self.cmdqueue.get_nowait()
+        except multiprocessing.queues.Empty:
+            # the queue is empty. We return True, so our idle handler will not be
+            # unregistered.
+            if self.status != TMCM_STATUS_IDLE:
+                self.status == TMCM_STATUS_IDLE
+                self.emit('idle')
+            return True
+        # if we reach here, we have a job to do.
+        self.status = TMCM_STATUS_MOVING
+        self._do_move(idx, rawpos, relative)
+        # now we unregister (!) our handle, since while the motor runs, there is
+        # no point for checking new queued commands. The motor will emit a 
+        # "motor-stop" signal at the end, we will use that occasion to re-register
+        # our idle handler.
+        return False
+    def _flush_queue():
+        """Flush the command queue."""
+        while True:
+            try:
+                self.cmdqueue.get_nowait()
+            except multiprocessing.queues.Empty:
+                break
     
 class TMCM351_RS232(TMCM351):
     def __init__(self, serial_device, timeout=1, settingsfile=None, settingssaveinterval=10):
@@ -162,6 +237,7 @@ class TMCM351_RS232(TMCM351):
         self.rs232.timeout = timeout
         self.rs232.flushInput()
         self.load_settings()
+        self.emit('connect-equipment')
     def connected(self):
         return self.rs232 is not None and self.rs232.isOpen()
     def do_communication(self, cmd):
@@ -196,17 +272,20 @@ class TMCM351_TCP(TMCM351):
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ip = socket.gethostbyname(self.host)
             self.socket.connect((ip, self.port))
-        except socket.gaierror:
+        except socket.gaierror as err:
             self.socket = None
-            raise MotorError('Cannot resolve host name.')
-        except socket.error:
+            raise MotorError('Cannot resolve host name: ' + err.message)
+        except socket.error as err:
             self.socket = None
-            raise MotorError('Cannot connect to server.')
+            raise MotorError('Cannot connect to server: ' + err.message)
         self.socket.settimeout(self.timeout)
         logger.debug('Checking if RS232 communication is available')
         try:
-            self.get_version()
+            major, minor = self.get_version()
+            logger.info('Connected module has a firmware version: %d.%d' % (major, minor))
         except MotorError:
+            if self.socket is not None:
+                self.socket.close()
             raise
         logger.debug('TCP and RS232 both OK.')
         self.load_settings()
@@ -228,7 +307,7 @@ class TMCM351_TCP(TMCM351):
                 self.disconnect_from_controller()
                 raise MotorError('Communication error.')
             while readable:
-                res = self.socket.recv(9)
+                res = self.socket.recv(100)
                 if not res:
                     self.disconnect_from_controller()
                     raise MotorError('Socket closed.')
@@ -257,7 +336,7 @@ class TMCM351_TCP(TMCM351):
                 self.disconnect_from_controller()
                 raise MotorError('Communication error. Controller may not be connected')
             if len(result) != 9:
-                raise MotorError('Invalid message received: *' + result + '*' + str(len(result)))
+                raise MotorError('Invalid message received: *' + result + '*' + str(len(result)) + 'Hex: ' + ''.join('%x' % ord(c) for c in result))
         return result
                 
 class StepperMotor(GObject.GObject):
@@ -288,8 +367,8 @@ class StepperMotor(GObject.GObject):
         self.step_to_cal = step_to_cal
         self.f_clk = f_clk
         self.softlimits = softlimits
-        self.driver().motors[self.name] = self
         self.limitdata = None
+        self.next_idle_position = None
         for p in list(self.props):
             self.connect('notify::' + p.name, lambda mot, prop:self.emit('settings-changed'))
     def do_settings_changed(self):
@@ -595,39 +674,10 @@ class StepperMotor(GObject.GObject):
         self.driver().execute(1, 0, self.mot_idx, speed)
     def stop(self):
         self.driver().execute(3, 0, self.mot_idx, 0)
-    def moveto(self, pos, raw=False, blocking=False):
-        moving = self.driver().moving()
-        if moving and self.name not in moving:
-            raise MotorError('Another motor is currently moving.')
-        if not raw:
-            physpos = pos
-            pos = self.conv_pos_raw(pos)
-        else:
-            physpos = self.conv_pos_phys(pos)
-        if (min(self.softlimits) > physpos) or (physpos > max(self.softlimits)):
-            raise MotorError('Target position outside software limits')
-        self.emit('motor-start')
-        self.driver().execute(4, 0, self.mot_idx, pos)
-        if blocking:
-            while self.is_moving():
-                GObject.main_context_default().iteration(True)                
-    def moverel(self, pos, raw=False, blocking=False):
-        moving = self.driver().moving()
-        if moving and self.name not in moving:
-            raise MotorError('Another motor is currently moving.')
-        if not raw:
-            physpos = pos
-            pos = self.conv_pos_raw(pos)
-        else:
-            physpos = self.conv_pos_phys(pos)
-        physpos = self.get_pos(raw=False) + physpos
-        if (min(self.softlimits) > physpos) or (physpos > max(self.softlimits)):
-            raise MotorError('Target position outside software limits')
-        self.emit('motor-start')
-        self.driver().execute(4, 1, self.mot_idx, pos)
-        if blocking:
-            while self.is_moving():
-                GObject.main_context_default().iteration(True)                
+    def moveto(self, pos, raw=False):
+        self.driver()._movemotor(self.mot_idx, pos, raw, relative=False)
+    def moverel(self, pos, raw=False):
+        self.driver()._movemotor(self.mot_idx, pos, raw, relative=True)
     def get_settings(self):
         if not self.settings or self.settings['__timestamp__'] < time.time() - self.settings_timeout:
             self.refresh_settings()

@@ -277,10 +277,9 @@ class SampleSelector(Gtk.ComboBoxText):
         else:
             sam_before = None
         self.samplelist.clear()
-        self.samplelist.append((str('-- UNKNOWN --'), None))
+        self.samplelist.append(('-- UNKNOWN --', None))
         idx = 0
         for i, sam in enumerate(self.credo.get_samples()):
-            print sam
             if sam == self.credo.sample:
                 idx = i
             self.samplelist.append((str(sam), sam))
@@ -288,11 +287,19 @@ class SampleSelector(Gtk.ComboBoxText):
         if self.samplelist[self.get_active()][-1] != sam_before:
             self.emit('sample-changed', self.samplelist[self.get_active()][-1])
     def set_sample(self, sam):
-        for i, row in enumerate(self.samplelist):
-            if row[-1] == sam:
-                self.set_active(i)
-                self.emit('sample-changed', sam)
-                return
+        if isinstance(sam, sample.SAXSSample) or (sam is None):
+            for i, row in enumerate(self.samplelist):
+                if row[-1] == sam:
+                    self.set_active(i)
+                    self.emit('sample-changed', sam)
+                    return
+        elif isinstance(sam, basestring):
+            for i, row in enumerate(self.samplelist):
+                if ((str(row[-1]) == sam) or (row[0] == sam) or 
+                    (isinstance(row[-1], sample.SAXSSample) and row[-1].title == sam)):
+                    self.set_active(i)
+                    self.emit('sample-changed', row[-1])
+                    return
         raise ValueError('Sample not in list!')
     def get_sample(self):
         return self.samplelist[self.get_active()][-1]

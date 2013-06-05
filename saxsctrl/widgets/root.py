@@ -9,7 +9,7 @@ import traceback
 import multiprocessing
 
 from ..hardware import credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence
 logger = logging.getLogger(__name__)
 
 def my_excepthook(type_, value, traceback_):
@@ -170,7 +170,8 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View'),
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Configuration'),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Configuration'),
-                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', motorneeded=True)
+                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', motorneeded=True),
+                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose')  # , genixneeded=True, pilatusneeded=True, motorneeded=True)
                             ]
         for t in self.toolbuttons:
             mi = t.createmenuitem()

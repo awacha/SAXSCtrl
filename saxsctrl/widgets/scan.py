@@ -396,15 +396,6 @@ class Scan(Gtk.Dialog, ExposureInterface):
         self.entrytable.attach(self.repetitions_entry, 1, 2, row, row + 1)
         row += 1
         
-        l = Gtk.Label(label='Sequence status:'); l.set_alignment(0, 0.5)
-        self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.status_label = Gtk.Label('Stopped.')
-        self.status_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self.status_label.set_size_request(100, -1)
-        self.entrytable.attach(self.status_label, 1, 2, row, row + 1)
-        row += 1
-
-        
         self.update_scandevice()
         self.connect('response', self.on_response)
         
@@ -416,9 +407,6 @@ class Scan(Gtk.Dialog, ExposureInterface):
         vb.show_all()
     def on_lazystop(self, button):
         self.lazystop_button.set_sensitive(False)
-    
-    def on_scan_phase(self, credo, phase):
-        self.status_label.set_label(phase)
     
     def update_scandevice(self):
         self.scandevice_label.set_label(self.credo.scandevice)
@@ -441,8 +429,7 @@ class Scan(Gtk.Dialog, ExposureInterface):
         logger.debug('initializing scan graphs.')
         self.entrytable.set_sensitive(False)
         self._scanconnections = [self.credo.connect('scan-end', self.on_scan_end),
-                                 self.credo.connect('scan-dataread', self.on_scan_dataread),
-                                 self.credo.connect('scan-phase', self.on_scan_phase)]
+                                 self.credo.connect('scan-dataread', self.on_scan_dataread)]
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
         try:
             if self.credo.scandevice == 'Time':

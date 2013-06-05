@@ -12,6 +12,10 @@ logger.setLevel(logging.DEBUG)
 class MotorMonitorFrame(Gtk.Frame):
     def __init__(self, credo):
         Gtk.Frame.__init__(self)
+        vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.add(vb)
+        vb.pack_start(Gtk.Label('To move a motor, double-click on the corresponding row.'), False, False, 0)
+        
         self.credo = credo
         self.credo.tmcm.connect('motor-report', self.on_motor_move)
         self.credo.tmcm.connect('motors-changed', self.on_motors_changed)
@@ -32,7 +36,7 @@ class MotorMonitorFrame(Gtk.Frame):
         crt.set_activatable(False)
         self.motorview.append_column(Gtk.TreeViewColumn('Right limit', crt, active=5))
         self.motorview.append_column(Gtk.TreeViewColumn('Load', Gtk.CellRendererText(), text=6))
-        self.add(self.motorview)
+        vb.pack_start(self.motorview, True, True, 0)
         self.on_motors_changed(self.credo.tmcm)
         self.show_all()
     def on_row_activated(self, treeview, path, column):
@@ -92,7 +96,6 @@ class MotorDriver(ToolDialog):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.posentry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e20, 1e20, 0.1, 1), digits=3)
         self.posentry.connect('activate', self.on_move)
-        self.posentry.connect('value-changed', self.on_move)
         tab.attach(self.posentry, 1, 2, row, row + 1)
         self.unitentry = Gtk.ComboBoxText()
         self.unitentry.append_text('physical units')
@@ -121,15 +124,20 @@ class MotorDriver(ToolDialog):
         vbox.pack_start(ex, False, False, 0)
         tab = Gtk.Table()
         ex.add(tab)
-        row = 0
-        eb = Gtk.EventBox()
-        l = Gtk.Label('WARNING! Incorrect settings may destroy driver electronics, motor or both! Use with extreme care!')
-        l.set_alignment(0, 0.5)
-        l.set_line_wrap(True)
-        eb.add(l)
-        eb.modify_bg(Gtk.StateType.NORMAL, Gdk.Color.parse('red')[1])
-        tab.attach(eb, 0, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         
+        row = 0
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        tab.attach(hb, 0, 3, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, Gtk.AttachOptions.FILL)
+        img = Gtk.Image(stock=Gtk.STOCK_DIALOG_WARNING, icon_size=Gtk.IconSize.DIALOG)
+        hb.pack_start(img, False, False, 0)
+        eb = Gtk.EventBox()
+        l = Gtk.Label('<b>WARNING! Use with extreme care!</b>\nIncorrect settings may destroy driver electronics, motor or both!')
+        l.set_use_markup(True)
+        l.set_alignment(0, 0.5)
+        eb.add(l)
+        eb.set_border_width(5)
+        eb.override_background_color(Gtk.StateType.NORMAL, Gdk.RGBA(1, 0, 0, 1))
+        hb.pack_start(eb, True, True, 0)
         row += 1
         
         l = Gtk.Label('Physical units'); l.set_alignment(0.5, 0.5)

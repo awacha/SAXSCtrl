@@ -29,15 +29,16 @@ from gi.repository import GObject
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-GENIX_IDLE = 0
-GENIX_POWERDOWN = -1
-GENIX_STANDBY = -2
-GENIX_FULLPOWER = -3
-GENIX_WARMUP = -4
-GENIX_GO_POWERDOWN = -5
-GENIX_GO_STANDBY = -6
-GENIX_GO_FULLPOWER = -7
-GENIX_XRAYS_OFF = -8
+GENIX_IDLE = 'idle'
+GENIX_POWERDOWN = 'powered down'
+GENIX_STANDBY = 'low power'
+GENIX_FULLPOWER = 'full power'
+GENIX_WARMUP = 'warming up'
+GENIX_GO_POWERDOWN = 'powering down'
+GENIX_GO_STANDBY = 'going to low power'
+GENIX_GO_FULLPOWER = 'going to full power'
+GENIX_XRAYS_OFF = 'X-rays off'
+GENIX_DISCONNECTED = 'disconnected'
 
 class GenixError(StandardError):
     pass
@@ -70,11 +71,13 @@ class GenixConnection(GObject.GObject):
     __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'connect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'disconnect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     }
     _communications_lock = None
     _shutter_lock = None
     _shutter_timeout = 1
     _tcp_timeout = 1
+    status = GObject.property(type=str, default=GENIX_DISCONNECTED)
     _prevstate = GENIX_IDLE
     def __init__(self, host=None, port=502):
         GObject.GObject.__init__(self)
@@ -85,8 +88,14 @@ class GenixConnection(GObject.GObject):
         # self._shutter_lock = LoggingLock('Shutter lock')
         self._communications_lock = multiprocessing.Lock()
         self._shutter_lock = multiprocessing.Lock()
+        self.connect('notify::status', self._status_notify)
         if host is not None:
             self.connect_to_controller()
+    def _status_notify(self, myself, prop):
+        if self.is_idle():
+            self.emit('idle')
+    def is_idle(self):
+        return self.status in (GENIX_DISCONNECTED, GENIX_FULLPOWER, GENIX_STANDBY, GENIX_POWERDOWN, GENIX_XRAYS_OFF, GENIX_IDLE) 
     def do_controller_error(self):
         if self.connected():
             self.disconnect_from_controller()

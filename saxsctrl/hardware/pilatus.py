@@ -125,7 +125,12 @@ PilatusCommand('Exit', 1000, None)
 PilatusCommand('CamSetup', 2, [("\s*Camera definition:\n\s+(?P<cameradef>.*)\n\s*Camera name: (?P<cameraname>.*),\sS/N\s(?P<cameraSN>\d+-\d+)\n\s*Camera state: (?P<camstate>.*)\n\s*Target file: (?P<targetfile>.*)\n\s*Time left: (?P<timeleft>\d+(\.\d+)?)\n\s*Last image: (?P<lastimage>.*)\n\s*Master PID is: (?P<masterPID>\d+)\n\s*Controlling PID is: (?P<controllingPID>\d+)\n\s*Exposure time: (?P<exptime>\d+(\.\d+)?)\n\s*Last completed image:\s*\n\s*(?P<lastcompletedimage>.*)\n\s*Shutter is: (?P<shutterstate>.*)\n", {})],
                {'cameradef':str, 'cameraname':str, 'cameraSN':str, 'camstate':str, 'targetfile':str, 'timeleft':float,
                 'lastimage':str, 'masterPID':int, 'controllingPID':int, 'exptime':float, 'lastcompletedimage':str, 'shutterstate':str})
-                               
+
+
+PILATUS_STATUS_EXPOSING = 'exposing'
+PILATUS_STATUS_IDLE = 'idle'
+PILATUS_STATUS_TRIMMING = 'trimming' 
+PILATUS_STATUS_DISCONNECTED = 'disconnected'                              
 
 class PilatusCommProcess(multiprocessing.Process):
     iotimeout = 0.7
@@ -300,20 +305,26 @@ def add_dicts(d1, d2):
 class PilatusConnection(GObject.GObject):
     __gsignals__ = dict([c.get_gsignal() for c in PilatusCommand.get_instances()] + [('camserver-error', (GObject.SignalFlags.RUN_FIRST, None, (str,))),
                                                                                      ('connect-equipment', (GObject.SignalFlags.RUN_FIRST, None, ())),
-                                                                                     ('disconnect-equipment', (GObject.SignalFlags.RUN_FIRST, None, ()))])
+                                                                                     ('disconnect-equipment', (GObject.SignalFlags.RUN_FIRST, None, ())),
+                                                                                     ('idle', (GObject.SignalFlags.RUN_FIRST, None, ()))])
     _uninterruptible = 0
     lastresults = None
     camserver_reply_timeout = 0.7
     idle_function_handle = None
-    _exposing = None
+    status = GObject.property(type=str, default=PILATUS_STATUS_DISCONNECTED)
     def __init__(self, host='localhost', port=41234):
         GObject.GObject.__init__(self)
         self.host = host
         self.port = port
-        self._exposing = multiprocessing.Event()
         self.commprocess = None
         if host is not None:
             self.connect_to_camserver()
+        self.connect('notify::status', self._status_notify)
+    def _status_notify(self, myself, prop):
+        if self.is_idle():
+            self.emit('idle')
+    def is_idle(self):
+        return self.status in (PILATUS_STATUS_IDLE, PILATUS_STATUS_DISCONNECTED)
     def poll_commqueue(self, blocking=False, timeout=0.3):
         if not self.connected(): raise PilatusError('Not connected to camserver.')
         handled = []
@@ -336,13 +347,16 @@ class PilatusConnection(GObject.GObject):
     def do_camserver_Exit(self, status, message):
         self.disconnect_from_camserver()
     def do_camserver_Exposure(self, status, exptime, exptype, expdatetime):
-        self._exposing.set()
+        self.status = PILATUS_STATUS_EXPOSING
     def do_camserver_ExpEnd(self, status, message):
-        self._exposing.clear()
+        self.status = PILATUS_STATUS_IDLE
     def do_camserver_exposurefinished(self, status, message):
-        self._exposing.clear()
+        self.status = PILATUS_STATUS_IDLE
     def do_camserver_K(self, status, message):
-        self._exposing.clear()
+        self.status = PILATUS_STATUS_IDLE
+    def do_camserver_SetThreshold(self, status, gain, threshold, trimfile, vcmp):
+        if self.status == PILATUS_STATUS_TRIMMING:
+            self.status = PILATUS_STATUS_IDLE
     def connect_to_camserver(self):
         if self.connected():
             raise PilatusError('Already connected')
@@ -360,7 +374,7 @@ class PilatusConnection(GObject.GObject):
             return True
         self.idle_function_handle = GObject.idle_add(_handler)
         self.commprocess.start()
-        self._exposing.clear()
+        self.status = PILATUS_STATUS_IDLE
         self.emit('connect-equipment')
     def reconnect_to_camserver(self):
         self.disconnect_from_camserver()
@@ -372,6 +386,7 @@ class PilatusConnection(GObject.GObject):
         self.commprocess.disconnect_from_camserver()
         self.commprocess.join()
         self.commprocess = None
+        self.status = PILATUS_STATUS_DISCONNECTED
         self.emit('disconnect-equipment')
     def connected(self):
         """Return if connected to camserver"""
@@ -453,7 +468,7 @@ class PilatusConnection(GObject.GObject):
             self.pconnection.poll_commqueue()  # empty the queue if there are pending events
             time0 = time.time()
             while (all(self.pconnection.lastresults[cmdname][0] is None for cmdname in self.commandnames) and 
-                   ((time.time() - time0 <= self.timeout) or self.pconnection._exposing.is_set())):  # if the result is still not there, give it one more try.
+                   ((time.time() - time0 <= self.timeout) or self.pconnection.status == PILATUS_STATUS_EXPOSING)):  # if the result is still not there, give it one more try.
                 self.pconnection.poll_commqueue(blocking=True)
             if all(self.pconnection.lastresults[cmdname][0] is None for cmdname in self.commandnames):
                 raise TimeoutError
@@ -519,9 +534,11 @@ class PilatusConnection(GObject.GObject):
         logger.debug('Setting threshold to %d eV (gain: %s)' % (threshold, gain))
         if blocking:
             with self.reset_and_wait_for_event(self, 'SetThreshold', timeout=60):
+                self.status = PILATUS_STATUS_TRIMMING
                 self.send('SetThreshold %s %d' % (gain, threshold))
             return self.lastresults['SetThreshold'][2]
         else:
+            self.status = PILATUS_STATUS_TRIMMING
             self.send('SetThreshold %s %d' % (gain, threshold))
     def rbd(self, outputfile=None):
         logger.debug('Read-back-detector starting...')

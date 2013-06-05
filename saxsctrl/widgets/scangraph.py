@@ -8,16 +8,16 @@ import numpy as np
 import sys
 
 class ScanGraph(Gtk.Dialog):
-    def __init__(self, scan, title='Scan results', parent=None, flags=0, buttons=()):
+    def __init__(self, scan, title='Scan results', parent=None, flags=0, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
         vb = self.get_content_area()
         self.fig = Figure()
         self.figcanvas = FigureCanvasGTK3Agg(self.fig)
-        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        hb = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, True, True, 0)
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.pack_start(vb, True, True, 0)
+        hb.add1(vb)
         vb.pack_start(self.figcanvas, True, True, 0)
         self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
         vb.pack_start(self.figtoolbar, False, True, 0)
@@ -45,8 +45,20 @@ class ScanGraph(Gtk.Dialog):
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.pack_start(vb, False, False, 0)
+        hb.add2(vb)
+        vb.set_size_request(100, -1)
         vb.pack_start(self.scalertreeview, True, True, 0)
+        self.currvallabels = {}
+        for col in self.scan.columns():
+            f = Gtk.Frame(label=col)
+            vb.pack_start(f, False, False, 0)
+            self.currvallabels[col] = Gtk.Label('--')
+            f.add(self.currvallabels[col])
+        self.connect('response', self.on_response)
+    def on_response(self, myself, respid):
+        if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+            self.destroy()
+        return
     def xlabel(self, *args, **kwargs):
         self.gca().set_xlabel(*args, **kwargs)
     def ylabel(self, *args, **kwargs):
@@ -95,6 +107,8 @@ class ScanGraph(Gtk.Dialog):
             self.fig.gca().set_ylim(miny - dy, maxy + dy)
         self.legend(loc='best')
         self.fig.canvas.draw()
+        for c in self.currvallabels:
+            self.currvallabels[c].set_label('%f' % self.scan[c][-1])
     def set_scalers(self, scalerlist):
         mod = self.scalertreeview.get_model()
         mod.clear()

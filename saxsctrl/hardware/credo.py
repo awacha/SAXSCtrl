@@ -17,6 +17,7 @@ from gi.repository import Gio
 from gi.repository import GObject
 import ConfigParser
 import multiprocessing
+import numpy as np
 
 from . import datareduction
 from . import sample
@@ -172,7 +173,25 @@ class CredoExpose(multiprocessing.Process):
                     # signal the end.
                     self.outqueue.put((CredoExpose.EXPOSURE_END, None))
                     logger.debug('Returning from work.')
-        
+
+class SubsystemScan(GObject.GObject):
+    pass
+
+class SubsystemExposure(GObject.GObject):
+    __gsignals__ = {'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)), }
+    exptime = GObject.property(type=float, minimum=0, default=1)
+    dwelltime = GObject.property(type=float, minimum=0.003, default=0.003)
+    nimages = GObject.property(type=int, minimum=1, default=1)
+    def __init__(self, pilatus, genix, exptime, dwelltime, nimages):
+        GObject.GObject.__init__(self)
+        self.pilatus = pilatus
+        self.genix = genix
+    def start(self):
+        pass
+
+       
 class Credo(GObject.GObject):
     __gsignals__ = {'path-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'setup-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -187,8 +206,10 @@ class Credo(GObject.GObject):
                     'scan-dataread':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'scan-end':(GObject.SignalFlags.RUN_FIRST, None, (object, bool)),
                     'virtualpointdetectors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'scan-phase':(GObject.SignalFlags.RUN_LAST, None, (str,)),
-                    'scan-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,))
+                    'scan-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'transmission-report':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object)),
+                    'transmission-end':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object, bool)),
+                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
                    }
     __equipments__ = {'GENIX':{'class':genix.GenixConnection, 'attrib':'genix', 'port':502, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
                       'PILATUS':{'class':pilatus.PilatusConnection, 'attrib':'pilatus', 'port':41234, 'connectfunc':'connect_to_camserver', 'disconnectfunc':'disconnect_from_camserver'},
@@ -221,10 +242,15 @@ class Credo(GObject.GObject):
     genixhost = GObject.property(type=str, default='')
     tmcmhost = GObject.property(type=str, default='')
     virtdetcfgfile = GObject.property(type=str, default='')
+    bs_out = GObject.property(type=float, default=0)
+    bs_in = GObject.property(type=float, default=50)
     virtualpointdetectors = None
     _scanstore = None
     # changing any of the properties in this list will trigger a setup-changed event.
-    setup_properties = ['username', 'projectname', 'pixelsize', 'dist', 'filter', 'beamposx', 'beamposy', 'wavelength', 'shuttercontrol', 'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile', 'imagepath', 'filepath']
+    setup_properties = ['username', 'projectname', 'pixelsize', 'dist', 'filter',
+                        'beamposx', 'beamposy', 'wavelength', 'shuttercontrol',
+                        'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile',
+                        'imagepath', 'filepath', 'bs_out', 'bs_in']
     # changing any of the properties in this list will trigger a path-changed event.
     path_properties = ['filepath', 'imagepath']
     def __init__(self, genixhost=None, pilatushost=None, motorhost=None, imagepath='/net/pilatus300k.saxs/disk2/images',
@@ -276,6 +302,15 @@ class Credo(GObject.GObject):
             self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
         for name in self.path_properties:
             self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
+    def is_idle(self):
+        for eq in self.__equipments__:
+            if hasattr(self, eq.lower()):
+                if not getattr(self, eq.lower()).is_idle():
+                    return False
+        return True
+    def _equipment_idle(self, equipment):
+        if self.is_idle():
+            self.emit('idle')
     def disconnect_equipment(self, type_=None):
         type_ = type_.upper()
         if type_ not in self.__equipments__:
@@ -330,6 +365,7 @@ class Credo(GObject.GObject):
         if equip is not None:
             equip.connect('connect-equipment', self.on_equipment_connection_change, True)
             equip.connect('disconnect-equipment', self.on_equipment_connection_change, False)
+            equip.connect('idle', self._equipment_idle)
             if equip.connected():
                 self.on_equipment_connection_change(equip, True)
         if not getattr(self, attrib).connected():
@@ -401,7 +437,7 @@ class Credo(GObject.GObject):
                       ('tmcmhost', 'TMCMHost'), ('virtdetcfgfile', 'VirtDetCfg')],
                   'float':[('dist', 'Distance'), ('pixelsize', 'Pixel_size'),
                            ('beamposx', 'Beam_X'), ('beamposy', 'Beam_Y'),
-                           ('wavelength', 'Wavelength')],
+                           ('wavelength', 'Wavelength'), ('bs_out', 'BeamStopOut'), ('bs_in', 'BeamStopIn')],
                   'boolean':[('shuttercontrol', 'Shutter_control'),
                              ('motorcontrol', 'Move_motors')]}
             for argtype in args:
@@ -429,7 +465,8 @@ class Credo(GObject.GObject):
                                  ('filter', 'Filter'), ('dist', 'Distance'),
                                  ('pixelsize', 'Pixel_size'), ('beamposx', 'Beam_X'),
                                  ('beamposy', 'Beam_Y'), ('wavelength', 'Wavelength'), ('shuttercontrol', 'Shutter_control'), ('motorcontrol', 'Move_motors'), ('scanfile', 'ScanFile'),
-                                ('scandevice', 'ScanDevice'), ('pilatushost', 'PilatusHost'), ('genixhost', 'GeniXHost'), ('tmcmhost', 'TMCMHost'), ('virtdetcfgfile', 'VirtDetCfg')]:
+                                 ('scandevice', 'ScanDevice'), ('pilatushost', 'PilatusHost'), ('genixhost', 'GeniXHost'), ('tmcmhost', 'TMCMHost'), ('virtdetcfgfile', 'VirtDetCfg'),
+                                 ('bs_out', 'BeamStopOut'), ('bs_in', 'BeamStopIn')]:
             cp.set('CREDO', option, str(self.get_property(attrname)))
         if not os.path.exists(os.path.expanduser('~/.config/credo')):
             os.makedirs(os.path.expanduser('~/.config/credo'))
@@ -474,7 +511,7 @@ class Credo(GObject.GObject):
             logger.debug('Not adding sample: ' + str(sam) + ' because not a SAXSSample instance.')
             return
         if not [s for s in self._samples if s == sam]:
-            logger.debug('Sample ' + str(sam) + ' added.')
+            # logger.debug('Sample ' + str(sam) + ' added.')
             self._samples.append(sam)
             self._samples.sort()
             self.emit('samples-changed')
@@ -493,15 +530,19 @@ class Credo(GObject.GObject):
     def get_samples(self):
         return self._samples[:]            
     def set_sample(self, sam):
+        if isinstance(sam, basestring):
+            sams = [s for s in self._samples if s.title == sam or str(s) == sam]
+            if not sams:
+                raise CredoError('No sample %s defined.' % sam)
+            if len(sams) > 1:
+                raise CredoError('Ambiguous sample: %s.' % sam)
+            sam = sams[0]
         if not isinstance(sam, sample.SAXSSample):
-            return
-        # if not [s for s in self._samples if s == sam]:
-        #    self._samples.append(sam)
-        #    self.emit('samples-changed')
-        #    self._samples.sort()
+            return None
         if self.sample != sam:
             self.sample = sam
             self.emit('sample-changed', self.sample)
+        return sam
     def clear_samples(self):
         self.sample = None
         self._samples = []
@@ -526,7 +567,7 @@ class Credo(GObject.GObject):
     
     def killexposure(self):
         self.pilatus.stopexposure()
-        # self.exposurethread.userbreakswitch.set()
+        self.exposurethread.userbreakswitch.set()
 
     def expose(self, exptime, expnum=1, dwelltime=0.003, header_template=None, quick=False):
         logger.debug('Credo.exposure running.')
@@ -561,9 +602,9 @@ class Credo(GObject.GObject):
         h['Filter'] = self.filter
         h['Monitor'] = h['MeasTime']
         logger.debug('Header prepared.')
-        logger.debug('Queue-ing exposure.')
         self.exposing = expparams
         GObject.idle_add(self._check_if_exposure_finished)
+        logger.info('Starting exposure of %s' % str(self.sample))
         self.exposurethread.inqueue.put((expparams, h))
         return False
     def _check_if_exposure_finished(self):
@@ -628,6 +669,7 @@ class Credo(GObject.GObject):
         if self.pilatus.connected():
             lis += ['Pilatus threshold']
         return lis
+    
     def scan(self, start, end, step, countingtime, waittime, header_template={}, shutter=False, autoreturn=False):
         """Set-up and start a scan measurement.
         
@@ -714,9 +756,9 @@ class Credo(GObject.GObject):
                             self.scanning['header_template'])
             else:
                 self.expose(self.scanning['countingtime'], 1, 0.003, self.scanning['header_template'])
-            self.emit('scan-phase', 'Scan sequence started.')
+            logger.info('Scan sequence #%d started.' % self.scanning['scan'].fsn)
         else:
-            self.emit('scan-phase', 'Premature scan end!')
+            self.emit('scan-fail', 'Could not start scan #%d: moving to first step did not succeed.' % self.scanning['scan'].fsn)
             self.emit('scan-end', self.scanning['scan'], False)
         return scan
     def killscan(self, wait_for_this_exposure_to_end=False):
@@ -724,7 +766,7 @@ class Credo(GObject.GObject):
             self.killexposure()
         if self.scanning is not None:
             self.scanning['kill'] = True
-        self.emit('scan-phase', 'Stopping scan sequence.')
+        logger.info('Stopping scan sequence on user request.')
     def scan_to_next_step(self):
         logger.debug('Going to next step.')
         if self.scanning['kill']:
@@ -734,19 +776,21 @@ class Credo(GObject.GObject):
             self.scanning['where'] = time.time()
             return True
         elif self.scanning['device'] == 'Pilatus threshold':
-            gain = self.pilatus.getthreshold()['gain']
+            
             threshold = self.scanning['start'] + self.scanning['idx'] * self.scanning['step']
             if threshold > self.scanning['end']:
                 return False
             try:
-                self.emit('scan-phase', 'Setting threshold to %.0f eV (%s)' % (threshold, gain))
-                self.pilatus.setthreshold(threshold, gain, blocking=True)
+                logger.info('Setting threshold to %.0f eV (%s)' % (threshold, gain))
+                for i in range(100):
+                    GObject.main_context_default().iteration(False)
+                    if not GObject.main_context_default().pending():
+                        break
+                self.trim_detector(threshold, None, blocking=True)
                 if abs(self.pilatus.getthreshold()['threshold'] - threshold) > 1:
-                    logger.error('Cannot set threshold for pilatus to the desired value.')
                     self.emit('scan-fail', 'Error setting threshold: could not set to desired value.')
                     return False
             except pilatus.PilatusError as pe:
-                logger.error('Cannot set threshold: PilatusError(' + pe.message + ')')
                 self.emit('scan-fail', 'PilatusError while setting threshold: ' + pe.message)
                 return False
             self.scanning['where'] = threshold
@@ -757,26 +801,17 @@ class Credo(GObject.GObject):
             pos = self.scanning['start'] + self.scanning['idx'] * self.scanning['step']
             if pos > self.scanning['end']:
                 return False
+            logger.info('Moving motor %s to %.3f' % (str(self.scanning['device']), pos))
             try:
-                self.emit('scan-phase', 'Moving motor %s to %.3f' % (str(self.scanning['device']), pos))
-                self.scanning['device'].moveto(pos)
-                while self.scanning['device'].is_moving():
-                    for i in range(100):
-                        GObject.main_context_default().iteration(False)
-                        if not GObject.main_context_default().pending():
-                            break
-                if abs(pos - self.scanning['device'].get_pos()) > 0.001:
-                    self.emit('scan-fail', 'Motor positioning failure, could not move to destination.')
-                    logger.error('Motor positioning failure, could not move to destination.')
-                    return False
-            except tmcl_motor.MotorError as me:
-                logger.error('Cannot move motor. MotorError(' + me.message + ')')
-                self.emit('scan-fail', 'MotorError while moving motor: ' + me.message)
+                self.move_motor(self.scanning['device'], pos)
+            except CredoError as ce:
+                self.emit('scan-fail', 'Cannot move motor: ' + ce.message)
                 return False
             self.scanning['where'] = pos
             self.scanning['idx'] += 1
             logger.debug('Moved motor successfully.')
             return True
+        
     def do_exposure_done(self, ex):
         if self.scanning is not None:
             logger.debug('Exposure in scanning is done, preparing to emit scan-dataread signal.')
@@ -792,7 +827,20 @@ class Credo(GObject.GObject):
             logger.debug('Emitting scan-dataread signal')
             self.emit('scan-dataread', self.scanning['scan'])
             logger.debug('Emitted scan-dataread signal')
+        if hasattr(self, 'transmdata'):
+            if self.transmdata['mode'] == 'sum':
+                I = ex.sum(mask=self.transmdata['mask']) / ex['MeasTime']
+            elif self.transmdata['mode'] == 'max':
+                I = ex.max(mask=self.transmdata['mask']) / ex['MeasTime']
+            if 'Isample' not in self.transmdata: self.transmdata['Isample'] = []
+            if 'Iempty' not in self.transmdata: self.transmdata['Iempty'] = []
+            if 'Idark' not in self.transmdata: self.transmdata['Idark'] = []
+            if self.transmdata['next_is'] == 'S': self.transmdata['Iempty'].append(I)
+            elif self.transmdata['next_is'] == 'E': self.transmdata['Idark'].append(I)
+            elif self.transmdata['next_is'] == 'D': self.transmdata['Isample'].append(I)
+            self.emit('transmission-report', self.transmdata['Iempty'], self.transmdata['Isample'], self.transmdata['Idark'])
         return False
+    
     def do_exposure_end(self, status):
         self.exposing = None
         if self.scanning is not None:
@@ -814,40 +862,34 @@ class Credo(GObject.GObject):
             if self.scanning['kill']: status = False
             logger.debug('Emitting scan-end signal.')
             self.emit('scan-end', self.scanning['scan'], status)
+        if hasattr(self, 'transmdata'):
+            if not status:
+                self.transmdata['kill'] = True
+            self.do_transmission()
         return False
+    
     def do_scan_end(self, scn, status):
-        if self.scanning['oldshutter']:
-            logger.debug('Closing shutter at the end of scan.')
-            self.shutter = False
-        with self.freeze_notify():
-            self.shuttercontrol = self.scanning['oldshutter']
-        self.scanning['scan'].stop_record_mode()
-        if self.scanning['autoreturn'] is not None:
-            self.emit('scan-phase', 'Auto-returning...')
-            if self.scanning['device'] == 'Pilatus threshold':
-                gain = self.pilatus.getthreshold()['gain']
-                self.pilatus.setthreshold(self.scanning['autoreturn'], gain, blocking=True)
-            else:
-                self.scanning['device'].moveto(self.scanning['autoreturn'])
-                while self.scanning['device'].is_moving():
-                    for i in range(100):
-                        GObject.main_context_default().iteration(False)
-                        if not GObject.main_context_default().pending():
-                            break
-        logger.debug('Removing internal scan state dict.')
-        self.scanning = None
-        self.emit('scan-phase', 'Scan sequence done.')
-        return False
-    def do_scan_phase(self, phase):
-        logger.debug('Scan phase: ' + phase)
-        for i in range(100):
-            GObject.main_context_default().iteration(False)
-            if not GObject.main_context_default().pending():
-                break
-    def do_exposure_fail(self, msg):
-        if self.scanning is not None:
+        try:
+            if self.scanning['oldshutter']:
+                logger.debug('Closing shutter at the end of scan.')
+                self.shutter = False
+            with self.freeze_notify():
+                self.shuttercontrol = self.scanning['oldshutter']
+            self.scanning['scan'].stop_record_mode()
+            if self.scanning['autoreturn'] is not None:
+                logger.info('Auto-returning...')
+                if self.scanning['device'] == 'Pilatus threshold':
+                    gain = self.pilatus.getthreshold()['gain']
+                    self.pilatus.setthreshold(self.scanning['autoreturn'], gain, blocking=True)
+                else:
+                    self.move_motor(self.scanning['device'], self.scanning['autoreturn'])
+        finally:
+            logger.debug('Removing internal scan state dict.')
+            logger.info('Scan sequence #%d done.' % self.scanning['scan'].fsn)
             self.scanning = None
         return False
+    def do_scan_fail(self, message):
+        logger.error(message)
     def reload_scanfile(self):
         if isinstance(self._scanstore, sastool.classes.SASScanStore):
             self._scanstore.finalize()
@@ -858,9 +900,12 @@ class Credo(GObject.GObject):
         self.pilatus.disconnect()
         if self.shuttercontrol:
             self.shutter = 0
-        del self.pilatus
-        del self.genix
-        del self.tmcm
+        if hasattr(self, 'pilatus'):
+            del self.pilatus
+        if hasattr(self, 'genix'):
+            del self.genix
+        if hasattr(self, 'tmcm'):
+            del self.tmcm
         gc.collect()
     def add_virtdet(self, vd):
         if vd not in self.virtualpointdetectors:
@@ -909,4 +954,142 @@ class Credo(GObject.GObject):
             vpd.write_to_configparser(cp)
         with open(filename, 'w') as f:
             cp.write(f)
+    def moveto_sample(self, sam=None, blocking=True):
+        if sam is None:
+            sam = self.sample
+        logger.info('Moving sample %s into the beam.' % sam.title)
+        for motname, pos in [('Sample_X', sam.positionx), ('Sample_Y', sam.positiony)]:
+            if pos is None:
+                logger.debug('Sample %s has None for %s, skipping movement.' % (str(sam), motname))
+                continue
+            try:
+                motor = [m for m in self.get_motors() if m.alias == motname][0]
+            except IndexError:
+                raise CredoError('No motor with alias "' + motname + '".')
+            self.move_motor(motor, pos, blocking)
+        if not blocking:
+            logger.info('Sample %s is in the beam.' % sam.title)
+        else:
+            logger.info('Returning from moveto_sample() before actual movement is done.')
+    def wait_for_event(self, eventfunc, Niter=100):
+        """Wait until eventfunc() returns True. During that time the GObject main loop is run.
+        Between two checks of eventfunc() at most Niter iterations are executed."""
+        while not eventfunc():
+            for i in range(100):
+                GObject.main_context_default().iteration(False)
+                if not GObject.main_context_default().pending():
+                    break
+    def move_motor(self, motor, position, blocking=True):
+        if not self.motorcontrol:
+            logger.warning('Moving motors is disabled!')
+            return
+        try:
+            if blocking:
+                logger.info('Waiting for motor controller to become idle.')
+                self.wait_for_event(lambda : self.tmcm.state == 'idle')
+                logger.info('Moving motor %s to %f.' % (str(motor), position))
+                motor.moveto(position)
+                self.wait_for_event(lambda :not motor.is_moving())
+                if abs(motor.get_pos() - position) > 0.001:
+                    raise CredoError('Could not move motor %s to position %f.' % (str(motor), position))
+                logger.info('Motor %s is at %f.' % (str(motor), position))
+            else:
+                motor.moveto(position)
+                logger.info('Motor movement command sent to TMCM subsystem.')
+        except tmcl_motor.MotorError as me:
+            raise CredoError('Error moving motor %s: %s' % (str(motor), me.message))
+    def move_beamstop(self, state=False):
+        try:
+            beamstopymotor = [m for m in self.get_motors() if m.alias == 'BeamStop_Y'][0]
+        except IndexError:
+            raise CredoError('No motor with alias "BeamStop_Y".')
+        if not state:
+            # should move the beamstop out. Ensure that the X-ray source is in low-power mode.
+            if (self.genix.get_ht() > 30 or self.genix.get_current() > 0.3):
+                logger.info('Putting GeniX into low-power mode.')
+                self.genix.do_standby()
+                self.wait_for_event(lambda :self.genix.whichstate() == genix.GENIX_STANDBY)
+                logger.info('Low-power mode reached.')
+            logger.info('Moving out beamstop.')
+            self.move_motor(beamstopymotor, self.bs_out, blocking=True)
+            logger.info('Beamstop is out.')
+        else:
+            logger.info('Moving in beamstop.')
+            self.move_motor(beamstopymotor, self.bs_in, blocking=True)
+            logger.info('Beamstop is in.')
+            self.wait_for_event(lambda :not beamstopymotor.is_moving())
+            logger.info('Putting GeniX into full-power mode.')
+            self.genix.do_rampup()
+            self.wait_for_event(lambda :self.genix.whichstate() == genix.GENIX_FULLPOWER)
+            logger.info('Full-power mode reached.')
     
+    def is_beamstop_in(self):
+        try:
+            beamstopymotor = [m for m in self.get_motors() if m.alias == 'BeamStop_Y'][0]
+        except IndexError:
+            raise CredoError('No motor with alias "BeamStop_Y".')
+        return beamstopymotor.get_pos() == self.bs_in
+    def do_transmission(self):
+        if not hasattr(self, 'transmdata'):
+            return
+        if self.transmdata['next_is'] == 'D':
+            if self.transmdata['repeat'] > 0:
+                logger.info('Transmission: Dark current')
+            sam = sample.SAXSSample('Dark current', None, None, None, None, 'SYSTEM', None, 0)
+            with self.freeze_notify():
+                self.shuttercontrol = False
+            if self.transmdata['manageshutter']:
+                self.shutter = False
+            self.transmdata['next_is'] = 'E'
+        elif self.transmdata['next_is'] == 'E':
+            logger.info('Transmission: Empty beam (%s)' % self.transmdata['emptysample'].title)
+            sam = self.transmdata['emptysample']
+            self.transmdata['next_is'] = 'S'
+            if self.transmdata['manageshutter']:
+                with self.freeze_notify():
+                    self.shuttercontrol = True
+        else:
+            logger.info('Transmission: Sample (%s)' % self.transmdata['sample'].title)
+            sam = self.transmdata['sample']
+            self.transmdata['repeat'] -= 1
+            self.transmdata['next_is'] = 'D'
+            if self.transmdata['manageshutter']:
+                with self.freeze_notify():
+                    self.shuttercontrol = True
+        if (self.transmdata['repeat'] == 0 and self.transmdata['next_is'] == 'E') or self.transmdata['kill']:
+            if self.transmdata['Isample'] and self.transmdata['Iempty'] and self.transmdata['Idark']:
+                data = {}
+                for n in ['sample', 'empty', 'dark']:
+                    data[n] = sastool.classes.ErrorValue(np.mean(self.transmdata['I' + n]),
+                                                       np.std(self.transmdata['I' + n]))
+                Iempty = data['empty'] - data['dark']
+                if Iempty.is_zero():
+                    transm = None
+                else:
+                    transm = (data['sample'] - data['dark']) / Iempty
+            else:
+                transm = None
+            self.emit('transmission-end', self.transmdata['Iempty'], self.transmdata['Isample'], self.transmdata['Idark'],
+                      transm, not self.transmdata['kill'])
+            return
+
+        self.moveto_sample(sam)
+        self.set_sample(sam)
+        if self.transmdata['firstexposure']:
+            self.expose(self.transmdata['exptime'], self.transmdata['expnum'], 0.003, None, quick=False)
+            self.transmdata['firstexposure'] = False
+        else:
+            self.expose(self.transmdata['exptime'], self.transmdata['expnum'], 0.003, None, quick=True)
+    def do_transmission_end(self, Iempty, Isample, Transmission, state):
+        logger.info('End of transmission measurement.')
+        del self.transmdata
+    def transmission(self, sample, emptysample, exptime, expnum, mask, mode='max', repeat=1):
+        # if self.is_beamstop_in():
+        #    self.move_beamstop(False)
+        self.transmdata = {'sample':sample, 'emptysample':emptysample, 'exptime':exptime,
+                           'expnum':expnum, 'repeat':repeat, 'next_is':'D', 'firstexposure':True,
+                           'mode':mode, 'mask':mask, 'kill':False, 'manageshutter':self.shuttercontrol}
+        self.do_transmission()
+    def killtransmission(self):
+        self.transmdata['kill'] = True
+        self.killexposure()

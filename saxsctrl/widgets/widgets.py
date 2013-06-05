@@ -3,6 +3,7 @@ from gi.repository import GObject
 from gi.repository import Gdk
 import sasgui
 
+
 class StatusLabel(Gtk.VBox):
     __gsignals__ = {'status-changed':(GObject.SignalFlags.RUN_FIRST, None, (str, str, object)), }
     def __init__(self, name, names={'OK':'OK', 'WARNING':'WARNING', 'ERROR':'ERROR', 'UNKNOWN':'UNKNOWN'},

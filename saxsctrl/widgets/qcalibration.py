@@ -4,12 +4,15 @@ import sasgui
 import numpy as np
 from .spec_filechoosers import ExposureLoader
 from .peakfinder import PeakFinder
+from .widgets import ToolDialog
 
 class QCalibrationDialog(sasgui.QCalibrator):
-    def __init__(self, credo, title='Q calibration', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)):
+    def __init__(self, credo, title='Q calibration', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE,)):
         sasgui.QCalibrator.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.CLOSE)
         self.credo = credo
+        self.connect('response', self.on_response)
+        self.connect('notify::dist', lambda obj, prop:self.do_changed())
         vb = self.get_content_area()
         row = 0
 
@@ -20,15 +23,14 @@ class QCalibrationDialog(sasgui.QCalibrator):
         self.exposureloader.connect('exposure-loaded', self.do_load_exposure)
         f.add(self.exposureloader)
         
-        self.wavelength_checkbutton.set_active(True)
-        self.wavelength_entry.set_text('1.5418')
-        self.pixelsize_checkbutton.set_active(True)
-        self.pixelsize_entry.set_text('0.172')
-        self.beampos_checkbutton.set_active(True)
-        self.beampos_entry.set_text('0')
-        self.alpha_checkbutton.set_active(True)
-        self.alpha_entry.set_text('90')
-        
+        self.wavelength = 1.5418
+        self.pixelsize = 0.172
+        self.alpha = np.pi / 2
+        self.beampos = 0
+        for i in ['alpha', 'beampos', 'pixelsize', 'wavelength']:
+            self.set_fixed(i)
+        self.checkbuttons['alpha'].set_sensitive(False)
+        self.entries['alpha'].set_sensitive(False)
         vb.show_all()
         
         aa = self.get_action_area()
@@ -37,6 +39,10 @@ class QCalibrationDialog(sasgui.QCalibrator):
         self.findpeakbutton.connect('clicked', self.do_find_peak)
         self.findpeakbutton.set_sensitive(False)
         self._rad = None
+        self.get_widget_for_response(Gtk.ResponseType.APPLY).set_sensitive(False)
+    def do_changed(self):
+        print "CHANGED"
+        self.get_widget_for_response(Gtk.ResponseType.APPLY).set_sensitive(True)
     def do_load_exposure(self, el, ex):
         try:
             self._rad = ex.radial_average(pixel=True)
@@ -58,3 +64,14 @@ class QCalibrationDialog(sasgui.QCalibrator):
                 self.update_extended_params()
                 self.redraw()
         pf.destroy()
+    def to_credo(self):
+        self.get_widget_for_response(Gtk.ResponseType.APPLY).set_sensitive(False)
+        for prop in ['dist', 'pixelsize', 'wavelength']:
+            if self.credo.get_property(prop) != self.get_property(prop):
+                self.credo.set_property(prop, self.get_property(prop))
+    def on_response(self, dialog, respid):
+        if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT, Gtk.ResponseType.OK):
+            self.hide()
+        if respid in (Gtk.ResponseType.APPLY, Gtk.ResponseType.OK):
+            self.to_credo()
+        return
