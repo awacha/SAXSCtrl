@@ -19,6 +19,7 @@ import ConfigParser
 import multiprocessing
 import numpy as np
 
+from . import subsystems
 from . import datareduction
 from . import sample
 from . import virtualpointdetector
@@ -28,24 +29,7 @@ logger.setLevel(logging.DEBUG)
 class CredoError(Exception):
     pass
 
-class CredoFileWatch(GObject.GObject):
-    __gsignals__ = {'monitor-event':(GObject.SignalFlags.RUN_FIRST, None, (str, object)),
-                  }    
-    def __init__(self, folders=[]):
-        GObject.GObject.__init__(self)
-        self.monitors = []
-        self.setup(folders)
-    def setup(self, folders):
-        for monitor, connection in self.monitors:
-            monitor.cancel()
-            monitor.disconnect(connection)
-        self.monitors = []
-        for folder in folders:
-            dirmonitor = Gio.file_new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.NONE, None)
-            self.monitors.append((dirmonitor, dirmonitor.connect('changed', self.on_monitor_event)))
-    def on_monitor_event(self, monitor, filename, otherfilename, event):
-        if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED):
-            self.emit('monitor-event', filename, event)
+    
 
 
 class CredoExpose(multiprocessing.Process):
@@ -174,30 +158,11 @@ class CredoExpose(multiprocessing.Process):
                     self.outqueue.put((CredoExpose.EXPOSURE_END, None))
                     logger.debug('Returning from work.')
 
-class SubsystemScan(GObject.GObject):
-    pass
-
-class SubsystemExposure(GObject.GObject):
-    __gsignals__ = {'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
-                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)), }
-    exptime = GObject.property(type=float, minimum=0, default=1)
-    dwelltime = GObject.property(type=float, minimum=0.003, default=0.003)
-    nimages = GObject.property(type=int, minimum=1, default=1)
-    def __init__(self, pilatus, genix, exptime, dwelltime, nimages):
-        GObject.GObject.__init__(self)
-        self.pilatus = pilatus
-        self.genix = genix
-    def start(self):
-        pass
 
        
 class Credo(GObject.GObject):
     __gsignals__ = {'path-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'setup-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'files-changed':(GObject.SignalFlags.RUN_FIRST, None, (str, object)),
-                    'samples-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-done':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
@@ -210,42 +175,47 @@ class Credo(GObject.GObject):
                     'transmission-report':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object)),
                     'transmission-end':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object, bool)),
                     'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'notify':'override',
                    }
     __equipments__ = {'GENIX':{'class':genix.GenixConnection, 'attrib':'genix', 'port':502, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
                       'PILATUS':{'class':pilatus.PilatusConnection, 'attrib':'pilatus', 'port':41234, 'connectfunc':'connect_to_camserver', 'disconnectfunc':'disconnect_from_camserver'},
                       'TMCM':{'class':tmcl_motor.TMCM351_TCP, 'attrib':'tmcm', 'port':2001, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
                       }
-    _credo_state = None
-    exposurethread = None
-    _filewatchers = None
-    _nextfsn_cache = None
-    _samples = None
+    
+    # Connection properties
     filebegin = GObject.property(type=str, default='crd')
-    fsndigits = GObject.property(type=int, default=5, minimum=1, maximum=100)
+    ndigits = GObject.property(type=int, default=5, minimum=1, maximum=100)
     username = GObject.property(type=str, default='Anonymous')
     projectname = GObject.property(type=str, default='No project')
+    rootpath = GObject.property(type=str, default=os.path.expanduser('~/credo_data/current'))
+    
+    #instrument parameters
     pixelsize = GObject.property(type=float, default=172, minimum=0)
     dist = GObject.property(type=float, default=1000, minimum=0)
     filter = GObject.property(type=str, default='No filter')
     beamposx = GObject.property(type=float, default=348.38)
     beamposy = GObject.property(type=float, default=242.47)
-    filepath = GObject.property(type=str, default=os.path.expanduser('~/credo_data/current'))
-    imagepath = GObject.property(type=str, default='/net/pilatus300k.saxs/disk2/images')
     wavelength = GObject.property(type=float, default=1.54182, minimum=0)
     shuttercontrol = GObject.property(type=bool, default=True)
     motorcontrol = GObject.property(type=bool, default=True)
-    scanning = GObject.property(type=object)
-    exposing = GObject.property(type=object)
-    scanfile = GObject.property(type=str, default='')
-    scandevice = GObject.property(type=str, default='Time')
+
+    #connection parameters
     pilatushost = GObject.property(type=str, default='')
     genixhost = GObject.property(type=str, default='')
     tmcmhost = GObject.property(type=str, default='')
+    
     virtdetcfgfile = GObject.property(type=str, default='')
     bs_out = GObject.property(type=float, default=0)
     bs_in = GObject.property(type=float, default=50)
     virtualpointdetectors = None
     _scanstore = None
+
+    scanning = GObject.property(type=object)
+    exposing = GObject.property(type=object)
+    scanfile = GObject.property(type=str, default='')
+    scandevice = GObject.property(type=str, default='Time')
+    
+    
     # changing any of the properties in this list will trigger a setup-changed event.
     setup_properties = ['username', 'projectname', 'pixelsize', 'dist', 'filter',
                         'beamposx', 'beamposy', 'wavelength', 'shuttercontrol',
@@ -253,16 +223,20 @@ class Credo(GObject.GObject):
                         'imagepath', 'filepath', 'bs_out', 'bs_in']
     # changing any of the properties in this list will trigger a path-changed event.
     path_properties = ['filepath', 'imagepath']
-    def __init__(self, genixhost=None, pilatushost=None, motorhost=None, imagepath='/net/pilatus300k.saxs/disk2/images',
-                 filepath='/home/labuser/credo_data/current'):
+    def __init__(self):
         GObject.GObject.__init__(self)
+        # initialize subsystems
+        
+        self.files = subsystems.SubSystemFiles() 
+        self.samples = subsystems.SubSystemSamples()
+        
         self.exposing = None
         self.scanning = None
-        self.filewatch = CredoFileWatch()
-        self.filewatch.connect('monitor-event', self.on_filemonitor)
+        
+        
         self.load_settings()
-        self._credo_state = {}
         self.load_virtdetcfg(None, True)
+
         if genixhost is not None: self.genixhost = genixhost
         if pilatushost is not None: self.pilatushost = pilatushost
         if motorhost is not None: self.tmcmhost = motorhost
@@ -302,6 +276,14 @@ class Credo(GObject.GObject):
             self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
         for name in self.path_properties:
             self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
+    def do_notify(self,param):
+        if param.name=='rootpath':
+            self.files.rootpath=self.rootpath
+        if param.name=='filebegin':
+            self.files.filebegin=self.filebegin
+        if param.name=='ndigits':
+            self.files.ndigits=self.ndigits
+    
     def is_idle(self):
         for eq in self.__equipments__:
             if hasattr(self, eq.lower()):
@@ -400,28 +382,9 @@ class Credo(GObject.GObject):
     def do_virtualpointdetectors_changed(self):
         self.save_settings()
         
-    def do_fileformatchange(self, crd=None, param=None):
-        ff = self.filebegin + '_' + '%%0%dd' % self.fsndigits
-        ff_re = re.compile(self.filebegin + '_' + '(\d{%d,%d})' % (self.fsndigits, self.fsndigits))
-        if ('fileformat' not in self._credo_state or self._credo_state['fileformat'] != ff) or ('fileformat_re' not in self._credo_state or self._credo_state['fileformat_re'] != ff_re):
-            self._credo_state['fileformat'] = ff
-            self._credo_state['fileformat_re'] = ff_re
-            self.emit('setup-changed')
-    @GObject.property
-    def fileformat(self): return self._credo_state['fileformat']
-    @GObject.property
-    def fileformat_re(self): return self._credo_state['fileformat_re']
-    @GObject.property
-    def headerformat(self): return self._credo_state['fileformat'] + '.param'
-    @GObject.property
-    def exposureformat(self): return self._credo_state['fileformat'] + '.cbf'
-    @GObject.property
-    def headerformat_re(self): return re.compile(self._credo_state['fileformat_re'].pattern + '\.param')
-    @GObject.property
-    def exposureformat_re(self): return re.compile(self._credo_state['fileformat_re'].pattern + '\.cbf')
     def do_path_changed(self):
         if hasattr(self, 'datareduction'):
-            self.datareduction.datadirs = self.get_exploaddirs()
+            self.datareduction.datadirs = 
         self.filewatch.setup([self.imagepath] + sastool.misc.find_subdirs(self.filepath))
     def do_setup_changed(self): self.save_settings()
     def load_settings(self):
@@ -475,95 +438,6 @@ class Credo(GObject.GObject):
             cp.write(f)
         del cp
         return False
-    def on_filemonitor(self, monitor, filename, event):
-        if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED) and self._nextfsn_cache is not None:
-            basename = os.path.split(filename)[1]
-            if basename:
-                for regex in self._nextfsn_cache.keys():
-                    m = regex.match(basename)
-                    if m is not None:
-                        self._nextfsn_cache[regex] = int(m.group(1)) + 1
-                        self.emit('files-changed', filename, event)
-    def load_samples(self, *args):
-        logger.debug('Loading samples.')
-        for sam in sample.SAXSSample.new_from_cfg(os.path.expanduser('~/.config/credo/sample2rc')):
-            self.add_sample(sam)
-        if self._samples:
-            self.set_sample(self._samples[0])
-        self.emit('samples-changed')
-        return False
-    def save_samples(self, *args):
-        cp = ConfigParser.ConfigParser()
-        for i, sam in enumerate(self.get_samples()):
-            sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
-        with open(os.path.expanduser('~/.config/credo/sample2rc'), 'w+') as f:
-            cp.write(f)
-    def _get_subpath(self, subdir):
-        pth = os.path.join(self.filepath, subdir)
-        if not os.path.isdir(pth):
-            if not os.path.exists(pth):
-                os.mkdir(pth)  # an OSError is raised if no permission.
-            else:
-                raise OSError('%s exists and is not a directory!' % pth)
-        return pth
-    def add_sample(self, sam):
-        if not isinstance(sam, sample.SAXSSample):
-            logger.debug('Not adding sample: ' + str(sam) + ' because not a SAXSSample instance.')
-            return
-        if not [s for s in self._samples if s == sam]:
-            # logger.debug('Sample ' + str(sam) + ' added.')
-            self._samples.append(sam)
-            self._samples.sort()
-            self.emit('samples-changed')
-        else:
-            logger.debug('Not adding duplicate sample: ' + str(sam))
-    def remove_sample(self, sam):
-        modified = False
-        for todelete in [s == sam for s in self._samples]:
-            self._samples.remove(todelete)
-            if self.sample == todelete:
-                self.sample = None
-            modified = True
-        if modified:
-            self._samples.sort()
-            self.emit('samples-changed')
-    def get_samples(self):
-        return self._samples[:]            
-    def set_sample(self, sam):
-        if isinstance(sam, basestring):
-            sams = [s for s in self._samples if s.title == sam or str(s) == sam]
-            if not sams:
-                raise CredoError('No sample %s defined.' % sam)
-            if len(sams) > 1:
-                raise CredoError('Ambiguous sample: %s.' % sam)
-            sam = sams[0]
-        if not isinstance(sam, sample.SAXSSample):
-            return None
-        if self.sample != sam:
-            self.sample = sam
-            self.emit('sample-changed', self.sample)
-        return sam
-    def clear_samples(self):
-        self.sample = None
-        self._samples = []
-        self.emit('samples-changed')
-    def get_exploaddirs(self): return [self.imagepath, self.offlineimagepath, self.eval1dpath, self.eval2dpath, self.parampath, self.maskpath]
-    @GObject.property
-    def configpath(self): return self._get_subpath('config')
-    @GObject.property
-    def moviepath(self): return self._get_subpath('movie')
-    @GObject.property
-    def parampath(self): return self._get_subpath('param')
-    @GObject.property
-    def maskpath(self): return self._get_subpath('mask')
-    @GObject.property
-    def scanpath(self): return self._get_subpath('scan')
-    @GObject.property
-    def eval2dpath(self): return self._get_subpath('eval2d')
-    @GObject.property
-    def offlineimagepath(self): return self._get_subpath('images')
-    @GObject.property
-    def eval1dpath(self): return self._get_subpath('eval1d')
     
     def killexposure(self):
         self.pilatus.stopexposure()
@@ -630,19 +504,6 @@ class Credo(GObject.GObject):
         if gain is None:
             gain = self.pilatus.getthreshold()['gain']
         self.pilatus.setthreshold(threshold, gain, blocking)
-    def get_next_fsn(self, regex=None):
-        if self._nextfsn_cache is None:
-            self._nextfsn_cache = {}
-        if regex is None:
-            regex = self.fileformat_re
-        if regex not in self._nextfsn_cache:
-            maxfsns = [0]
-            for pth in [self.imagepath, self.offlineimagepath] + sastool.misc.find_subdirs(self.filepath):
-                fsns = [int(f.group(1)) for f in [regex.match(f) for f in os.listdir(pth)] if f is not None]
-                if fsns:
-                    maxfsns.append(max(fsns))
-            self._nextfsn_cache[regex] = max(maxfsns) + 1
-        return self._nextfsn_cache[regex]
     def set_fileformat(self, begin='crd', digitsinfsn=5):
         ff = begin + '_' + '%%0%dd' % digitsinfsn
         ff_re = re.compile(begin + '_' + '(\d{%d,%d})' % (digitsinfsn, digitsinfsn))
@@ -907,53 +768,6 @@ class Credo(GObject.GObject):
         if hasattr(self, 'tmcm'):
             del self.tmcm
         gc.collect()
-    def add_virtdet(self, vd):
-        if vd not in self.virtualpointdetectors:
-            self.virtualpointdetectors.append(vd)
-            self.emit('virtualpointdetectors-changed')
-    def del_virtdet(self, vd):
-        if vd in self.virtualpointdetectors:
-            self.virtualpointdetectors.remove(vd)
-            self.emit('virtualpointdetectors-changed')
-    def clear_virtdet(self):
-        self.virtualpointdetectors = []
-    def load_virtdetcfg(self, filename=None, clear=True, dontset=False):
-        if dontset:
-            lis = []
-        else:
-            lis = self.virtualpointdetectors
-        if filename is None:
-            filename = self.virtdetcfgfile
-        cp = ConfigParser.ConfigParser()
-        cp.read(filename)
-        if clear and not dontset:
-            self.virtualpointdetectors = []
-            lis = self.virtualpointdetectors
-        elif clear and dontset:
-            lis = []
-            
-        vpdschanged = False
-        for vpdname in [sec for sec in cp.sections() if sec.startswith('VPD_')]:
-            vpd = virtualpointdetector.virtualpointdetector_new_from_configparser(vpdname[4:], cp)
-            if vpd not in lis:
-                lis.append(vpd)
-                vpdschanged = True
-        if vpdschanged and not dontset:
-            self.emit('virtualpointdetectors-changed')
-        if not dontset:
-            self.virtdetcfgfile = filename
-        return lis
-    def save_virtdetcfg(self, filename=None, detectors=None):
-        if filename is None:
-            filename = self.virtdetcfgfile
-        if detectors is None:
-            detectors = self.virtualpointdetectors
-            self.virtdetcfgfile = filename
-        cp = ConfigParser.ConfigParser()
-        for vpd in self.virtualpointdetectors:
-            vpd.write_to_configparser(cp)
-        with open(filename, 'w') as f:
-            cp.write(f)
     def moveto_sample(self, sam=None, blocking=True):
         if sam is None:
             sam = self.sample

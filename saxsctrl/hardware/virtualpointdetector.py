@@ -69,10 +69,11 @@ class VirtualPointDetectorExposure(VirtualPointDetector):
     def __eq__(self, other):
         if not isinstance(other, VirtualPointDetectorExposure):
             return False
-        for attr in ['mask', 'mode']:
-            if self.__getattribute__(attr) != other.__getattribute__(attr):
-                return False
-        return True
+        return other.name == self.name
+#         for attr in ['mask', 'mode']:
+#             if self.__getattribute__(attr) != other.__getattribute__(attr):
+#                 return False
+#         return True
     def __str__(self):
         return self.name + '; mask: ' + self.mask.filename + '; mode: ' + self.mode
         
@@ -86,8 +87,9 @@ class VirtualPointDetectorEpoch(VirtualPointDetector):
     def __eq__(self, other):
         if not isinstance(other, VirtualPointDetectorEpoch):
             return False
-        else:
-            return True
+        return self.name == other.name
+#         else:
+#             return True
     def __str__(self):
         return self.name
 
@@ -112,10 +114,11 @@ class VirtualPointDetectorGenix(VirtualPointDetector):
     def __eq__(self, other):
         if not isinstance(other, VirtualPointDetectorGenix):
             return False
-        for attr in ['genixparam']:
-            if self.__getattribute__(attr) != other.__getattribute__(attr):
-                return False
-        return True
+#         for attr in ['genixparam']:
+#             if self.__getattribute__(attr) != other.__getattribute__(attr):
+#                 return False
+#         return True
+        return self.name == other.name
     def __str__(self):
         return self.name + '; ' + self.genixparam
 

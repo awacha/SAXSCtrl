@@ -84,12 +84,17 @@ class SAXSSample(object):
     def __unicode__(self):
         return u'%s, (%.3f, %.3f) %.4f cm, transm: %.4f' % (self.title, self.positionx, self.positiony, self.thickness, self.transmission)
     def __eq__(self, other):
-        if not isinstance(other, SAXSSample):
-            return False
-        for attr in ['title', 'thickness', 'preparedby', 'preparetime']:
-            if self.__getattribute__(attr) != other.__getattribute__(attr):
-                return False
-        return True
+        if isinstance(other, SAXSSample):
+            for attr in ['title', 'thickness', 'preparedby', 'preparetime']:
+                if self.__getattribute__(attr) != other.__getattribute__(attr):
+                    return False
+            return True
+        elif isinstance(other, basestring):
+            if self.title == other:
+                return True
+        else:
+            return NotImplemented
+        return False
     def __ne__(self, other):
         return not self.__eq__(other)
     def __lt__(self, other):
