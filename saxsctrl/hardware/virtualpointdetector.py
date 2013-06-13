@@ -122,6 +122,26 @@ class VirtualPointDetectorGenix(VirtualPointDetector):
     def __str__(self):
         return self.name + '; ' + self.genixparam
 
+class VirtualPointDetectorHeader(VirtualPointDetector):
+    def __init__(self, name, scaler, headerfield):
+        VirtualPointDetector.__init__(self, name, scaler)
+        self.headerfield = headerfield
+    def readout(self, header):
+        return header[self.headerfield]
+    def write_to_configparser(self, cp):
+        VirtualPointDetector.write_to_configparser(self, cp)
+        cp.set('VPD_' + self.name, 'headerfield', self.headerfield)
+    def __eq__(self, other):
+        if not isinstance(other, VirtualPointDetectorHeader):
+            return False
+#         for attr in ['genixparam']:
+#             if self.__getattribute__(attr) != other.__getattribute__(attr):
+#                 return False
+#         return True
+        return self.name == other.name
+    def __str__(self):
+        return self.name + '; ' + self.headerfield
+
 def virtualpointdetector_new(name, **kwargs):
     if 'scaler' not in kwargs:
         kwargs['scaler'] = 1.0
@@ -129,6 +149,8 @@ def virtualpointdetector_new(name, **kwargs):
         return VirtualPointDetectorGenix(name, kwargs['scaler'], kwargs['genixparam'])
     elif 'mask' in kwargs and 'mode' in kwargs:
         return VirtualPointDetectorExposure(name, kwargs['scaler'], kwargs['mask'], kwargs['mode'])
+    elif 'headerfield' in kwargs:
+        return VirtualPointDetectorHeader(name, kwargs['scaler'], kwargs['headerfield'])
     else:
         return VirtualPointDetectorEpoch(name, kwargs['scaler'])
     
@@ -147,5 +169,7 @@ def virtualpointdetector_new_from_configparser(name, cp):
         return VirtualPointDetectorGenix(name, scaler, cp.get('VPD_' + name, 'genixparam'))
     elif cp.has_option('VPD_' + name, 'mask') and cp.has_option('VPD_' + name, 'mode'):
         return VirtualPointDetectorExposure(name, scaler, sastool.classes.SASMask(cp.get('VPD_' + name, 'mask')), cp.get('VPD_' + name, 'mode'))
+    elif cp.has_option('VPD_' + name, 'headerfield'):
+        return VirtualPointDetectorHeader(name, scaler, cp.get('VPD_' + name, 'headerfield'))
     else:
         return VirtualPointDetectorEpoch(name, scaler)

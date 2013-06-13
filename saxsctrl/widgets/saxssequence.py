@@ -2,7 +2,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 from .widgets import ToolDialog
 from .samplesetup import SampleSelector
-from ..hardware import genix
+from ..hardware.instruments import genix
 import ConfigParser
 
 import logging

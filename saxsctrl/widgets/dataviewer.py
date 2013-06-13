@@ -7,7 +7,7 @@ import os
 from .spec_filechoosers import MaskChooserDialog
 import datetime
 from .data_reduction_setup import DataRedSetup, PleaseWaitDialog
-from ..hardware.datareduction import DataReduction
+from ..hardware.subsystems.datareduction import DataReduction
 import qrcode
 
 class DataViewer(Gtk.Dialog):

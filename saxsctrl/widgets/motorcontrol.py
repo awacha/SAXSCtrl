@@ -1,4 +1,4 @@
-from ..hardware import tmcl_motor
+from ..hardware.instruments.tmcl_motor import TMCM351, MotorError
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import Gdk

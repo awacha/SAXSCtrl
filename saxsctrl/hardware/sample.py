@@ -94,9 +94,8 @@ class SAXSSample(object):
                 return True
         else:
             return NotImplemented
-        return False
     def __ne__(self, other):
-        return not self.__eq__(other)
+        return not (self == other)
     def __lt__(self, other):
         return self.title < other.title
     def __le__(self, other):

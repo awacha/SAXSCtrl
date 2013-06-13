@@ -25,22 +25,28 @@ import multiprocessing
 import logging
 import time
 from gi.repository import GObject
+from .instrument import InstrumentError, Instrument_ModbusTCP, InstrumentStatus
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-GENIX_IDLE = 'idle'
-GENIX_POWERDOWN = 'powered down'
-GENIX_STANDBY = 'low power'
-GENIX_FULLPOWER = 'full power'
-GENIX_WARMUP = 'warming up'
-GENIX_GO_POWERDOWN = 'powering down'
-GENIX_GO_STANDBY = 'going to low power'
-GENIX_GO_FULLPOWER = 'going to full power'
-GENIX_XRAYS_OFF = 'X-rays off'
-GENIX_DISCONNECTED = 'disconnected'
+class GenixStatus(InstrumentStatus):
+    PowerDown = 'powered down'
+    Standby = 'low power'
+    FullPower = 'full power'
+    WarmUp = 'warming up'
+    GoPowerDown = 'powering down'
+    GoStandby = 'going to low power'
+    GoFullPower = 'going to full power'
+    XRaysOff = 'X-rays off'
 
-class GenixError(StandardError):
+class ShutterStatus(object):
+    Open = 'open'
+    Closed = 'closed'
+    Moving = 'moving'
+    Disconnected = 'disconnected'
+
+class GenixError(InstrumentError):
     pass
 
 class LoggingLock(object):
@@ -67,87 +73,65 @@ class LoggingLock(object):
     def __exit__(self, type, value, traceback):
         return self.release()
     
-class GenixConnection(GObject.GObject):
-    __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'connect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'disconnect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    }
-    _communications_lock = None
-    _shutter_lock = None
+class Genix(Instrument_ModbusTCP):
     _shutter_timeout = 1
-    _tcp_timeout = 1
-    status = GObject.property(type=str, default=GENIX_DISCONNECTED)
-    _prevstate = GENIX_IDLE
-    def __init__(self, host=None, port=502):
-        GObject.GObject.__init__(self)
-        self.host = host
-        self.port = port
-        self.connection = None
-        # self._communications_lock = LoggingLock('Communications lock')
-        # self._shutter_lock = LoggingLock('Shutter lock')
-        self._communications_lock = multiprocessing.Lock()
+    _prevstate = GenixStatus.Idle
+    _considered_idle = [GenixStatus.Disconnected, GenixStatus.FullPower, GenixStatus.Standby, GenixStatus.PowerDown, GenixStatus.XRaysOff, GenixStatus.Idle]
+    shutter = GObject.property(type=str, default=ShutterStatus.Disconnected)
+    def __init__(self):
+        self._no_save_properties.append('shutter')
+        Instrument_ModbusTCP.__init__(self)
         self._shutter_lock = multiprocessing.Lock()
-        self.connect('notify::status', self._status_notify)
-        if host is not None:
-            self.connect_to_controller()
-    def _status_notify(self, myself, prop):
-        if self.is_idle():
-            self.emit('idle')
-    def is_idle(self):
-        return self.status in (GENIX_DISCONNECTED, GENIX_FULLPOWER, GENIX_STANDBY, GENIX_POWERDOWN, GENIX_XRAYS_OFF, GENIX_IDLE) 
-    def do_controller_error(self):
-        if self.connected():
-            self.disconnect_from_controller()
-    def connect_to_controller(self):
-        with self._communications_lock:
-            if self.connected():
-                raise GenixError('Already connected')
-            self.connection = modbus_tk.modbus_tcp.TcpMaster(self.host, self.port)
-            self.connection.set_timeout(self._tcp_timeout)
-            try:
-                self.connection.open()
-                logger.info('Connected to GeniX at %s:%d' % (self.host, self.port))
-                self.emit('connect-equipment')
-            except:
-                self.connection = None
-                logger.error('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
-                raise GenixError('Cannot connect to GeniX at %s:%d' % (self.host, self.port))
-    def connected(self):
-        return self.connection is not None
-    def disconnect_from_controller(self):
-        with self._communications_lock:
-            if not self.connected():
-                raise GenixError('Not connected')
-            self.connection.close()
-            self.connection = None
-            self.emit('disconnect-equipment')
-    def _read_integer(self, regno):
-        with self._communications_lock:
-            try:
-                return self.connection.execute(1, modbus_tk.defines.READ_INPUT_REGISTERS, regno, 1)[0]
-            except:
-                self.emit('controller-error')
-                raise GenixError('Communication error on reading integer value.')
-    def _write_coil(self, coilno, val):
-        with self._communications_lock:
-            try:
-                self.connection.execute(1, modbus_tk.defines.WRITE_SINGLE_COIL, coilno, 1, val)
-            except:
-                self.emit('controller-error')
-                raise GenixError('Communication error on writing coil.')
+    def _post_connect(self):
+        GObject.timeout_add_seconds(1, self._check_state)
+    def _pre_disconnect(self, should_do_communication):
+        if should_do_communication:
+            self.shutter_close(False)
+            self.shutter = ShutterStatus.Disconnected
+    def _check_state(self):
+        if not self.connected():
+            return False
+        status = self.get_status()
+        if not status['XRAY_ON']:
+            newstate = GenixStatus.XRaysOff
+        elif status['CYCLE_RESET_ON']:
+            newstate = GenixStatus.GoPowerDown
+        elif status['CYCLE_AUTO_ON']:
+            newstate = GenixStatus.GoFullPower
+        elif status['STANDBY_ON']:
+            newstate = GenixStatus.GoStandby
+        elif status['CYCLE_TUBE_WARM_UP_ON']:
+            newstate = GenixStatus.WarmUp
+        else:
+            ht = self.get_ht()
+            curr = self.get_current()
+            if ht == 0 and curr == 0:
+                newstate = GenixStatus.PowerDown
+            elif ht == 30 and curr == 0.3:
+                newstate = GenixStatus.Standby
+            elif ht == 50 and curr == 0.6:
+                newstate = GenixStatus.FullPower
+            else:
+                newstate = self.status
+        if self.status != newstate:
+            self.status = newstate
+        return True
     def get_status_bits(self):
         """Read the status bits of GeniX.
         """
-        logging.debug('Acquiring communications lock')
-        with self._communications_lock:
-            logging.debug('Acquired comm. lock')
-            try:
-                coils = self.connection.execute(1, modbus_tk.defines.READ_COILS, 210, 36)
-            except:
-                self.emit('controller-error')
-                raise GenixError('Communication error')
-            return coils
+        tup = self._read_coils(210, 36)
+        # tup[26] closed
+        # tup[27] opened
+        if tup[26] and not tup[27]:
+            if self.shutter != ShutterStatus.Closed:
+                self.shutter = ShutterStatus.Closed
+        elif tup[27] and not tup[26]:
+            if self.shutter != ShutterStatus.Open:
+                self.shutter = ShutterStatus.Open
+        else:
+            if self.shutter != ShutterStatus.Moving:
+                self.shutter = ShutterStatus.Moving
+        return tup
     def get_status_int(self, tup=None):
         """Read the status bits of GeniX and return an integer from it."""
         if tup is None:
@@ -344,29 +328,27 @@ class GenixConnection(GObject.GObject):
         if status is None:
             status = self.get_status()
         if not status['XRAY_ON']:
-            return GENIX_XRAYS_OFF
+            return GenixStatus.XRaysOff
         if status['CYCLE_RESET_ON']:
-            self._prevstate = GENIX_GO_POWERDOWN
-            return GENIX_GO_POWERDOWN
+            return GenixStatus.GoPowerDown
         elif status['CYCLE_AUTO_ON']:
-            self._prevstate = GENIX_GO_FULLPOWER
-            return GENIX_GO_FULLPOWER
+            return GenixStatus.GoFullPower
         elif status['STANDBY_ON']:
-            self._prevstate = GENIX_GO_STANDBY
-            return GENIX_GO_STANDBY
+            return GenixStatus.GoStandby
         elif status['CYCLE_TUBE_WARM_UP_ON']:
-            self._prevstate = GENIX_WARMUP
-            return GENIX_WARMUP
+            return GenixStatus.WarmUp
         if ht is None:
             ht = self.get_ht()
         if curr is None:
             curr = self.get_current()
         if ht == 0 and curr == 0:
-            return GENIX_POWERDOWN
+            return GenixStatus.PowerDown
         elif ht == 30 and curr == 0.3:
-            return GENIX_STANDBY
+            return GenixStatus.Standby
         elif ht == 50 and curr == 0.6:
-            return GENIX_FULLPOWER
+            return GenixStatus.FullPower
         else:
-            return self._prevstate
+            return self.status
+    def get_current_parameters(self):
+        return {'HT':self.get_ht(), 'Current':self.get_current(), 'TubeTime':self.get_tube_time(), 'Status':self.get_status_int(), 'Shutter':['closed', 'open'][int(self.shutter_state())]}
         

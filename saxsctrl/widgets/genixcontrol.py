@@ -1,5 +1,5 @@
 from gi.repository import Gtk
-from ..hardware import genix
+from ..hardware.instruments.genix import Genix, GenixError
 import itertools
 from gi.repository import GObject
 from gi.repository import Gdk
@@ -25,6 +25,7 @@ class GenixStatus(Gtk.Frame):
                     ('Overridden', None, 'OVERRIDDEN_ON', 'NO', 'YES'),
                     ('Voltage', self.get_genix_HT, None),
                     ('Current', self.get_genix_current, None),
+                    ('Power', self.get_genix_power, None),
                     ('Tube life', self.get_genix_tubetime, None),
                     
                     ('Warm-up', None, 'TUBE_WARM_UP_NEEDED_FAULT', 'not needed', 'needed'),
@@ -67,45 +68,33 @@ class GenixStatus(Gtk.Frame):
         return False
     def get_genixstatus(self, status, genixconnection):
         st = genixconnection.whichstate(status)
-        if st == genix.GENIX_FULLPOWER:
-            return 'Full power'
-        elif st == genix.GENIX_WARMUP:
-            return 'Warm-up'
-        elif st == genix.GENIX_GO_FULLPOWER:
-            return 'Ramping up'
-        elif st == genix.GENIX_GO_POWERDOWN:
-            return 'Powering off'
-        elif st == genix.GENIX_GO_STANDBY:
-            return 'Going to standby'
-        elif st == genix.GENIX_STANDBY:
-            return 'Low power'
-        elif st == genix.GENIX_POWERDOWN:
-            return 'Powered down'
-        elif st == genix.GENIX_XRAYS_OFF:
-            return 'X-rays off'
-        else:
-            return 'Idle'
+        return st
     def get_genix_HT(self, status, genixconnection):
         try:
             return '%.2f kV' % (genixconnection.get_ht())
-        except genix.GenixError:
+        except GenixError:
             return 'ERROR'
     def get_genix_current(self, status, genixconnection):
         try:
             return '%.2f mA' % (genixconnection.get_current())
-        except genix.GenixError:
+        except GenixError:
+            return 'ERROR'
+    def get_genix_power(self, status, genixconnection):
+        try:
+            return '%.2f W' % (genixconnection.get_current() * genixconnection.get_ht())
+        except GeniXError:
             return 'ERROR'
     def get_genix_tubetime(self, status, genixconnection):
         try:
             return '%.2f h' % (genixconnection.get_tube_time())
-        except genix.GenixError:
+        except GenixError:
             return 'ERROR'
     def update_status(self, genixconnection):
         if genixconnection is None:
             return
         try:
             status = genixconnection.get_status()
-        except genix.GenixError:
+        except GenixError:
             return False
         for label in self.labelsdict:
             if hasattr(label[1], '__call__'):
@@ -210,7 +199,7 @@ class GenixControl(Gtk.Dialog):
             return
         try:
             self.credo.genix.do_warmup()
-        except genix.GenixError:
+        except GenixError:
             return
         self.update_status()
     def on_powerdown(self, widget):
@@ -218,7 +207,7 @@ class GenixControl(Gtk.Dialog):
             return
         try:
             self.credo.genix.do_poweroff()
-        except genix.GenixError:
+        except GenixError:
             return
         self.update_status()
     def on_standby(self, widget):
@@ -226,7 +215,7 @@ class GenixControl(Gtk.Dialog):
             return
         try:
             self.credo.genix.do_standby()
-        except genix.GenixError:
+        except GenixError:
             return
         self.update_status()
     def on_rampup(self, widget):
@@ -234,14 +223,14 @@ class GenixControl(Gtk.Dialog):
             return
         try:
             self.credo.genix.do_rampup()
-        except genix.GenixError:
+        except GenixError:
             return
         self.update_status()
         
     def on_reset(self, widget):
         try:
             self.credo.genix.reset_faults()
-        except genix.GenixError:
+        except GenixError:
             return True
         return True
     
@@ -252,7 +241,7 @@ class GenixControl(Gtk.Dialog):
                     self.credo.genix.xrays_off()
                 else:
                     self.credo.genix.xrays_on()
-            except genix.GenixError:
+            except GenixError:
                 pass
         else:
             if self.credo.genix.xrays_state():
@@ -267,7 +256,7 @@ class GenixControl(Gtk.Dialog):
                     self.credo.genix.shutter_close(wait_for_completion=False)
                 else:
                     self.credo.genix.shutter_open(wait_for_completion=False)
-            except genix.GenixError:
+            except GenixError:
                 pass
         else:
             if self.credo.genix.shutter_state():

@@ -2,6 +2,7 @@ import os
 import re
 import logging
 from .subsystem import SubSystem
+import ConfigParser
 
 from gi.repository import GObject
 from gi.repository import Gio
@@ -47,9 +48,13 @@ class SubSystemFiles(SubSystem):
             logger.debug('SubSystemFiles._setup(): Added directory monitor for path %s' % folder)
         self._nextfsn_cache = None
     def _on_monitor_event(self, monitor, filename, otherfilename, event):
-        logger.debug('SubSystemFiles._on_monitor_event() starting.')
+        if otherfilename is not None:
+            logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: ' + otherfilename.get_path() + ', event: ' + str(event))
+        else:
+            logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: None, event: ' + str(event))
+            
         if event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED) and self._nextfsn_cache is not None:
-            basename = os.path.split(filename)[1]
+            basename = filename.get_basename()
             if basename:
                 for regex in self._nextfsn_cache.keys():
                     m = regex.match(basename)
@@ -80,7 +85,7 @@ class SubSystemFiles(SubSystem):
                     maxfsns.append(max(fsns))
             self._nextfsn_cache[regex] = max(maxfsns) + 1
             if currentpattern:
-                self.emit('new-nextfsn', self._nextfsn_cache[regex])
+                self.emit('new-nextfsn', self._nextfsn_cache[regex], regex.pattern)
         return self._nextfsn_cache[regex]
     def _get_subpath(self, subdir):
         pth = os.path.join(os.path.expanduser(self.rootpath), subdir)
@@ -90,30 +95,31 @@ class SubSystemFiles(SubSystem):
             else:
                 raise OSError('%s exists and is not a directory!' % pth)
         return pth
-    @GObject.property
+    @property
     def configpath(self): return self._get_subpath('config')
-    @GObject.property
+    @property
     def exposureloadpath(self): return [self._get_subpath(x) for x in ['param', 'images', 'mask', 'eval2d', 'eval1d']]
-    @GObject.property
+    @property
     def moviepath(self): return self._get_subpath('movie')
-    @GObject.property
+    @property
     def parampath(self): return self._get_subpath('param')
-    @GObject.property
+    @property
     def maskpath(self): return self._get_subpath('mask')
-    @GObject.property
+    @property
     def scanpath(self): return self._get_subpath('scan')
-    @GObject.property
+    @property
     def eval2dpath(self): return self._get_subpath('eval2d')
-    @GObject.property
+    @property
     def eval1dpath(self): return self._get_subpath('eval1d')
-
+    @property
+    def imagespath(self): return self._get_subpath('images')
     def get_fileformat(self):
         return self.filebegin + '_' + '%%0%dd' % self.ndigits
     def get_fileformat_re(self, strict=False):
         if strict:
-            return re.compile(self.filebegin + '_' + '(?P<fsn>\d{%d,%d})' % (self.ndigits, self.ndigits))
+            return re.compile(self.filebegin + '_' + '(?P<fsn>\d{%d})' % (self.ndigits))
         else:
-            return re.compile(self.filebegin + '_' + '(?P<fsn>\d)')
+            return re.compile(self.filebegin + '_' + '(?P<fsn>\d*)')
     def get_headerformat(self): return self.get_fileformat() + '.param'
     def get_exposureformat(self): return self.get_fileformat() + '.cbf'
     def get_headerformat_re(self, strict=False): return re.compile(self.get_fileformat_re().pattern + '\.param', strict)

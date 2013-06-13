@@ -1,5 +1,6 @@
 from gi.repository import Gtk
-from ..hardware import pilatus, genix, credo, tmcl_motor
+from ..hardware.instruments import pilatus, genix, tmcl_motor
+from ..hardware import credo
 
 class InstrumentConnections(Gtk.Dialog):
     _filechooserdialogs = None

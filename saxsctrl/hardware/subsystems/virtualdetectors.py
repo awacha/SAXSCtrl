@@ -1,24 +1,27 @@
 import logging
 import weakref
 import ConfigParser
+import os
 
 from gi.repository import GObject
-from ..virtualpointdetector import VirtualPointDetector, virtualpointdetector_new_from_configparser
+from ..virtualpointdetector import VirtualPointDetector, virtualpointdetector_new_from_configparser, VirtualPointDetectorExposure, VirtualPointDetectorGenix, VirtualPointDetectorEpoch, VirtualPointDetectorHeader
+from .subsystem import SubSystem, SubSystemError
+
+__all__ = ['SubSystemVirtualDetectors']
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-class SubSystemVirtualDetectors(GObject.GObject):
-    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None ()),
+class SubSystemVirtualDetectors(SubSystem):
+    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'notify':'override',
                    }
-    configfile = GObject.property(type=str, default='')
     def __init__(self, credo):
-        GObject.GObject.__init__()
-        self.credo = weakref.ref(credo)
         self._list = []
+        SubSystem.__init__(self, credo)
     def add(self, vd, noemit=False):
         if not [d for d in self._list if d == vd]:
-            self.virtualpointdetectors.append(vd)
+            self._list.append(vd)
             if not noemit:
                 self.emit('changed')
             return True
@@ -59,5 +62,23 @@ class SubSystemVirtualDetectors(GObject.GObject):
             vpd.write_to_configparser(cp)
         with open(filename, 'wt') as f:
             cp.write(f)
-    def readout_all(self):
-        
+    def readout_all(self, exposure, genix):
+        dic = {}
+        for vd in self._list:
+            if isinstance(vd, VirtualPointDetectorExposure):
+                dic[vd.name] = vd.readout(exposure)
+            elif isinstance(vd, VirtualPointDetectorEpoch):
+                dic[vd.name] = vd.readout()
+            elif isinstance(vd, VirtualPointDetectorGenix):
+                dic[vd.name] = vd.readout(genix)
+            elif isinstance(vd, VirtualPointDetectorHeader):
+                dic[vd.name] = vd.readout(exposure.header)
+        return dic
+    def __iter__(self):
+        return iter(self._list)
+    def do_notify(self, prop):
+        if prop.name == 'configfile':
+            if not os.path.isabs(self.configfile):
+                self.configfile = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)
+            else:
+                self.load()

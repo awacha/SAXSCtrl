@@ -10,65 +10,66 @@ import socket
 import select
 import weakref
 import ConfigParser
+import numbers
 from gi.repository import GObject
 
+from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-class MotorError(StandardError):
+class MotorError(InstrumentError):
     pass
 
-TMCM_STATUS_DISCONNECTED = 'disconnected'
-TMCM_STATUS_IDLE = 'idle'
-TMCM_STATUS_MOVING = 'moving'
+class TMCM351Status(InstrumentStatus):
+    Moving = 'moving'
 
-class TMCM351(GObject.GObject):
+class StepperStatus(InstrumentStatus):
+    pass
+
+class TMCM351(Instrument_TCP):
     __gsignals__ = {'motors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'connect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'disconnect-equipment':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-start':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (object, float, float, float)),
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (object, bool, bool)),
                     'motor-settings-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ())
                     }
-    status = GObject.property(type=str, default=TMCM_STATUS_DISCONNECTED)
-    def __init__(self, settingsfile=None, settingssaveinterval=10):
-        GObject.GObject.__init__(self)
-        self.comm_lock = multiprocessing.Lock()
+    _considered_idle = [TMCM351Status.Disconnected, TMCM351Status.Idle]    
+    send_recv_retries = GObject.property(type=int, minimum=1, default=3)
+    def __init__(self):
         self.motors = {}
         self.f_clk = 16000000
-        self.settingsfile = settingsfile
-        self.settingsfile_in_use = False
+        Instrument_TCP.__init__(self)
+        self.timeout = 0.1
+        self.timeout2 = 0.1
+        self.recvbufsize = 8
+        self.port = 2001
         self.cmdqueue = multiprocessing.queues.Queue()
-        self.connect('notify::status', self._status_notify)
-    def is_idle(self):
-        return self.status in (TMCM_STATUS_DISCONNECTED, TMCM_STATUS_IDLE)
-    def _status_notify(self, myself, prop):
-        if self.is_idle():
-            self.emit('idle')
-    def do_connect_equipment(self):
-        if self.status != TMCM_STATUS_IDLE:
-            self.status = TMCM_STATUS_IDLE
+    def _post_connect(self):
         GObject.idle_add(self._check_queue)
+        try:
+            major, minor = self.get_version()
+            logger.info('Connected module has a firmware version: %d.%d' % (major, minor))
+        except MotorError:
+            self.disconnect_from_controller(False)
+            raise
+        logger.debug('TCP and RS232 both OK.')
+        self.load_settings()
     def motorstop(self, flushqueue=True):
         if flushqueue:
             self._flush_queue()
         for m in self.moving():
             m.stop()
-    def connected(self):
-        return False
     def __del__(self):
         for m in self.motors.keys():
             del self.motors[m]
     def save_settings(self, filename=None):
-        if self.settingsfile_in_use:
+        if hasattr(self, '_settingsfile_in_use'):
             return
-        self.settingsfile_in_use = True
+        self._settingsfile_in_use = True
         try:
             if filename is None:
-                filename = self.settingsfile
+                filename = self.configfile
             if filename is None:
                 return
             cp = ConfigParser.ConfigParser()
@@ -80,14 +81,14 @@ class TMCM351(GObject.GObject):
             print "Saved TMCM351 settings to " + filename
             return True
         finally:
-            self.settingsfile_in_use = False
+            del self._settingsfile_in_use
     def load_settings(self, filename=None):
-        if self.settingsfile_in_use:
+        if hasattr(self, '_settingsfile_in_use'):
             return
-        self.settingsfile_in_use = True
+        self._settingsfile_in_use = True
         try:
             if filename is None:
-                filename = self.settingsfile
+                filename = self.configfile
             if filename is None:
                 return
             cp = ConfigParser.ConfigParser()
@@ -98,27 +99,20 @@ class TMCM351(GObject.GObject):
                 self.motors[name].load_from_configparser(cp)
             self.settingsfile = filename
         finally:
-            self.settingsfile_in_use = False
+            del self._settingsfile_in_use
     def do_communication(self, cmd):
         raise NotImplementedError
-    def send_and_recv(self, instruction=None, type_=0, mot_bank=0, value=0):
-        if instruction is not None:
-            cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
-            cmd = cmd + (sum(cmd) % 256,)
-            logger.debug('About to send TMCL command: ' + ''.join(('%02x' % x) for x in cmd))
-            cmd = ''.join(chr(x) for x in cmd)
-        else:
-            cmd = None
-        result = self.do_communication(cmd)
-        if len(result) == 0:
-            return 0, None
-        logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
-        # validate checksum
-        if not (sum(ord(x) for x in result[:-1]) % 256 == ord(result[-1])):
+    def interpret_message(self, message, command=None):
+        if command is None:
+            logger.warning('Asynchronous messages not supported for TMCM351! (got message of length ' + str(len(message)))
+            return None
+        if len(message) != 9:
+            raise MotorError('Number of characters in message is not 9, but ' + str(len(message)))
+        if (command != 136) and (not (sum(ord(x) for x in message[:-1]) % 256 == ord(message[-1]))):
             raise MotorError('Checksum error on received data!')
-        if not ord(result[3]) == instruction:
-            raise MotorError('Invalid reply from TMCM module: not the same instruction.')
-        status = ord(result[2])
+        if not ord(message[3]) == command:
+            raise MotorError('Invalid reply from TMCM module: not the same command.')
+        status = ord(message[2])
         if status == 1:
             raise MotorError('Wrong checksum of sent message')
         elif status == 2:
@@ -131,15 +125,34 @@ class TMCM351(GObject.GObject):
             raise MotorError('Configuration EEPROM locked')
         elif status == 6:
             raise MotorError('Command not available')
-        value = struct.unpack('>i', result[4:8])[0]
-        return status, value
-    def execute(self, instruction, type_=0, mot_bank=0, value=0):
-        status, value = self.send_and_recv(instruction, type_, mot_bank, value)
+        value = struct.unpack('>i', message[4:8])[0]
         if status != 100:
             raise MotorError('Status not OK!')
         return value
+    def execute(self, instruction, type_=0, mot_bank=0, value=0):
+        if instruction is not None:
+            cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
+            cmd = cmd + (sum(cmd) % 256,)
+            # logger.debug('About to send TMCL command: ' + ''.join(('%02x' % x) for x in cmd))
+            cmd = ''.join(chr(x) for x in cmd)
+        else:
+            cmd = None
+        # logger.debug('Sending message to TMCM351: 0x' + ''.join('%x' % ord(x) for x in cmd))
+        for i in reversed(range(self.send_recv_retries)):
+            try:
+                result = self.send_and_receive(cmd, True)
+                value = self.interpret_message(result, instruction)
+                break
+            except Exception as exc:
+                if not i:  # all retries exhausted
+                    raise exc
+                logger.warning('Communication error: ' + exc.message + '; retrying (%d retries left)' % i)
+        # logger.debug('Got message from TMCM351: 0x' + ''.join('%x' % ord(x) for x in result) + '; interpreted value: ' + str(value))
+        # logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
+        # validate checksum, but only if the command is not the get version command.
+        return value
     def get_version(self):
-        stat, ver = self.send_and_recv(136, 1)
+        ver = self.execute(136, 1)
         if ver / 0x10000 != 0x015f:
             raise MotorError('Invalid version signature: ' + hex(ver / 0x10000))
         ver = ver % 0x10000
@@ -161,9 +174,15 @@ class TMCM351(GObject.GObject):
         """Return currently moving motors"""
         return [m for m in self.motors if self.motors[m].is_moving()]
     def get_motor(self, idx):
-        return [self.motors[m] for m in self.motors if self.motors[m].mot_idx == idx][0]
+        if isinstance(idx, numbers.Number):
+            return [self.motors[m] for m in self.motors if self.motors[m].mot_idx == idx][0]
+        elif isinstance(idx, basestring):
+            return [self.motors[m] for m in self.motors if (self.motors[m].name == idx) or (self.motors[m].alias == idx) or (str(self.motors[m]) == idx) ][0]
+        else:
+            raise NotImplementedError('Invalid type for parameter idx: ', type(idx))
     def do_motor_stop(self, mot):
         # a motor movement is finished, re-register the queue checking idle handler.
+        self.status = TMCM351Status.Busy
         GObject.idle_add(self._check_queue)
     def _movemotor(self, idx, pos, raw=False, relative=False, queued=True):
         logger.debug('_movemotor was called with idx=%d, pos=%d, raw=%s, relative=%s' % (idx, pos, raw, relative))
@@ -189,6 +208,8 @@ class TMCM351(GObject.GObject):
         # update the next idle position of the current motor.
         motor.next_idle_position = absphyspos
         logger.debug('Queueing movement: %d, %g, %s' % (idx, pos, relative))
+        if self.status == TMCM351Status.Idle:
+            self.status = TMCM351Status.Busy
         self.cmdqueue.put((idx, pos, relative))
     def _do_move(self, idx, rawpos, relative):
         logger.debug('Do-move: %d, %g, %s' % (idx, rawpos, relative))
@@ -198,6 +219,8 @@ class TMCM351(GObject.GObject):
             raise MotorError('Another motor is currently moving.')
         motor.emit('motor-start')
         self.execute(4, int(relative), idx, rawpos)
+    def do_idle(self):
+        pass
     def _check_queue(self):
         if not self.connected():
             # if the motor controller is not connected (or has been disconnected),
@@ -208,12 +231,11 @@ class TMCM351(GObject.GObject):
         except multiprocessing.queues.Empty:
             # the queue is empty. We return True, so our idle handler will not be
             # unregistered.
-            if self.status != TMCM_STATUS_IDLE:
-                self.status == TMCM_STATUS_IDLE
-                self.emit('idle')
+            if self.status != TMCM351Status.Idle:
+                self.status = TMCM351Status.Idle
             return True
         # if we reach here, we have a job to do.
-        self.status = TMCM_STATUS_MOVING
+        self.status = TMCM351Status.Moving
         self._do_move(idx, rawpos, relative)
         # now we unregister (!) our handle, since while the motor runs, there is
         # no point for checking new queued commands. The motor will emit a 
@@ -227,117 +249,44 @@ class TMCM351(GObject.GObject):
                 self.cmdqueue.get_nowait()
             except multiprocessing.queues.Empty:
                 break
+    def get_current_parameters(self):
+        dic = {}
+        for m in self.motors.values():
+            dic[m.alias] = m.get_pos()
+        return dic
+    def do_notify(self, prop):
+        Instrument_TCP.do_notify(self, prop)
+        if prop.name == 'configfile':
+            try:
+                self.load_settings(self.configfile)
+            except Exception as exc:
+                logger.error('Error while calling TMCM351.load_settings() from do_notify: ' + exc.message)
     
-class TMCM351_RS232(TMCM351):
-    def __init__(self, serial_device, timeout=1, settingsfile=None, settingssaveinterval=10):
-        TMCM351.__init__(self, settingsfile, settingssaveinterval)
-        self.rs232 = serial.Serial(serial_device)
-        if not self.rs232.isOpen():
-            raise MotorError('Cannot open RS-232 port ' + str(serial_device))
-        self.rs232.timeout = timeout
-        self.rs232.flushInput()
-        self.load_settings()
-        self.emit('connect-equipment')
-    def connected(self):
-        return self.rs232 is not None and self.rs232.isOpen()
-    def do_communication(self, cmd):
-        with self.comm_lock:
-            if cmd is not None:
-                self.rs232.write(cmd)
-            result = self.rs232.read(9)
-            self.rs232.flushInput()
-        if not result and cmd is not None:
-            self.rs232.close()
-            self.rs232 = None
-            self.emit('disconnect-equipment')
-            raise MotorError('Communication error. Controller may not be connected')
-        return result
+# class TMCM351_RS232(TMCM351):
+#     def __init__(self, serial_device, timeout=1, settingsfile=None, settingssaveinterval=10):
+#         TMCM351.__init__(self, settingsfile, settingssaveinterval)
+#         self.rs232 = serial.Serial(serial_device)
+#         if not self.rs232.isOpen():
+#             raise MotorError('Cannot open RS-232 port ' + str(serial_device))
+#         self.rs232.timeout = timeout
+#         self.rs232.flushInput()
+#         self.load_settings()
+#         self.emit('connect-equipment')
+#     def connected(self):
+#         return self.rs232 is not None and self.rs232.isOpen()
+#     def do_communication(self, cmd):
+#         with self.comm_lock:
+#             if cmd is not None:
+#                 self.rs232.write(cmd)
+#             result = self.rs232.read(9)
+#             self.rs232.flushInput()
+#         if not result and cmd is not None:
+#             self.rs232.close()
+#             self.rs232 = None
+#             self.emit('disconnect-equipment')
+#             raise MotorError('Communication error. Controller may not be connected')
+#         return result
 
-class TMCM351_TCP(TMCM351):
-    def __init__(self, host=None, port=2001, timeout=1, settingsfile=None):
-        TMCM351.__init__(self, settingsfile)
-        self.host = host
-        self.port = port
-        self.timeout = timeout
-        self.socket = None
-        if self.host is not None:
-            self.connect_to_controller()
-    def connected(self):
-        return self.socket is not None
-    def connect_to_controller(self):
-        if self.connected():
-            raise MotorError('Already connected.')
-        logger.debug('Connecting to TCP/RS232 converter.')
-        try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ip = socket.gethostbyname(self.host)
-            self.socket.connect((ip, self.port))
-        except socket.gaierror as err:
-            self.socket = None
-            raise MotorError('Cannot resolve host name: ' + err.message)
-        except socket.error as err:
-            self.socket = None
-            raise MotorError('Cannot connect to server: ' + err.message)
-        self.socket.settimeout(self.timeout)
-        logger.debug('Checking if RS232 communication is available')
-        try:
-            major, minor = self.get_version()
-            logger.info('Connected module has a firmware version: %d.%d' % (major, minor))
-        except MotorError:
-            if self.socket is not None:
-                self.socket.close()
-            raise
-        logger.debug('TCP and RS232 both OK.')
-        self.load_settings()
-        self.emit('connect-equipment')
-    def disconnect_from_controller(self):
-        if not self.connected():
-            raise MotorError('Not connected!')
-        self.socket.shutdown(socket.SHUT_RDWR)
-        self.socket.close()
-        del self.socket
-        self.socket = None
-        GObject.idle_add(lambda dummy: (self.emit('disconnect-equipment') and False), None)
-    def do_communication(self, cmd):
-        with self.comm_lock:
-            if not self.connected():
-                raise MotorError('Cannot communicate: socket not open.')
-            readable, exceptional = select.select([self.socket], [], [self.socket], 0)[0:3:2]
-            if exceptional:
-                self.disconnect_from_controller()
-                raise MotorError('Communication error.')
-            while readable:
-                res = self.socket.recv(100)
-                if not res:
-                    self.disconnect_from_controller()
-                    raise MotorError('Socket closed.')
-                readable = select.select([self.socket], [], [], 0)[0]
-            if cmd is not None:
-                writable, exceptional = select.select([], [self.socket], [self.socket], 0)[1:3]
-                if not writable:
-                    raise MotorError('Cannot write socket.')
-                if exceptional:
-                    self.disconnect_from_controller()
-                    raise MotorError('Communication error.')
-                chars_sent = 0
-                while chars_sent < len(cmd):
-                    chars_sent += self.socket.send(cmd[chars_sent:])
-            readable, exceptional = select.select([self.socket], [], [self.socket], self.timeout)[0:3:2]
-            if not readable:
-                self.disconnect_from_controller()
-                raise MotorError('Communication error. Controller may not be connected')
-            result = ''
-            while readable:
-                result = result + self.socket.recv(9)
-                if len(result) == 9:
-                    break
-                readable = select.select([self.socket], [], [], 1)[0]
-            if result == '' and cmd is not None:
-                self.disconnect_from_controller()
-                raise MotorError('Communication error. Controller may not be connected')
-            if len(result) != 9:
-                raise MotorError('Invalid message received: *' + result + '*' + str(len(result)) + 'Hex: ' + ''.join('%x' % ord(c) for c in result))
-        return result
                 
 class StepperMotor(GObject.GObject):
     __gsignals__ = {'motor-start':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -345,6 +294,7 @@ class StepperMotor(GObject.GObject):
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (bool, bool)),
                     'settings-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'notify':'override'
                     }
     mot_idx = GObject.property(type=int, default=0, minimum=0, maximum=100)
     alias = GObject.property(type=str, default='<unknown motor>')
@@ -352,7 +302,8 @@ class StepperMotor(GObject.GObject):
     step_to_cal = GObject.property(type=float, default=1 / 200.0)
     f_clk = GObject.property(type=int, default=16000000)
     softlimits = GObject.property(type=object)
-    settings_timeout = 60
+    settings_timeout = GObject.property(type=float, default=60)
+    status = GObject.property(type=str, default=StepperStatus.Disconnected)
     def __init__(self, driver, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf')), f_clk=16000000):
         GObject.GObject.__init__(self)
         self.driver = weakref.ref(driver)
@@ -369,8 +320,13 @@ class StepperMotor(GObject.GObject):
         self.softlimits = softlimits
         self.limitdata = None
         self.next_idle_position = None
-        for p in list(self.props):
-            self.connect('notify::' + p.name, lambda mot, prop:self.emit('settings-changed'))
+        self.status = StepperStatus.Idle
+        self._circumstances = {}
+    def do_notify(self, prop):
+        if prop.name not in ['status']:
+            self.emit('settings-changed')
+        else:
+            logger.debug('Motor property %s changed to: %s' % (prop.name, str(self.get_property(prop.name))))
     def do_settings_changed(self):
         self.driver().save_settings()
     def __del__(self):
@@ -388,20 +344,27 @@ class StepperMotor(GObject.GObject):
         return True
     def do_motor_start(self):
         GObject.idle_add(self.motor_monitor)
+        self.status = StepperStatus.Busy
     def do_motor_stop(self):
         self.driver().save_settings()
+        self.status = StepperStatus.Idle
+        self._circumstances = {}
     def motor_monitor(self):
-        pos = self.get_pos()
-        if (min(self.softlimits) > pos) or (max(self.softlimits) < pos):
-            self.stop()
-        speed = self.get_speed()
-        self.emit('motor-report', pos, self.get_speed(), self.get_load())
-        self.check_limits()
-        if speed != 0:
+        try:
+            pos = self.get_pos()
+            if (min(self.softlimits) > pos) or (max(self.softlimits) < pos):
+                self.stop()
+            speed = self.get_speed()
+            self.emit('motor-report', pos, self.get_speed(), self.get_load())
+            self.check_limits()
+            if speed != 0:
+                return True
+            else:
+                self.emit('motor-stop')
+                return False
+        except Exception as exc:
+            logger.critical('Exception swallowed in StepperMotor.motor_monitor(): ' + exc.message)
             return True
-        else:
-            self.emit('motor-stop')
-            return False
     def save_to_configparser(self, cp):
         if cp.has_section(self.name):
             cp.remove_section(self.name)
@@ -414,6 +377,7 @@ class StepperMotor(GObject.GObject):
         cp.set(self.name, 'F_CLK', self.f_clk)
         cp.set(self.name, 'Soft_left', self.softlimits[0])
         cp.set(self.name, 'Soft_right', self.softlimits[1])
+        cp.set(self.name, 'Settings_timeout', self.settings_timeout)
         return cp
     def load_from_configparser(self, cp):
         if not cp.has_section(self.name):
@@ -433,8 +397,10 @@ class StepperMotor(GObject.GObject):
         if cp.has_option(self.name, 'Pos_raw'):
             if self.driver().connected():
                 self.calibrate_pos(cp.getint(self.name, 'Pos_raw'), raw=True);
+        if cp.has_option(self.name, 'Settings_timeout'):
+            self.settings_timeout = cp.getfloat(self.name, 'Settings_timeout')
     def refresh_settings(self, paramname=None):
-        print "Refreshing settings."
+        logger.debug('Refresh_settings on motor ' + self.alias)
         params = [('Max_speed', 4), ('Max_accel', 5), ('Max_current', 6), ('Standby_current', 7),
                   ('Right_limit_disable', 12), ('Left_limit_disable', 13), ('Ustep_resol', 140),
                   ('Ramp_div', 153), ('Pulse_div', 154), ('Mixed_decay_threshold', 203),
@@ -450,20 +416,31 @@ class StepperMotor(GObject.GObject):
         self.settings['__timestamp__'] = time.time()
         self.emit('settings-changed') 
     def get_load(self):
-        return self.driver().execute(6, 206, self.mot_idx)
+        if (self.status == StepperStatus.Busy) or ('load' not in self._circumstances):
+            self._circumstances['load'] = self.driver().execute(6, 206, self.mot_idx)
+        return self._circumstances['load']
     def get_accel(self, raw=False):
+        if self.status != StepperStatus.Busy:
+            return 0
         val = self.driver().execute(6, 135, self.mot_idx)
         if raw:
             return val
         else:
             return self.conv_accel_phys(val)
     def get_left_limit(self):
-        return bool(self.driver().execute(6, 11, self.mot_idx))
+        if (self.status == StepperStatus.Busy) or ('leftlimit' not in self._circumstances):
+            self._circumstances['leftlimit'] = bool(self.driver().execute(6, 11, self.mot_idx)) 
+        return self._circumstances['leftlimit']
+        
     def get_right_limit(self):
-        return bool(self.driver().execute(6, 10, self.mot_idx))
+        if (self.status == StepperStatus.Busy) or ('rightlimit' not in self._circumstances):
+            self._circumstances['rightlimit'] = bool(self.driver().execute(6, 10, self.mot_idx)) 
+        return self._circumstances['rightlimit']
     def get_target_reached(self):
         return bool(self.driver().execute(6, 8, self.mot_idx))
     def get_speed(self, raw=False):
+        if (self.status != StepperStatus.Busy):
+            return 0
         val = self.driver().execute(6, 3, self.mot_idx)
         if raw:
             return val
@@ -486,7 +463,9 @@ class StepperMotor(GObject.GObject):
     def is_moving(self):
         return self.get_speed(raw=True) != 0
     def get_target_pos(self, raw=False):
-        val = self.driver().execute(6, 0, self.mot_idx)
+        if (self.status == StepperStatus.Busy) or ('targetpos' not in self._circumstances):
+            self._circumstances['targetpos'] = self.driver().execute(6, 0, self.mot_idx)
+        val = self._circumstances['targetpos']
         if raw:
             return val
         else:
@@ -496,7 +475,9 @@ class StepperMotor(GObject.GObject):
             pos = self.conv_pos_raw(pos)
         return self.driver().execute(5, 0, self.mot_idx, pos)
     def get_pos(self, raw=False):
-        val = self.driver().execute(6, 1, self.mot_idx)
+        if (self.status == StepperStatus.Busy) or ('currpos' not in self._circumstances):
+            self._circumstances['currpos'] = self.driver().execute(6, 1, self.mot_idx)
+        val = self._circumstances['currpos']
         if raw:
             return val
         else:
@@ -679,10 +660,15 @@ class StepperMotor(GObject.GObject):
     def moverel(self, pos, raw=False):
         self.driver()._movemotor(self.mot_idx, pos, raw, relative=True)
     def get_settings(self):
-        if not self.settings or self.settings['__timestamp__'] < time.time() - self.settings_timeout:
+        if not self.settings or ((self.settings_timeout > 0) and (self.settings['__timestamp__'] < time.time() - self.settings_timeout)):
             self.refresh_settings()
         return self.settings
     def calibrate_pos(self, pos=0, raw=False):
+        for k in ['currpos', 'targetpos']:
+            try:
+                del self._circumstances[k]
+            except KeyError:
+                pass
         if not raw:
             physpos = pos
             pos = self.conv_pos_raw(pos)

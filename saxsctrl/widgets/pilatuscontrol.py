@@ -11,7 +11,7 @@ GObject.threads_init()
 import itertools
 import ConfigParser
 from gi.repository import Gtk
-from ..hardware import pilatus
+from ..hardware.instruments.pilatus import Pilatus, PilatusError
 import collections
 import resource
 import os
@@ -93,7 +93,7 @@ class PilatusStatus(Gtk.Frame):
             if not thdata:
                 thdata = pc.temphum(12)
                 thdata = pc.temphum()
-        except pilatus.PilatusError:
+        except PilatusError:
             for widgetname in ('t0', 't1', 't2', 'h0', 'h1', 'h2'):
                 self.__getitem__(widgetname).set_status('UNKNOWN') 
         else:
@@ -119,7 +119,7 @@ class PilatusStatus(Gtk.Frame):
             self['Tau'].set_status('OK', '%.1f ns' % (taudata * 1e9))
         try:
             thresholddata = pc.getthreshold()
-        except pilatus.PilatusError:
+        except PilatusError:
             for widgetname in ('Threshold', 'Gain'):
                 self.__getitem__(widgetname).set_status('UNKNOWN')
         else:
@@ -139,7 +139,7 @@ class PilatusStatus(Gtk.Frame):
             self['Done'].set_status('OK', '%.2f %%' % (pc.percentdone))
             tl = pc.timeleft
             self['Timeleft'].set_status('OK', '%02d:%02.0f' % (int(tl) / 60, int(tl) % 60))
-        except pilatus.PilatusError:
+        except PilatusError:
             self['camstate'] = 'error'
             self['Done'].set_status('UNKNOWN')
             self['Timeleft'].set_status('UNKNOWN')
