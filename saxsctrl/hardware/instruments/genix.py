@@ -77,7 +77,7 @@ class Genix(Instrument_ModbusTCP):
     _shutter_timeout = 1
     _prevstate = GenixStatus.Idle
     _considered_idle = [GenixStatus.Disconnected, GenixStatus.FullPower, GenixStatus.Standby, GenixStatus.PowerDown, GenixStatus.XRaysOff, GenixStatus.Idle]
-    shutter = GObject.property(type=str, default=ShutterStatus.Disconnected)
+    shutter = GObject.property(type=str, default=ShutterStatus.Disconnected, blurb='Shutter state')
     def __init__(self):
         self._no_save_properties.append('shutter')
         Instrument_ModbusTCP.__init__(self)

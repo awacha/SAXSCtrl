@@ -16,15 +16,15 @@ class NextFSNMonitor(Gtk.Frame):
         tab.attach(self.nextfsn_label, 1, 2, 1, 2, xpadding=10)
         self.show_all()
         self._credo_conns = []
-        self._credo_conns.append(('files-changed', self.credo.connect('files-changed', self.update_labels)))
-        self._credo_conns.append(('setup-changed', self.credo.connect('setup-changed', self.update_labels)))
+        self._credo_conns.append(self.credo.subsystems['Files'].connect('changed', self.update_labels))
+        self._credo_conns.append(self.credo.subsystems['Files'].connect('new-nextfsn', self.update_labels))
         self.update_labels()
         self.connect('destroy', self.on_destroy)
     def update_labels(self, *args):
-        self.fileformat_label.set_text(self.credo.fileformat)
-        self.nextfsn_label.set_text(str(self.credo.get_next_fsn()))
+        self.fileformat_label.set_text(self.credo.subsystems['Files'].get_fileformat())
+        self.nextfsn_label.set_text(str(self.credo.subsystems['Files'].get_next_fsn()))
     def on_destroy(self, *args):
-        for sig, cb in self._credo_conns:
-            self.credo.disconnect(cb)
+        for cb in self._credo_conns:
+            self.credo.subsystems['Files'].disconnect(cb)
         del self._credo_conns
         return False

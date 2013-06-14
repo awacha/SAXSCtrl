@@ -35,7 +35,7 @@ class TMCM351(Instrument_TCP):
                     'motor-settings-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     }
     _considered_idle = [TMCM351Status.Disconnected, TMCM351Status.Idle]    
-    send_recv_retries = GObject.property(type=int, minimum=1, default=3)
+    send_recv_retries = GObject.property(type=int, minimum=1, default=3, blurb='Number of retries on communication failure')
     def __init__(self):
         self.motors = {}
         self.f_clk = 16000000
@@ -296,14 +296,14 @@ class StepperMotor(GObject.GObject):
                     'settings-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'notify':'override'
                     }
-    mot_idx = GObject.property(type=int, default=0, minimum=0, maximum=100)
-    alias = GObject.property(type=str, default='<unknown motor>')
-    name = GObject.property(type=str, default='<unknown motor>')
-    step_to_cal = GObject.property(type=float, default=1 / 200.0)
-    f_clk = GObject.property(type=int, default=16000000)
-    softlimits = GObject.property(type=object)
-    settings_timeout = GObject.property(type=float, default=60)
-    status = GObject.property(type=str, default=StepperStatus.Disconnected)
+    mot_idx = GObject.property(type=int, default=0, minimum=0, maximum=100, blurb='Motor index in TMCM351')
+    alias = GObject.property(type=str, default='<unknown motor>', blurb='Mnemonic name')
+    name = GObject.property(type=str, default='<unknown motor>', blurb='Standardized name')
+    step_to_cal = GObject.property(type=float, default=1 / 200.0, blurb='Microstep size in calibrated units')
+    f_clk = GObject.property(type=int, default=16000000, blurb='TMCM clock frequency')
+    softlimits = GObject.property(type=object, blurb='Software limits')
+    settings_timeout = GObject.property(type=float, default=60, blurb='Settings timeout')
+    status = GObject.property(type=str, default=StepperStatus.Disconnected, blurb='Status')
     def __init__(self, driver, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf')), f_clk=16000000):
         GObject.GObject.__init__(self)
         self.driver = weakref.ref(driver)

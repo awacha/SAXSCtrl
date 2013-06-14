@@ -35,10 +35,10 @@ class Instrument(GObject.GObject):
                     'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever the instrument becomes idle, i.e. the status parameter changes to something considered as idle state (checked by the class attribute _considered_idle) 
                     'notify': 'override',
                     }
-    status = GObject.property(type=str, default=InstrumentStatus.Disconnected)
+    status = GObject.property(type=str, default=InstrumentStatus.Disconnected, blurb='Instrument status')
     _considered_idle = [InstrumentStatus.Idle, InstrumentStatus.Disconnected]
-    timeout = GObject.property(type=float, minimum=0, default=1.0)  # communications timeout in seconds
-    configfile = GObject.property(type=str, default='')
+    timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
+    configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
     _no_save_properties = ['status']
     def __init__(self):
         GObject.GObject.__init__(self)
@@ -172,7 +172,15 @@ class Instrument(GObject.GObject):
                 val = configparser.get(self._get_classname(), p.name)
             if self.get_property(p.name) != val:
                 self.set_property(p.name, val)
-        
+    def _get_address(self):
+        raise NotImplementedError
+    def _set_address(self, address):
+        raise NotImplementedError
+    def __ga(self):
+        return self._get_address()
+    def __sa(self, address):
+        return self._set_address(address)
+    address = property(__ga, __sa, None, 'Address of the instrument')
         
 class CommunicationCollector(threading.Thread):
     class ConnectionBroken(Exception):
@@ -205,8 +213,8 @@ class CommunicationCollector(threading.Thread):
                     self.queue.put(mesg)
                 
 class Instrument_ModbusTCP(Instrument):
-    host = GObject.property(type=str, default='')
-    port = GObject.property(type=int, minimum=0, default=502)
+    host = GObject.property(type=str, default='', blurb='Host name')
+    port = GObject.property(type=int, minimum=0, default=502, blurb='Port number')
     def __init__(self):
         self._communications_lock = multiprocessing.Lock()
         self._modbus = None
@@ -265,12 +273,22 @@ class Instrument_ModbusTCP(Instrument):
                 GObject.idle_add(lambda :(self.emit('controller-error', None) and False))
                 raise InstrumentError('Communication error on reading coils: ' + exc.message)
             return coils
-        
+    def _get_address(self):
+        return self.host + ':' + str(self.port)
+    def _set_address(self, address):
+        if ':' in address:
+            host, port = address.split(':', 1)
+            port = int(port)
+            self.host = host
+            self.port = port
+        else:
+            self.host = address
+            
 class Instrument_TCP(Instrument):
-    host = GObject.property(type=str, default='')
-    port = GObject.property(type=int, minimum=0, default=41234)
-    timeout2 = GObject.property(type=float, minimum=0, default=0.01)
-    recvbufsize = GObject.property(type=int, minimum=0, default=100)
+    host = GObject.property(type=str, default='', blurb='Host name')
+    port = GObject.property(type=int, minimum=0, default=41234, blurb='Port number')
+    timeout2 = GObject.property(type=float, minimum=0, default=0.01, blurb='Timeout on read-reply')
+    recvbufsize = GObject.property(type=int, minimum=0, default=100, blurb='Size of receiving buffer minus one')
     _mesgseparator = None
     _collector_sleep = 0.1
     _commands = None
@@ -422,6 +440,18 @@ class Instrument_TCP(Instrument):
             return self.connected()
         self.interpret_message(mesg, None)
         return True
+    def _get_address(self):
+        return self.host + ':' + str(self.port)
+    def _set_address(self, address):
+        if ':' in address:
+            host, port = address.split(':', 1)
+            port = int(port)
+            self.host = host
+            self.port = port
+        else:
+            self.host = address
+
+
             
 class CommunicationCollector_TCP(CommunicationCollector):
     # ## socket should have a reasonable timeout (e.g. 0.001, but not zero).

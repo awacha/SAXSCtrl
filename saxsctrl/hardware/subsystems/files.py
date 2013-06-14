@@ -18,9 +18,9 @@ class SubSystemFiles(SubSystem):
                     'new-nextfsn':(GObject.SignalFlags.RUN_FIRST, None, (int, str)),  # emitted whenever the next fsn from the current format changes.
                     'notify':'override',
                   }
-    filebegin = GObject.property(type=str, default='crd')
-    ndigits = GObject.property(type=int, default=5, minimum=1)
-    rootpath = GObject.property(type=str, default='~/credo_data/current')
+    filebegin = GObject.property(type=str, default='crd', blurb='First part of exposure names')
+    ndigits = GObject.property(type=int, default=5, minimum=1, blurb='Number of digits in exposure names')
+    rootpath = GObject.property(type=str, default='~/credo_data/current', blurb='Data root path')
     def __init__(self, credo, rootpath=None, filebegin=None, ndigits=None):
         SubSystem.__init__(self, credo)
         self.monitors = []

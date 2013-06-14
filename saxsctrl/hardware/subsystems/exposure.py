@@ -27,11 +27,12 @@ class SubSystemExposure(SubSystem):
     __gsignals__ = {'exposure-image':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)), }
-    exptime = GObject.property(type=float, minimum=0, default=1)
-    dwelltime = GObject.property(type=float, minimum=0.003, default=0.003)
-    nimages = GObject.property(type=int, minimum=1, default=1)
-    operate_shutter = GObject.property(type=bool, default=True)
-    cbf_file_timeout = GObject.property(type=float, default=3)
+    exptime = GObject.property(type=float, minimum=0, default=1, blurb='Exposure time (sec)')
+    dwelltime = GObject.property(type=float, minimum=0.003, default=0.003, blurb='Dwell time between exposures (sec)')
+    nimages = GObject.property(type=int, minimum=1, default=1, blurb='Number of images to take (sec)')
+    operate_shutter = GObject.property(type=bool, default=True, blurb='Open/close shutter')
+    cbf_file_timeout = GObject.property(type=float, default=3, blurb='Timeout for cbf files')
+    timecriticalmode = GObject.property(type=bool, default=False, blurb='Time-critical mode')
     def __init__(self, credo, **kwargs):
         SubSystem.__init__(self, credo)
         self._thread = None
@@ -78,7 +79,8 @@ class SubSystemExposure(SubSystem):
         header_template['Project'] = self.credo().projectname
         header_template['Filter'] = self.credo().filter
         header_template['Monitor'] = header_template['MeasTime']
-
+        if mask is not None:
+            header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
         GObject.idle_add(self._check_if_exposure_finished)
         logger.info('Starting exposure of %s' % str(sample))
@@ -147,18 +149,23 @@ class SubSystemExposure(SubSystem):
             # timeout.
             raise SubSystemExposureError('Timeout on waiting for CBF file.')
         # create the exposure object
-        ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
+        if self.timecriticalmode:
+            ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':None, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
+        else:
+            ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
         
         # do some fine adjustments on the header template:
         # a) include the CBF header written by camserver.
         ex.header.update(cbfheader)
-        # b) set the end date to the current time.
+        # b) get instrument states
+        if not self.timecriticalmode:
+            ex.header.update(self.credo().subsystems['Equipments'].get_current_parameters())
+        # c) readout virtual detectors
+        if not self.timecriticalmode:
+            vdresults = self.credo().subsystems['VirtualDetectors'].readout_all(ex, self.credo().get_equipment('genix'))
+            ex.header.update({('VirtDet_' + k): vdresults[k] for k in vdresults})
+        # d) set the end date to the current time.
         ex.header['EndDate'] = datetime.datetime.now()
-        # c) get instrument states
-        ex.header.update(self.credo().subsystems['Equipments'].get_current_parameters())
-        # d) readout virtual detectors
-        # vdresults = self.credo().subsystems['VirtualDetectors'].readout_all(ex, self.credo().get_equipment('genix'))
-        ex.header.update({('VirtDet_' + k): vdresults[k] for k in vdresults})
         # and save the header to the parampath.
         ex.header.write(headername)
         logger.debug('Header %s written.' % (headername))

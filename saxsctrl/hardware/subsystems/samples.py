@@ -22,8 +22,8 @@ class SubSystemSamples(SubSystem):
                     'sample-in-beam':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'notify':'override',
                    }
-    motor_samplex = GObject.property(type=str, default='Sample_X')
-    motor_sampley = GObject.property(type=str, default='Sample_Y')
+    motor_samplex = GObject.property(type=str, default='Sample_X', blurb='Motor name for horizontal positioning')
+    motor_sampley = GObject.property(type=str, default='Sample_Y', blurb='Motor name for vertical positioning')
     def __init__(self, credo):
         SubSystem.__init__(self, credo)
         self._list = []

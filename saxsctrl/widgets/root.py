@@ -39,14 +39,12 @@ def my_excepthook(type_, value, traceback_):
 # sys.excepthook = my_excepthook
 
 class Tool(object):
-    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', genixneeded=False, pilatusneeded=False, motorneeded=False):
+    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', equip_needed=[]):
         self.credo = credo
         self.buttonname = buttonname
         self.windowname = windowname
         self.windowclass = windowclass
-        self.genixneeded = genixneeded
-        self.pilatusneeded = pilatusneeded
-        self.motorneeded = motorneeded
+        self.equip_needed = equip_needed
         self.toolsection = toolsection
         self.window = None
         self.button = None
@@ -76,9 +74,8 @@ class Tool(object):
             self.menuitem.connect('activate', self.createwindow)
         return self.menuitem
     
-    def set_sensitivity(self, genix=False, pilatus=False, motor=False):
-        sensitivity = (((not self.genixneeded) or genix) and ((not self.pilatusneeded) or pilatus) and
-                     ((not self.motorneeded) or motor))
+    def set_sensitivity(self, equips_available):
+        sensitivity = all(eq in equips_available for eq in self.equip_needed)
         if self.window is not None:
             if not sensitivity:
                 self.window.destroy()
@@ -106,7 +103,7 @@ class RootWindow(Gtk.Window):
         self.set_title('SAXS Control -- ROOT')
         # self.set_resizable(False)
         self.credo = credo.Credo()
-        self.credo.connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())
+        self.credo.subsystems['Equipments'].connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())
         
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(vb)
@@ -139,7 +136,6 @@ class RootWindow(Gtk.Window):
         f.add(tab)
         row = 0
         
-        
         l = Gtk.Label(label='User name:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.username_entry = Gtk.Entry()
@@ -155,22 +151,22 @@ class RootWindow(Gtk.Window):
         self.projectname_entry.connect('changed', self.on_entry_changed, 'projectname')
         tab.attach(self.projectname_entry, 1, 3, row, row + 1)
         row += 1
-        self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', genixneeded=True, pilatusneeded=False),
-                            Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', genixneeded=False, pilatusneeded=True),
+        self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
+                            Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
                             Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Configuration'),
                             Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Configuration'),
                             Tool(self.credo, 'Set-up scan', 'Set-up scan', scan.ScanSetup, 'Configuration'),
                             Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Configuration'),
                             Tool(self.credo, 'Set-up data reduction', 'Data reduction setup', data_reduction_setup.DataRedSetup, 'Configuration'),
-                            Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', genixneeded=True, pilatusneeded=True),
-                            Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', genixneeded=True, pilatusneeded=True),
-                            Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', genixneeded=True, pilatusneeded=True),
-                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', genixneeded=True, pilatusneeded=True),
+                            Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', ['genix', 'pilatus']),
+                            Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', ['genix', 'pilatus']),
+                            Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus']),
+                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351']),
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View'),
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View'),
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Configuration'),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Configuration'),
-                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', motorneeded=True),
+                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', ['tmcm351']),
                             Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose')  # , genixneeded=True, pilatusneeded=True, motorneeded=True)
                             ]
         for t in self.toolbuttons:
@@ -197,7 +193,7 @@ class RootWindow(Gtk.Window):
         return True
     def update_sensitivities(self):
         for t in self.toolbuttons:
-            t.set_sensitivity(genix=self.credo.genix.connected(), pilatus=self.credo.pilatus.connected(), motor=self.credo.tmcm.connected())
+            t.set_sensitivity(self.credo.subsystems['Equipments'].connected_equipments())
         return False
     def __del__(self):
         del self.credo

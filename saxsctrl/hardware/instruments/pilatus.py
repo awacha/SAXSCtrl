@@ -99,7 +99,7 @@ class Pilatus(Instrument_TCP):
         self._mesgseparator = '\x18'
         self.timeout = 1
     def _process_results(self, dic):
-        if dic['command'] == 'SetThreshold':
+        if (dic['command'] == 'SetThreshold') and (self.status != PilatusStatus.Idle):
             self.status = PilatusStatus.Idle
         elif dic['command'] == 'Exposure' and dic['filename'] is not None:
             self.status = PilatusStatus.Idle

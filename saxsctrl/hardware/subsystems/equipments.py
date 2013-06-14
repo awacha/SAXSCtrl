@@ -29,7 +29,7 @@ class SubSystemEquipments(SubSystem):
                       'vacgauge':VacuumGauge,
 #                      'haakephoenix':{'class':None, 'port':2002, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
                       }
-    configfilename = GObject.property(type=str, default='equipments.conf')
+    configfilename = GObject.property(type=str, default='equipments.conf', blurb='Config file name')
     def __init__(self, credo):
         SubSystem.__init__(self, credo)
         self._list = dict([(n, self.__equipments__[n]()) for n in self.__equipments__])
@@ -42,6 +42,10 @@ class SubSystemEquipments(SubSystem):
         
     def is_idle(self):
         return all(eq.is_idle() for eq in self)
+    def known_equipments(self):
+        return self.__equipments__.keys()
+    def connected_equipments(self):
+        return [e for e in self.known_equipments() if self.is_connected(e)]
     def wait_for_idle(self, equipment):
         eq = self.get(equipment)
         while not eq.is_idle():
@@ -89,13 +93,13 @@ class SubSystemEquipments(SubSystem):
             raise SubSystemError('Equipment %s already connected!' % equipment)
         eq = self.get(equipment)
         for k in kwargs:
-            eq.set_property(k, kwargs[k])
+            setattr(eq, k, kwargs[k])
         try:
             eq.connect_to_controller()
         except Exception as exc:
             if not eq.connected():
                 logger.error('Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + exc.message)
-            raise
+                raise SubSystemError('Cannot connect to equipment: ' + exc.message)
     def _equipment_connect(self, equipmentinstance):
         try:
             equipment = [e for e in self._list.values() if e is equipmentinstance][0]
@@ -116,7 +120,7 @@ class SubSystemEquipments(SubSystem):
         for eq in self.__equipments__:
             try:
                 self.connect_equipment(eq)
-            except InstrumentError:
+            except InstrumentError, SubSystemError:
                 errors.append(eq)
         if errors:
             raise SubSystemError('Cannot connect to all instruments. Failed: ' + ', '.join(errors))

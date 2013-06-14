@@ -17,10 +17,10 @@ class MotorMonitorFrame(Gtk.Frame):
         vb.pack_start(Gtk.Label('To move a motor, double-click on the corresponding row.'), False, False, 0)
         
         self.credo = credo
-        self.credo.tmcm.connect('motor-report', self.on_motor_move)
-        self.credo.tmcm.connect('motors-changed', self.on_motors_changed)
-        self.credo.tmcm.connect('motor-settings-changed', self.on_motor_settings_changed)
-        self.credo.tmcm.connect('motor-limit', self.on_motor_limit)
+        self.credo.get_equipment('tmcm351').connect('motor-report', self.on_motor_move)
+        self.credo.get_equipment('tmcm351').connect('motors-changed', self.on_motors_changed)
+        self.credo.get_equipment('tmcm351').connect('motor-settings-changed', self.on_motor_settings_changed)
+        self.credo.get_equipment('tmcm351').connect('motor-limit', self.on_motor_limit)
         self.motorlist = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN, GObject.TYPE_INT)
         self.motorview = Gtk.TreeView(self.motorlist)
         self.motorview.append_column(Gtk.TreeViewColumn('Name', Gtk.CellRendererText(), text=0))
@@ -37,7 +37,7 @@ class MotorMonitorFrame(Gtk.Frame):
         self.motorview.append_column(Gtk.TreeViewColumn('Right limit', crt, active=5))
         self.motorview.append_column(Gtk.TreeViewColumn('Load', Gtk.CellRendererText(), text=6))
         vb.pack_start(self.motorview, True, True, 0)
-        self.on_motors_changed(self.credo.tmcm)
+        self.on_motors_changed(self.credo.get_equipment('tmcm351'))
         self.show_all()
     def on_row_activated(self, treeview, path, column):
         dd = MotorDriver(self.credo, self.motorlist[path][0], 'Move motor ' + self.motorlist[path][0], parent=self.get_toplevel(), buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
@@ -307,7 +307,7 @@ class MotorDriver(ToolDialog):
         hbb.add(b)
         b.connect('clicked', lambda b: self.apply_settings(eeprom=True))
         
-        self.credo.tmcm.connect('motor-settings-changed', self.on_motor_settings_changed)
+        self.credo.get_equipment('tmcm351').connect('motor-settings-changed', self.on_motor_settings_changed)
         
         ex.connect('notify::expanded', lambda expander, paramspec:self.refresh_settings())
     
@@ -348,7 +348,7 @@ class MotorDriver(ToolDialog):
                 mdt = self.get_motor().get_mixed_decay_threshold()
                 self.mixeddecayentry_raw.set_text(str(mdt))
                 self.mixeddecayentry_phys.set_text(str(self.conv_speed_phys(mdt)))
-            except tmcl_motor.MotorError as me:
+            except MotorError as me:
                 md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
                 md.set_title('TMCM351 error')
                 md.run()
@@ -366,7 +366,7 @@ class MotorDriver(ToolDialog):
                 fst = self.get_motor().get_fullstep_threshold()
                 self.fullstepentry_raw.set_text(str(fst))
                 self.fullstepentry_phys.set_text(str(self.conv_speed_phys(fst)))
-            except tmcl_motor.MotorError as me:
+            except MotorError as me:
                 md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
                 md.set_title('TMCM351 error')
                 md.run()
@@ -375,7 +375,7 @@ class MotorDriver(ToolDialog):
             
     def refresh_settings(self):
         try:
-            motor = self.credo.tmcm.motors[self.motorname]
+            motor = self.credo.get_equipment('tmcm351').motors[self.motorname]
             softlim = motor.softlimits
             self.softlow_phys.set_text(str(min(softlim)))
             self.softhigh_phys.set_text(str(max(softlim)))
@@ -407,7 +407,7 @@ class MotorDriver(ToolDialog):
             self.on_fullstepcb(self.fullstepcb)
             self.freewheelingdelayentry.set_value(motor.get_freewheeling_delay())
             self.stallguardthresholdentry.set_value(motor.get_stallguard_threshold())
-        except tmcl_motor.MotorError as me:
+        except MotorError as me:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
             md.set_title('TMCM351 error')
             md.run()
@@ -484,7 +484,7 @@ class MotorDriver(ToolDialog):
                         elif n == 'Fullstep_threshold': motor.set_fullstep_threshold(newsettings[n])
                         else:
                             raise NotImplementedError('Unknown parameter: ' + n)
-                except tmcl_motor.MotorError as me:
+                except MotorError as me:
                     md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
                     md.set_title('TMCM351 error')
                     md.run()
@@ -509,19 +509,19 @@ class MotorDriver(ToolDialog):
                 self.get_motor().moverel(float(self.posentry.get_value()), raw=bool(self.unitentry.get_active()))
             else:
                 self.get_motor().moveto(float(self.posentry.get_value()), raw=bool(self.unitentry.get_active()))
-        except tmcl_motor.MotorError as me:
+        except MotorError as me:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
             md.set_title('TMCM351 error')
             md.run()
             md.destroy()
             del md
     def get_motor(self):
-        return self.credo.tmcm.motors[self.motorname]
+        return self.credo.get_equipment('tmcm351').motors[self.motorname]
     def on_stop(self, widget):
-        self.credo.tmcm.motors[self.motorname].stop()
+        self.credo.get_equipment('tmcm351').motors[self.motorname].stop()
     def _on_edited_idle(self, widget, otherwidget, converter):
         if isinstance(converter, basestring):
-            converter = getattr(self.credo.tmcm.motors[self.motorname], converter)
+            converter = getattr(self.credo.get_equipment('tmcm351').motors[self.motorname], converter)
         try:
             otherwidget.set_text(str(converter(float(widget.get_text()))))
         except ValueError:
@@ -531,8 +531,8 @@ class MotorDriver(ToolDialog):
         GObject.idle_add(self._on_edited_idle, widget, otherwidget, converter)
     def calibrate_pos(self):
         try:
-            self.credo.tmcm.motors[self.motorname].calibrate_pos(int(float(self.posentry_raw.get_text())), raw=True)
-        except tmcl_motor.MotorError as me:
+            self.credo.get_equipment('tmcm351').motors[self.motorname].calibrate_pos(int(float(self.posentry_raw.get_text())), raw=True)
+        except MotorError as me:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
             md.set_title('TMCM351 error')
             md.run()

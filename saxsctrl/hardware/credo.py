@@ -1,3 +1,4 @@
+# coding: utf-8
 import sastool
 import re
 import os
@@ -43,23 +44,23 @@ class Credo(GObject.GObject):
                    }
     
     # Accounting properties
-    username = GObject.property(type=str, default='Anonymous')
-    projectname = GObject.property(type=str, default='No project')
+    username = GObject.property(type=str, default='Anonymous', blurb='User name')
+    projectname = GObject.property(type=str, default='No project', blurb='Project name')
     
     # Instrument parameters
-    pixelsize = GObject.property(type=float, default=172, minimum=0)
-    dist = GObject.property(type=float, default=1000, minimum=0)
-    filter = GObject.property(type=str, default='No filter')
-    beamposx = GObject.property(type=float, default=348.38)
-    beamposy = GObject.property(type=float, default=242.47)
-    wavelength = GObject.property(type=float, default=1.54182, minimum=0)
+    pixelsize = GObject.property(type=float, default=172, minimum=0, blurb=u'Pixel size (μm)'.encode('utf-8'))
+    dist = GObject.property(type=float, default=1000, minimum=0, blurb='Sample-detector distance (mm)')
+    filter = GObject.property(type=str, default='No filter', blurb='Filters')
+    beamposx = GObject.property(type=float, default=348.38, blurb='Beam position X (vertical, pixels)')
+    beamposy = GObject.property(type=float, default=242.47, blurb='Beam position Y (horizontal, pixels')
+    wavelength = GObject.property(type=float, default=1.54182, minimum=0, blurb='X-ray wavelength (Å)')
     
     # Inhibiting parameters
-    shuttercontrol = GObject.property(type=bool, default=True)
-    motorcontrol = GObject.property(type=bool, default=True)
+    shuttercontrol = GObject.property(type=bool, default=True, blurb='Open/close shutter')
+    motorcontrol = GObject.property(type=bool, default=True, blurb='Move motors')
     
-    bs_out = GObject.property(type=float, default=0)
-    bs_in = GObject.property(type=float, default=50)
+    bs_out = GObject.property(type=float, default=0, blurb='Beam-stop out-of-beam position')
+    bs_in = GObject.property(type=float, default=50, blurb='Beam-stop in-beam position')
     
     
     # changing any of the properties in this list will trigger a setup-changed event.
@@ -123,6 +124,8 @@ class Credo(GObject.GObject):
     def get_motors(self):
         mots = self.get_equipment('tmcm351')
         return [mots[m] for m in sorted(mots)]
+    def get_motor(self, name):
+        return [m for m in self.get_motors() if ((m.name == name) or (m.alias == name) or (str(m) == name))][0]
     def loadstate(self):
         cp = ConfigParser.ConfigParser()
         cp.read(RCFILE)

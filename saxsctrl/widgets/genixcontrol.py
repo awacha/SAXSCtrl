@@ -1,5 +1,5 @@
 from gi.repository import Gtk
-from ..hardware.instruments.genix import Genix, GenixError
+from ..hardware.instruments import genix
 import itertools
 from gi.repository import GObject
 from gi.repository import Gdk
@@ -172,17 +172,18 @@ class GenixControl(Gtk.Dialog):
         self.update_status()
         self._timeout_handler = GObject.timeout_add_seconds(1, self.update_status)
     def update_status(self):
-        if not self.credo.genix.connected():
+        g = self.credo.get_equipment('genix')
+        if not g.connected():
             self.hide()
             return False
-        status = self.status.update_status(self.credo.genix)
-        status = self.credo.genix.whichstate(status)
-        self.shutterbutton.set_sensitive(status != genix.GENIX_XRAYS_OFF)
-        self.powerdownbutton.set_sensitive(status in (genix.GENIX_FULLPOWER, genix.GENIX_STANDBY, genix.GENIX_IDLE))
-        self.xraybutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE, genix.GENIX_XRAYS_OFF))
-        self.standbybutton.set_sensitive(status in (genix.GENIX_FULLPOWER, genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
-        self.rampupbutton.set_sensitive(status in (genix.GENIX_STANDBY, genix.GENIX_IDLE))
-        self.warmupbutton.set_sensitive(status in (genix.GENIX_POWERDOWN, genix.GENIX_IDLE))
+        self.status.update_status(g)
+        status = g.status
+        self.shutterbutton.set_sensitive(status != genix.GenixStatus.XRaysOff)
+        self.powerdownbutton.set_sensitive(status in (genix.GenixStatus.FullPower, genix.GenixStatus.Standby, genix.GenixStatus.Idle))
+        self.xraybutton.set_sensitive(status in (genix.GenixStatus.PowerDown, genix.GenixStatus.Idle, genix.GenixStatus.XRaysOff))
+        self.standbybutton.set_sensitive(status in (genix.GenixStatus.FullPower, genix.GenixStatus.PowerDown, genix.GenixStatus.Idle))
+        self.rampupbutton.set_sensitive(status in (genix.GenixStatus.Standby, genix.GenixStatus.Idle))
+        self.warmupbutton.set_sensitive(status in (genix.GenixStatus.PowerDown, genix.GenixStatus.Idle))
         return True
     def finalize(self, *args, **kwargs):
         if self._timeout_handler is not None:
@@ -195,41 +196,41 @@ class GenixControl(Gtk.Dialog):
     def __del__(self):
         self.finalize()
     def on_warmup(self, widget, status=None, statstr=None, color=None):
-        if not self.credo.genix.xrays_state():
+        if not self.credo.get_equipment('genix').xrays_state():
             return
         try:
-            self.credo.genix.do_warmup()
+            self.credo.get_equipment('genix').do_warmup()
         except GenixError:
             return
         self.update_status()
     def on_powerdown(self, widget):
-        if not self.credo.genix.xrays_state():
+        if not self.credo.get_equipment('genix').xrays_state():
             return
         try:
-            self.credo.genix.do_poweroff()
+            self.credo.get_equipment('genix').do_poweroff()
         except GenixError:
             return
         self.update_status()
     def on_standby(self, widget):
-        if not self.credo.genix.xrays_state():
+        if not self.credo.get_equipment('genix').xrays_state():
             return
         try:
-            self.credo.genix.do_standby()
+            self.credo.get_equipment('genix').do_standby()
         except GenixError:
             return
         self.update_status()
     def on_rampup(self, widget):
-        if not self.credo.genix.xrays_state():
+        if not self.credo.get_equipment('genix').xrays_state():
             return
         try:
-            self.credo.genix.do_rampup()
+            self.credo.get_equipment('genix').do_rampup()
         except GenixError:
             return
         self.update_status()
         
     def on_reset(self, widget):
         try:
-            self.credo.genix.reset_faults()
+            self.credo.get_equipment('genix').reset_faults()
         except GenixError:
             return True
         return True
@@ -237,14 +238,14 @@ class GenixControl(Gtk.Dialog):
     def on_xrays(self, widget, status=None, statstr=None, color=None):
         if isinstance(widget, Gtk.Button):
             try:
-                if self.credo.genix.xrays_state():
-                    self.credo.genix.xrays_off()
+                if self.credo.get_equipment('genix').xrays_state():
+                    self.credo.get_equipment('genix').xrays_off()
                 else:
-                    self.credo.genix.xrays_on()
+                    self.credo.get_equipment('genix').xrays_on()
             except GenixError:
                 pass
         else:
-            if self.credo.genix.xrays_state():
+            if self.credo.get_equipment('genix').xrays_state():
                 self.xraybutton.set_label('X-rays OFF')
             else:
                 self.xraybutton.set_label('X-rays ON')
@@ -252,14 +253,14 @@ class GenixControl(Gtk.Dialog):
     def on_shutter(self, widget, status=None, statstr=None, color=None):
         if isinstance(widget, Gtk.Button):
             try:
-                if self.credo.genix.shutter_state():
-                    self.credo.genix.shutter_close(wait_for_completion=False)
+                if self.credo.get_equipment('genix').shutter_state():
+                    self.credo.get_equipment('genix').shutter_close(wait_for_completion=False)
                 else:
-                    self.credo.genix.shutter_open(wait_for_completion=False)
+                    self.credo.get_equipment('genix').shutter_open(wait_for_completion=False)
             except GenixError:
                 pass
         else:
-            if self.credo.genix.shutter_state():
+            if self.credo.get_equipment('genix').shutter_state():
                 self.shutterbutton.set_label('Close shutter')
             else:
                 self.shutterbutton.set_label('Open shutter')
