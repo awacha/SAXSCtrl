@@ -15,7 +15,7 @@ from gi.repository import GObject
 
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class MotorError(InstrumentError):
     pass
@@ -49,7 +49,7 @@ class TMCM351(Instrument_TCP):
         GObject.idle_add(self._check_queue)
         try:
             major, minor = self.get_version()
-            logger.info('Connected module has a firmware version: %d.%d' % (major, minor))
+            logger.info('Connected TMCM module has a firmware version: %d.%d' % (major, minor))
         except MotorError:
             self.disconnect_from_controller(False)
             raise
@@ -78,7 +78,7 @@ class TMCM351(Instrument_TCP):
                 self.motors[m].save_to_configparser(cp)
             with open(filename, 'w') as f:
                 cp.write(f)
-            print "Saved TMCM351 settings to " + filename
+            logger.debug("Saved TMCM351 settings to " + filename)
             return True
         finally:
             del self._settingsfile_in_use

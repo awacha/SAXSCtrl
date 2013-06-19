@@ -12,9 +12,10 @@ import modbus_tk.modbus_tcp
 import modbus_tk.defines
 import os
 import time
+from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class InstrumentError(StandardError):
@@ -28,7 +29,7 @@ class InstrumentStatus(object):
     Idle = 'idle'
     Busy = 'busy'
 
-class Instrument(GObject.GObject):
+class Instrument(objwithgui.ObjWithGUI):
     __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, (object,)),  # the instrument should emit this if a communication error occurs. The parameter is usually a string describing what went wrong.
                     'connect-equipment': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted when a successful connection to the instrument is done.
                     'disconnect-equipment': (GObject.SignalFlags.RUN_FIRST, None, (bool,)),  # emitted when the connection is broken either normally (bool argument is True) or because of an error (bool argument is false)
@@ -39,9 +40,9 @@ class Instrument(GObject.GObject):
     _considered_idle = [InstrumentStatus.Idle, InstrumentStatus.Disconnected]
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
-    _no_save_properties = ['status']
     def __init__(self):
-        GObject.GObject.__init__(self)
+        self._OWG_nosave_props = ['status']
+        objwithgui.ObjWithGUI.__init__(self)
         self.configfile = os.path.expanduser('~/.config/credo/' + self._get_classname() + '.conf')
     def _get_classname(self):
         return self.__class__.__name__
@@ -138,40 +139,6 @@ class Instrument(GObject.GObject):
                 GObject.main_context_default().iteration(False)
                 if not GObject.main_context_default().pending():
                     break
-    def savestate(self, configparser):
-        """Save current state information to a configparser. State information is defined as the
-        values of all GObject properties. Information is saved in a section which is identical to
-        the class name (can be obtained by self._get_classname()). Properties whose name is in
-        self._no_save_properties are ignored."""
-        if configparser.has_section(self._get_classname()):
-            configparser.remove_section(self._get_classname())
-        configparser.add_section(self._get_classname())
-        for p in self.props:
-            if p.name in self._no_save_properties: continue
-            configparser.set(self._get_classname(), p.name, self.get_property(p.name))
-    def loadstate(self, configparser):
-        """Load state information (GObject properties) from a configparser. The section name
-        is the class name (returned by self._get_classname()). Properties whose name is in 
-        self._no_save_properties are ignored.
-        """
-        if not configparser.has_section(self._get_classname()):
-            return
-        for p in self.props:
-            if p.name in self._no_save_properties: continue
-            if not configparser.has_option(self._get_classname(), p.name): continue
-            if p.value_type.name == 'gboolean':
-                val = configparser.getboolean(self._get_classname(), p.name)
-            elif p.value_type.name in ['gint', 'guint', 'glong', 'gulong',
-                                       'gshort', 'gushort', 'gint8', 'guint8',
-                                       'gint16', 'guint16', 'gint32', 'guint32',
-                                       'gint64', 'guint64']:
-                val = configparser.getint(self._get_classname(), p.name)
-            elif p.value_type.name in ['gfloat', 'gdouble']:
-                val = configparser.getfloat(self._get_classname(), p.name)
-            else:
-                val = configparser.get(self._get_classname(), p.name)
-            if self.get_property(p.name) != val:
-                self.set_property(p.name, val)
     def _get_address(self):
         raise NotImplementedError
     def _set_address(self, address):
@@ -290,7 +257,7 @@ class Instrument_TCP(Instrument):
     timeout2 = GObject.property(type=float, minimum=0, default=0.01, blurb='Timeout on read-reply')
     recvbufsize = GObject.property(type=int, minimum=0, default=100, blurb='Size of receiving buffer minus one')
     _mesgseparator = None
-    _collector_sleep = 0.1
+    collector_sleep = GObject.property(type=float, minimum=0, default=0.1, blurb='Sleeping time for collector thread.')
     _commands = None
     def __init__(self):
         self._socket = None
@@ -316,7 +283,7 @@ class Instrument_TCP(Instrument):
             self._socket.setblocking(False)
         try:
             GObject.idle_add(self._check_inqueue)
-            self._collector = CommunicationCollector_TCP(self._socket, self, self._inqueue, self._socketlock, self._collector_sleep, mesgseparator=self._mesgseparator)
+            self._collector = CommunicationCollector_TCP(self._socket, self, self._inqueue, self._socketlock, self.collector_sleep, mesgseparator=self._mesgseparator)
             self._collector.daemon = True
             self._collector.start()
             self._post_connect()

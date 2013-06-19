@@ -2,8 +2,8 @@ import os
 import logging
 from .. import sample
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
+logger.setLevel(logging.INFO)
+import ConfigParser
 
 from gi.repository import GObject
 from ..sample import SAXSSample
@@ -54,7 +54,7 @@ class SubSystemSamples(SubSystem):
     def save(self, filename=None):
         if filename is None: filename = self.configfile
         cp = ConfigParser.ConfigParser()
-        for i, sam in enumerate(self.get_samples()):
+        for i, sam in enumerate(self):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
         with open(filename, 'wt') as f:
             cp.write(f)

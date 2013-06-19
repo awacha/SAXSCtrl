@@ -120,7 +120,7 @@ class SubSystemEquipments(SubSystem):
         for eq in self.__equipments__:
             try:
                 self.connect_equipment(eq)
-            except InstrumentError, SubSystemError:
+            except (InstrumentError, SubSystemError):
                 errors.append(eq)
         if errors:
             raise SubSystemError('Cannot connect to all instruments. Failed: ' + ', '.join(errors))

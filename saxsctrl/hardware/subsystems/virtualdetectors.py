@@ -10,7 +10,7 @@ from .subsystem import SubSystem, SubSystemError
 __all__ = ['SubSystemVirtualDetectors']
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class SubSystemVirtualDetectors(SubSystem):
     __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -48,7 +48,6 @@ class SubSystemVirtualDetectors(SubSystem):
         changed = False
         for vpdname in [sec for sec in cp.sections() if sec.startswith('VPD_')]:
             vpd = virtualpointdetector_new_from_configparser(vpdname[4:], cp)
-            self.add(vpd)
             changed |= self.add(vpd)
         if changed:
             self.emit('changed')

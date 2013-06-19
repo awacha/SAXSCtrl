@@ -20,6 +20,7 @@ import numpy as np
 from . import subsystems
 from . import sample
 from . import virtualpointdetector
+from ..utils import objwithgui
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -29,7 +30,7 @@ RCFILE = os.path.expanduser('~/.config/credo/credo3rc')
 class CredoError(Exception):
     pass
 
-class Credo(GObject.GObject):
+class Credo(objwithgui.ObjWithGUI):
     __gsignals__ = {'setup-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'equipment-connection':(GObject.SignalFlags.RUN_FIRST, None, (str, bool, object)),
@@ -72,7 +73,18 @@ class Credo(GObject.GObject):
     # changing any of the properties in this list will trigger a path-changed event.
     path_properties = ['filepath', 'imagepath']
     def __init__(self):
-        GObject.GObject.__init__(self)
+        objwithgui.ObjWithGUI.__init__(self)
+        self._OWG_hints['username'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
+        self._OWG_hints['projectname'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
+        self._OWG_hints['beamposx'] = {objwithgui.OWG_Hint_Type.OrderPriority:1, objwithgui.OWG_Hint_Type.Digits:3}
+        self._OWG_hints['beamposy'] = {objwithgui.OWG_Hint_Type.OrderPriority:2, objwithgui.OWG_Hint_Type.Digits:3}
+        self._OWG_hints['dist'] = {objwithgui.OWG_Hint_Type.OrderPriority:3, objwithgui.OWG_Hint_Type.Digits:3}
+        self._OWG_hints['pixelsize'] = {objwithgui.OWG_Hint_Type.OrderPriority:4}
+        self._OWG_hints['wavelength'] = {objwithgui.OWG_Hint_Type.OrderPriority:5, objwithgui.OWG_Hint_Type.Digits:4}
+        self._OWG_hints['shuttercontrol'] = {objwithgui.OWG_Hint_Type.OrderPriority:6}
+        self._OWG_hints['motorcontrol'] = {objwithgui.OWG_Hint_Type.OrderPriority:6}
+        self._OWG_hints['bs-in'] = {objwithgui.OWG_Hint_Type.OrderPriority:7, objwithgui.OWG_Hint_Type.Digits:3}
+        self._OWG_hints['bs-out'] = {objwithgui.OWG_Hint_Type.OrderPriority:8, objwithgui.OWG_Hint_Type.Digits:3}
         # initialize subsystems
         self.subsystems = {}
         self.subsystems['Files'] = subsystems.SubSystemFiles(self)
@@ -122,7 +134,7 @@ class Credo(GObject.GObject):
     def get_equipment(self, equipment):
         return self.subsystems['Equipments'].get(equipment)
     def get_motors(self):
-        mots = self.get_equipment('tmcm351')
+        mots = self.get_equipment('tmcm351').motors
         return [mots[m] for m in sorted(mots)]
     def get_motor(self, name):
         return [m for m in self.get_motors() if ((m.name == name) or (m.alias == name) or (str(m) == name))][0]

@@ -8,7 +8,7 @@ import os
 import time
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 from gi.repository import GObject
 from .subsystem import SubSystem, SubSystemError
@@ -83,7 +83,7 @@ class SubSystemExposure(SubSystem):
             header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
         GObject.idle_add(self._check_if_exposure_finished)
-        logger.info('Starting exposure of %s' % str(sample))
+        logger.info('Starting exposure of %s. Files will be named like: %s' % (str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
         
         pilatus.prepare_exposure(self.exptime, self.nimages, self.dwelltime)
         self._thread = threading.Thread(target=self._thread_worker, args=(os.path.join(self.credo().subsystems['Files'].imagespath, exposureformat),
@@ -130,6 +130,7 @@ class SubSystemExposure(SubSystem):
     def do_exposure_end(self, endstatus):
         # this is the last signal emitted during an exposure. The _check_if_exposure_finished() idle handler
         # has already deregistered itself.
+        logger.info('Exposure ended.')
         pass
     def do_exposure_image(self, ex):
         pass
@@ -150,7 +151,7 @@ class SubSystemExposure(SubSystem):
             raise SubSystemExposureError('Timeout on waiting for CBF file.')
         # create the exposure object
         if self.timecriticalmode:
-            ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':None, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
+            ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
         else:
             ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
         

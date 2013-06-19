@@ -5,6 +5,7 @@ import sastool
 import re
 import os
 from .spec_filechoosers import MaskChooserDialog
+from .exposureselector import ExposureSelector
 import datetime
 from .data_reduction_setup import DataRedSetup, PleaseWaitDialog
 from ..hardware.subsystems.datareduction import DataReduction
@@ -20,64 +21,40 @@ class DataViewer(Gtk.Dialog):
         self.credo = credo
         self.datareduction = None
         vb = self.get_content_area()
+        
+        es = ExposureSelector(self.credo)
+        es.connect('open', self._exposure_open)
+        vb.pack_start(es, False, True, 0)
+        
+        
+        f = Gtk.Frame(label='Currently loaded:')
+        vb.pack_start(f, False, True, 0)
         tab = Gtk.Table()
-        vb.pack_start(tab, False, True, 0)
+        f.add(tab)
+        
         row = 0
-        
-        l = Gtk.Label(label=u'File prefix:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.fileprefix_entry = Gtk.ComboBoxText.new_with_entry()
-        self.fileprefix_entry.append_text('crd_%05d')
-        self.fileprefix_entry.append_text('beamtest_%05d')
-        self.fileprefix_entry.append_text('transmission_%05d')
-        self.fileprefix_entry.append_text('timedscan_%05d')
-        self.fileprefix_entry.set_active(0)
-        tab.attach(self.fileprefix_entry, 1, 2, row, row + 1)
-        row += 1
-    
-    
-        l = Gtk.Label(label=u'FSN:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.fsn_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 1e6, 1, 10), digits=0)
-        tab.attach(self.fsn_entry, 1, 2, row, row + 1)
-        self.fsn_entry.connect('activate', self._openbutton_handler, 'selected')
-        self.fsn_entry.connect('value-changed', self._openbutton_handler, 'selected')
-        hbb = Gtk.HButtonBox()
-        tab.attach(hbb, 2, 3, row - 1, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        b = Gtk.Button(stock=Gtk.STOCK_GOTO_FIRST)
-        hbb.add(b)
-        b.connect('clicked', self._openbutton_handler, 'first')
-        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
-        hbb.add(b)
-        b.connect('clicked', self._openbutton_handler, 'selected')    
-        b = Gtk.Button(stock=Gtk.STOCK_GOTO_LAST)
-        hbb.add(b)
-        b.connect('clicked', self._openbutton_handler, 'last')
+        self._labels = {}
+        for labeltext, labelname in [('FSN:', 'fsn'), ('Sample-detector distance:', 'dist'), ('Title:', 'title'), ('Owner:', 'owner'), ('Exposure time:', 'meastime')]:
+            l = Gtk.Label(labeltext); l.set_alignment(0, 0.5)
+            tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+            self._labels[labelname] = Gtk.Label('<none>')
+            self._labels[labelname].set_alignment(0, 0.5)
+            tab.attach(self._labels[labelname], 1, 2, row, row + 1)
+            row += 1
         b = Gtk.Button(label='Data reduction...')
-        hbb.add(b)
+        tab.attach(b, 2, 3, 0, row, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         b.connect('clicked', self.do_data_reduction)
-        row += 1
+        l = Gtk.Label('Mask:'); l.set_alignment(0, 0.5)
+        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        self._labels['maskid'] = Gtk.Label('<none>')
+        self._labels['maskid'].set_alignment(0, 0.5)
+        tab.attach(self._labels['maskid'], 1, 2, row, row + 1)
 
-
-        self.mask_cb = Gtk.CheckButton(label=u'Mask file name:'); self.mask_cb.set_alignment(0, 0.5)
-        tab.attach(self.mask_cb, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        hb = Gtk.HBox()
-        tab.attach(hb, 1, 3, row, row + 1)
-        self.mask_entry = Gtk.Entry()
-        self.mask_entry.set_text(os.path.join(self.credo.maskpath, 'mask.mat'))
-        hb.pack_start(self.mask_entry, True, True, 0)
-        self.mask_cb.connect('toggled', self.on_checkbox_with_entry, self.mask_entry)
-        self.on_checkbox_with_entry(self.mask_cb, self.mask_entry)
-        
-        
         hbb = Gtk.HButtonBox()
+        tab.attach(hbb, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
         hbb.set_layout(Gtk.ButtonBoxStyle.SPREAD)
-        hb.pack_start(hbb, False, True, 0)
-        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
-        b.connect('clicked', self.on_loadmaskbutton, self.mask_entry, Gtk.FileChooserAction.OPEN)
-        hbb.pack_start(b, True, True, 0)
         b = Gtk.Button(stock=Gtk.STOCK_EDIT)
-        b.connect('clicked', self.on_editmask)
+        b.connect('clicked', self._editmask)
         hbb.pack_start(b, True, True, 0)
         row += 1
         
@@ -95,8 +72,6 @@ class DataViewer(Gtk.Dialog):
         
         
         vb.show_all()
-    def on_checkbox_with_entry(self, cb, entry):
-        entry.set_sensitive(cb.get_active())
     def on_data_reduction_callback(self, datared, idx, message_or_exposure):
         if idx != self._datared_jobidx:
             return False
@@ -145,80 +120,30 @@ class DataViewer(Gtk.Dialog):
                                        self.datareduction.connect('done', self.on_data_reduction_callback))
             self._datared_jobidx = self.datareduction.do_reduction(self.plot2d.exposure)
         self._dataredsetup.hide()
-    def on_loadmaskbutton(self, button, entry, action):
-        if self._filechooserdialogs is None:
-            self._filechooserdialogs = {}
-        if entry not in self._filechooserdialogs:
-            
-            self._filechooserdialogs[entry] = MaskChooserDialog('Select mask file...', None, action, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
-            if self.credo is not None:
-                self._filechooserdialogs[entry].set_current_folder(self.credo.maskpath)
-        if entry.get_text():
-            self._filechooserdialogs[entry].set_filename(entry.get_text())
-        response = self._filechooserdialogs[entry].run()
-        if response == Gtk.ResponseType.OK:
-            entry.set_text(self._filechooserdialogs[entry].get_filename())
-        self._filechooserdialogs[entry].hide()
-        return True
-    def _openbutton_handler(self, widget, mode):
-        if mode == 'selected':
-            filename = self.fileprefix_entry.get_active_text() % (self.fsn_entry.get_value_as_int()) + '.cbf'
-            GObject.idle_add(self.on_open, filename)
+    def _exposure_open(self, eselector, ex):
+        self._labels['fsn'].set_label(str(ex['FSN']))
+        self._labels['title'].set_label(ex['Title'])
+        self._labels['dist'].set_label(str(ex['Dist']))
+        if ex['maskid'] is None:
+            self._labels['maskid'].set_label('<none>')
         else:
-            if mode == 'back':
-                self.fsn_entry.spin(Gtk.SpinType.STEP_BACKWARD, 1)
-                self._openbutton_handler(widget, 'selected')
-            elif mode == 'forward':
-                self.fsn_entry.spin(Gtk.SpinType.STEP_FORWARD, 1)
-                self._openbutton_handler(widget, 'selected')
-            else:
-                pattern = re.compile(sastool.misc.re_from_Cformatstring_numbers(self.fileprefix_entry.get_active_text())[:-1])
-                maxfsn = -1
-                minfsn = 9999999999999
-                for pth in self.credo.get_exploaddirs():
-                    fsns = [int(f.group(1)) for f in [pattern.match(f) for f in os.listdir(pth)] if f is not None]
-                    if not fsns:
-                        continue
-                    maxfsn = max(maxfsn, max(fsns))
-                    minfsn = min(minfsn, min(fsns))
-                if mode == 'first':
-                    if minfsn >= 9999999999999:
-                        return False
-                    self.fsn_entry.set_value(minfsn)
-                    self._openbutton_handler(widget, 'selected')
-                elif mode == 'last':
-                    if maxfsn < 0:
-                        return False
-                    self.fsn_entry.set_value(maxfsn)
-                    self._openbutton_handler(widget, 'selected')
-        return True
-    def on_open(self, filename):
-        datadirs = self.credo.get_exploaddirs()
-        kwargs_to_loader = {'dirs':datadirs, 'load_mask':True}
-        if self.mask_cb.get_active() and sastool.misc.findfileindirs(self.mask_entry.get_text(), datadirs, notfound_is_fatal=False, notfound_val=None) is not None:
-            kwargs_to_loader['maskfile'] = self.mask_entry.get_text()
+            self._labels['maskid'].set_label(ex['maskid'])
+        self._labels['meastime'].set_label(str(ex['MeasTime']))
+        self._labels['owner'].set_label(ex['Owner'])
+        self.plot2d.set_exposure(ex)
+        self.plot2d.set_bottomrightdata(ex['Owner'] + '@CREDO ' + str(ex['Date']))
+        self.plot2d.set_bottomleftdata(qrcode.make(ex['Owner'] + '@CREDO://' + str(ex.header) + ' ' + str(ex['Date']), box_size=10))
+        self.plot1d.cla()
         try:
-            ex = sastool.classes.SASExposure(filename, **kwargs_to_loader)
-        except IOError as ioe:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error reading file: ' + ioe.message)
-            md.run()
-            md.destroy()
-            del md
+            rad = ex.radial_average()
+        except sastool.classes.SASExposureException as see:
+            self.plot1d.gca().text(0.5, 0.5, 'Cannot do radial average:\n' + see.message, ha='center', va='center', transform=self.plot1d.gca().transAxes)
         else:
-            self.plot2d.set_exposure(ex)
-            self.plot2d.set_bottomrightdata(ex['Owner'] + '@CREDO ' + str(ex['Date']))
-            self.plot2d.set_bottomleftdata(qrcode.make(ex['Owner'] + '@CREDO://' + str(ex.header) + ' ' + str(ex['Date']), box_size=10))
             self.plot1d.cla()
-            try:
-                rad = ex.radial_average()
-            except sastool.classes.SASExposureException:
-                self.plot1d.gca().text(0.5, 0.5, 'No mask - no radial average.', ha='center', va='center', transform=self.plot1d.gca().transAxes)
-            else:
-                self.plot1d.cla()
-                self.plot1d.loglog(ex.radial_average())
-                self.plot1d.legend(loc='best')
+            self.plot1d.loglog(ex.radial_average())
+            self.plot1d.legend(loc='best')
         return False
-    def on_editmask(self, widget):
+    def _editmask(self, widget):
         maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.exposure)
         resp = maskmaker.run()
         if resp == Gtk.ResponseType.OK:
