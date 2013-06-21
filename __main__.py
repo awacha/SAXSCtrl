@@ -87,7 +87,6 @@ if __name__ == '__main__':
             return Gtk.main_quit()
         root.connect('delete-event', func)
         Gtk.main()
-        root.destroy()
         del root
         gc.collect()
     logger.info('Ending main program.')

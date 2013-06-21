@@ -7,40 +7,42 @@ import resource
 import sys
 import traceback
 import multiprocessing
+import weakref
 
 from ..hardware import credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 def my_excepthook(type_, value, traceback_):
     try:
         logger.critical('Unhandled exception', exc_info=(type_, value, traceback_))
     except:
         raise
-    dialog = Gtk.MessageDialog(None, Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK,
-                               str(type_) + ': ' + str(value))
-    dialog.format_secondary_text('Traceback:')
-    msgarea = dialog.get_message_area()
-    sw = Gtk.ScrolledWindow()
-    sw.set_size_request(200, 300)
-    msgarea.pack_start(sw, True, True, 0)
-    tv = Gtk.TextView()
-    sw.add(tv)
-    tv.get_buffer().set_text('\n'.join(traceback.format_tb(traceback_)))
-    tv.set_editable(False)
-    tv.set_wrap_mode(Gtk.WrapMode.WORD)
-    # tv.get_default_attributes().font = Pango.FontDescription('serif,monospace')
-    tv.set_justification(Gtk.Justification.LEFT)
-    msgarea.show_all()
-    dialog.set_title('Error!')
-    dialog.run()
-    dialog.destroy()
+#     dialog = Gtk.MessageDialog(None, Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK,
+#                                str(type_) + ': ' + str(value))
+#     dialog.format_secondary_text('Traceback:')
+#     msgarea = dialog.get_message_area()
+#     sw = Gtk.ScrolledWindow()
+#     sw.set_size_request(200, 300)
+#     msgarea.pack_start(sw, True, True, 0)
+#     tv = Gtk.TextView()
+#     sw.add(tv)
+#     tv.get_buffer().set_text('\n'.join(traceback.format_tb(traceback_)))
+#     tv.set_editable(False)
+#     tv.set_wrap_mode(Gtk.WrapMode.WORD)
+#     # tv.get_default_attributes().font = Pango.FontDescription('serif,monospace')
+#     tv.set_justification(Gtk.Justification.LEFT)
+#     msgarea.show_all()
+#     dialog.set_title('Error!')
+#     dialog.run()
+#     dialog.destroy()
     
-# sys.excepthook = my_excepthook
+sys.excepthook = my_excepthook
 
 class Tool(object):
     def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', equip_needed=[]):
-        self.credo = credo
+        self.credo = weakref.proxy(credo)
         self.buttonname = buttonname
         self.windowname = windowname
         self.windowclass = windowclass
@@ -86,7 +88,6 @@ class Tool(object):
         if self.menuitem is not None:
             self.menuitem.set_sensitive(sensitivity)
     def on_delete(self, *args):
-        print "DELETE-EVENT on window for tool ", self.buttonname
         self.window.destroy()
         del self.window
         self.window = None
@@ -96,14 +97,23 @@ class RootWindow(Gtk.Window):
     _memusage = None
     _uptime = None
     _entrychanged_delayhandlers = None
+    __gsignals__ = {'destroy':'override'}
     def __init__(self):
         Gtk.Window.__init__(self, Gtk.WindowType.TOPLEVEL)
+        self._connections = []
+        self.logdisplay = logdisplay.LogDisplay()
+        self.logdisplay.set_size_request(600, 400)
+        loghandler = logdisplay.Gtk3LogHandler(self.logdisplay)
+        loghandler.setLevel(logging.DEBUG)
+        logging.root.addHandler(loghandler)
+        loghandler.setFormatter(logging.Formatter('%(asctime)s: %(levelname)s: %(message)s  (Origin: %(name)s)'))
         self._starttime = time.time()
         self._entrychanged_delayhandlers = {}
         self.set_title('SAXS Control -- ROOT')
         # self.set_resizable(False)
         self.credo = credo.Credo()
-        self.credo.subsystems['Equipments'].connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())
+        self._connections.append((self.credo.subsystems['Equipments'],
+                                  self.credo.subsystems['Equipments'].connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())))
         
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(vb)
@@ -129,9 +139,10 @@ class RootWindow(Gtk.Window):
         self.statuslabel_uptime = Gtk.Label(label=''); self.statuslabel_uptime.set_alignment(0, 0.5)
         hb.pack_start(self.statuslabel_uptime, False, False, 3)
         
-        
-        f = Gtk.Frame(label='Instrument connection')
-        vb.pack_start(f, False, True, 0)
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(hb, False, True, 0)
+        f = Gtk.Frame(label='Accounting')
+        hb.pack_start(f, True, True, 0)
         tab = Gtk.Table()
         f.add(tab)
         row = 0
@@ -140,7 +151,7 @@ class RootWindow(Gtk.Window):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.username_entry = Gtk.Entry()
         self.username_entry.set_text(self.credo.username)
-        self.username_entry.connect('changed', self.on_entry_changed, 'username')
+        self._connections.append((self.username_entry, self.username_entry.connect('changed', self.on_entry_changed, 'username')))
         tab.attach(self.username_entry, 1, 3, row, row + 1)
         row += 1
         
@@ -148,9 +159,13 @@ class RootWindow(Gtk.Window):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.projectname_entry = Gtk.Entry()
         self.projectname_entry.set_text(self.credo.projectname)
-        self.projectname_entry.connect('changed', self.on_entry_changed, 'projectname')
+        self._connections.append((self.projectname_entry, self.projectname_entry.connect('changed', self.on_entry_changed, 'projectname')))
         tab.attach(self.projectname_entry, 1, 3, row, row + 1)
         row += 1
+        
+        hb.pack_start(nextfsn_monitor.NextFSNMonitor(weakref.proxy(self.credo), 'Next exposure:'), False, True, 0)
+        
+        
         self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
                             Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Configuration'),
@@ -177,12 +192,7 @@ class RootWindow(Gtk.Window):
         f = Gtk.Frame(label='Log')
         vb.pack_start(f, True, True, 0)
         
-        self.logdisplay = logdisplay.LogDisplay()
         f.add(self.logdisplay)
-        loghandler = logdisplay.Gtk3LogHandler(self.logdisplay)
-        loghandler.setLevel(logging.DEBUG)
-        logging.root.addHandler(loghandler)
-        loghandler.setFormatter(logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
         self.update_statuslabels()
         GObject.timeout_add_seconds(1, self.update_statuslabels)
     def update_statuslabels(self):
@@ -195,8 +205,14 @@ class RootWindow(Gtk.Window):
         for t in self.toolbuttons:
             t.set_sensitivity(self.credo.subsystems['Equipments'].connected_equipments())
         return False
-    def __del__(self):
+    def do_destroy(self):
+        logger.debug('Destroying root window.')
+        for obj, c in self._connections:
+            obj.disconnect(c)
+        self._connections = []
         del self.credo
+    def __del__(self):
+        logger.debug('Destructing root window.')
     def on_entry_changed(self, entry, entrytext):
         if entrytext in self._entrychanged_delayhandlers:
             GObject.source_remove(self._entrychanged_delayhandlers[entrytext])

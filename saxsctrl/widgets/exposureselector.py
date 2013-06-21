@@ -167,35 +167,42 @@ class ExposureSelector(Gtk.Frame):
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         hb.pack_start(vb, False, False, 0)
         
-        hbb = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
+        hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        hbb.set_homogeneous(True)
         vb.pack_start(hbb, True, True, 0)
         
         b = Gtk.Button(stock=Gtk.STOCK_GO_BACK)
-        hbb.add(b)
+        hbb.pack_start(b, True, True, 0)
         b.connect('clicked', lambda b:self._load_prev())
         
-        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
-        hbb.add(b)
-        b.connect('clicked', lambda b:self._load_current())
         
         b = Gtk.Button(stock=Gtk.STOCK_GO_FORWARD)
-        hbb.add(b)
+        hbb.pack_start(b, True, True, 0)
         b.connect('clicked', lambda b:self._load_next())
         
-        hbb = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
+        hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        hbb.set_homogeneous(True)
         vb.pack_start(hbb, True, True, 0)
 
         b = Gtk.Button(stock=Gtk.STOCK_GOTO_FIRST)
-        hbb.add(b)
+        hbb.pack_start(b, True, True, 0)
         b.connect('clicked', lambda b:self._load_first())
 
-        b = Gtk.Button(stock=Gtk.STOCK_FIND)
-        hbb.add(b)
-        b.connect('clicked', lambda b:self._browse())
-
         b = Gtk.Button(stock=Gtk.STOCK_GOTO_LAST)
-        hbb.add(b)
+        hbb.pack_start(b, True, True, 0)
         b.connect('clicked', lambda b:self._load_last())
+
+        hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        hbb.set_homogeneous(True)
+        vb.pack_start(hbb, True, True, 0)
+
+        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
+        hbb.pack_start(b, True, True, 0)
+        b.connect('clicked', lambda b:self._load_current())
+
+        b = Gtk.Button(stock=Gtk.STOCK_FIND)
+        hbb.pack_start(b, True, True, 0)
+        b.connect('clicked', lambda b:self._browse())
 
         self.show_all()
 

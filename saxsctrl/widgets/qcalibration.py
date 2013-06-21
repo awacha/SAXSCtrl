@@ -2,13 +2,13 @@ from gi.repository import Gtk
 import sastool
 import sasgui
 import numpy as np
-from .spec_filechoosers import ExposureLoader
+from .exposureselector import ExposureSelector
 from .peakfinder import PeakFinder
 from .widgets import ToolDialog
 
 class QCalibrationDialog(sasgui.QCalibrator):
-    def __init__(self, credo, title='Q calibration', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE,)):
-        sasgui.QCalibrator.__init__(self, title, parent, flags, buttons)
+    def __init__(self, credo, title='Q calibration'):
+        sasgui.QCalibrator.__init__(self, title, flags=0, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE,))
         self.set_default_response(Gtk.ResponseType.CLOSE)
         self.credo = credo
         self.connect('response', self.on_response)
@@ -16,12 +16,13 @@ class QCalibrationDialog(sasgui.QCalibrator):
         vb = self.get_content_area()
         row = 0
 
-        f = Gtk.Frame(label='Exposure:')
+        f = Gtk.Expander(label='Exposure:')
         vb.pack_start(f, True, True, 0)
         vb.reorder_child(f, 0)
-        self.exposureloader = ExposureLoader(credo)
-        self.exposureloader.connect('exposure-loaded', self.do_load_exposure)
-        f.add(self.exposureloader)
+        es = ExposureSelector(credo)
+        es.connect('open', self.do_load_exposure)
+        f.add(es)
+        f.set_expanded(True)
         
         self.wavelength = 1.5418
         self.pixelsize = 0.172
@@ -41,7 +42,6 @@ class QCalibrationDialog(sasgui.QCalibrator):
         self._rad = None
         self.get_widget_for_response(Gtk.ResponseType.APPLY).set_sensitive(False)
     def do_changed(self):
-        print "CHANGED"
         self.get_widget_for_response(Gtk.ResponseType.APPLY).set_sensitive(True)
     def do_load_exposure(self, el, ex):
         try:
@@ -52,7 +52,6 @@ class QCalibrationDialog(sasgui.QCalibrator):
             md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Please load a mask!')
             md.run()
             md.destroy()
-            el.forget_exposure()
             del md
     def do_find_peak(self, button):
         pf = PeakFinder(self._rad)

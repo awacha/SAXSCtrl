@@ -45,7 +45,10 @@ class ScanDevice(GObject.GObject):
         raise NotImplementedError
     def __str__(self):
         return self.name() + ':' + self.arg
-    
+    @classmethod
+    def possible_devices(cls, credo):
+        return reduce(lambda a, b:a + b, [c.possible_devices(credo) for c in cls.__subclasses__()])
+
 class ScanDeviceTime(ScanDevice):
     def __init__(self, credo, arg):
         ScanDevice.__init__(self, credo)
@@ -63,6 +66,9 @@ class ScanDeviceTime(ScanDevice):
         if wt != 0:
             logger.warning('Wait time ignored for Time scans.')
         return (start == 0) and (end > start) and (nsteps >= 2) and (end / (nsteps - 1) - ct > 0.003)
+    @classmethod
+    def possible_devices(cls, credo):
+        return ['Time:Clock']
     
 class ScanDeviceMotor(ScanDevice):
     def __init__(self, credo, motorname):
@@ -90,7 +96,14 @@ class ScanDeviceMotor(ScanDevice):
         return (start >= left) and (start <= right) and (end >= left) and (end <= right) and (nsteps >= 2)
     def __str__(self):
         return 'Motor:' + self.arg
-    
+    @classmethod
+    def possible_devices(cls, credo):
+        t = credo.get_equipment('tmcm351')
+        if t.connected():
+            return ['Motor:' + mot.alias for mot in t.motors.itervalues()]
+        else:
+            return []
+        
 class ScanDevicePilatus(ScanDevice):
     def __init__(self, credo, what):
         ScanDevice.__init__(self, credo)
@@ -115,7 +128,14 @@ class ScanDevicePilatus(ScanDevice):
         return (start >= 4000) and (start <= 18000) and (end >= 4000) and (end <= 18000) and (nsteps >= 2) and ((abs(end - start) / (nsteps - 1.0)) >= 1)
     def __str__(self):
         return 'Pilatus:Threshold'
-    
+    @classmethod
+    def possible_devices(cls, credo):
+        p = credo.get_equipment('pilatus')
+        if p.connected():
+            return ['Pilatus:Threshold']
+        else:
+            return []
+        
 class SubSystemScan(SubSystem):
     __gsignals__ = {'scan-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
                     'scan-report':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
@@ -156,6 +176,8 @@ class SubSystemScan(SubSystem):
         else:
             logger.debug('Initializing scan file: loading.')
             self.scanfile = self.reload_scanfile()
+    def get_supported_devices(self):
+        return ScanDevice.possible_devices(self.credo())
     def start(self, header_template={}, mask=None):
         """Set-up and start a scan measurement.
         

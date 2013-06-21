@@ -35,6 +35,7 @@ class SubSystemExposure(SubSystem):
     timecriticalmode = GObject.property(type=bool, default=False, blurb='Time-critical mode')
     def __init__(self, credo, **kwargs):
         SubSystem.__init__(self, credo)
+        self._OWG_nogui_props.append('configfile')
         self._thread = None
         for k in kwargs:
             self.set_property(k, kwargs[k])

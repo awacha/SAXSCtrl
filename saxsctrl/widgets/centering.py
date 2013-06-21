@@ -2,24 +2,20 @@ from gi.repository import Gtk
 import sastool
 import sasgui
 import os
-from .spec_filechoosers import ExposureLoader
+from .exposureselector import ExposureSelector
+from .widgets import ToolDialog
 
-class CenteringDialog(Gtk.Dialog):
-    def __init__(self, credo, title='Centering image...', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_SAVE, Gtk.ResponseType.YES)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+class CenteringDialog(ToolDialog):
+    def __init__(self, credo, title='Centering image...') :
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_SAVE, Gtk.ResponseType.YES))
         self.set_default_response(Gtk.ResponseType.CLOSE)
-        self.credo = credo
         vb = self.get_content_area()
-        f = Gtk.Frame()
+        f = Gtk.Expander(label='Exposure')
         vb.pack_start(f, False, True, 0)
-        hb = Gtk.HBox()
-        f.add(hb)
-        l = Gtk.Label(label='Exposure:'); l.set_alignment(0, 0.5)
-        hb.pack_start(l, False, True, 0)
-        el = ExposureLoader(credo)
-        hb.pack_start(el, True, True, 0)
-        el.connect('exposure-loaded', self.on_exposure_loaded)
-        
+        es = ExposureSelector(credo)
+        f.add(es)
+        es.connect('open', self._exposure_loaded)
+        f.set_expanded(True)
         hb = Gtk.HBox()
         vb.pack_start(hb, True, True, 0)
         vb1 = Gtk.VBox()
@@ -110,7 +106,7 @@ class CenteringDialog(Gtk.Dialog):
         
         self.connect('response', self.on_response)
         self._radavgwin = None
-    def on_exposure_loaded(self, el, ex):
+    def _exposure_loaded(self, es, ex):
         self.plot2d.set_exposure(ex)
         self.beamposx_label.set_text('%.2f' % ex['BeamPosX'])
         self.beamposy_label.set_text('%.2f' % ex['BeamPosY'])
@@ -148,11 +144,13 @@ class CenteringDialog(Gtk.Dialog):
     def save_beampos(self):
         ex = self.plot2d.exposure
         basename = os.path.basename(ex['FileName']).rsplit('.', 1)[0]
-        ex.header.write(os.path.join(self.credo.eval2dpath, basename + '.param'))
+        ex.header.write(os.path.join(self.credo.subsystems['Files'].eval2dpath, basename + '.param'))
         
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.APPLY:  # execute
             self.execute_findbeam()
         if respid == Gtk.ResponseType.YES:  # save
             self.save_beampos()
+        if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+            self.hide()
             

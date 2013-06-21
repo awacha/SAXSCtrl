@@ -48,18 +48,31 @@ class SubSystemFiles(SubSystem):
             dirmonitor = Gio.file_new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.NONE, None)
             self.monitors.append((dirmonitor, dirmonitor.connect('changed', self._on_monitor_event)))
             logger.debug('SubSystemFiles._setup(): Added directory monitor for path %s' % folder)
-        self._nextfsn_cache = None
-        self._firstfsn_cache = None
+        self._nextfsn_cache = {}
+        self._firstfsn_cache = {}
+        for f in self._search_formats():
+            self.get_next_fsn(self.get_format_re(f, self.ndigits, False))
+            self.get_first_fsn(self.get_format_re(f, self.ndigits, False))
+    def _search_formats(self):
+        regex = re.compile('(?P<begin>[a-zA-Z0-9]+)_(?P<fsn>\d+)')
+        formats = set()
+        for pth in self.exposureloadpath:
+            formats.update({m.groupdict()['begin'] for m in [regex.match(f) for f in os.listdir(pth)] if (m is not None)})
+        return sorted(list(formats))
+    def _known_regexes(self):
+        return set(self._nextfsn_cache.keys()).union(set(self._firstfsn_cache.keys()))
+    def formats(self):
+        return sorted([p.pattern.split('_')[0] for p in self._known_regexes()])
     def _on_monitor_event(self, monitor, filename, otherfilename, event):
         if otherfilename is not None:
             logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: ' + otherfilename.get_path() + ', event: ' + str(event))
         else:
             logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: None, event: ' + str(event))
             
-        if (event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED)) and (self._nextfsn_cache is not None):
+        if (event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED)) and ():
             basename = filename.get_basename()
             if basename:
-                for regex in set(self._nextfsn_cache.keys() + self._firstfsn_cache.keys()):
+                for regex in self._known_regexes():
                     m = regex.match(basename)
                     if m is not None:
                         newfsn = int(m.group(1))
@@ -83,8 +96,6 @@ class SubSystemFiles(SubSystem):
     def do_new_firstfsn(self, firstfsn, repattern):
         logger.debug('SubSystemFiles: new firstfsn: %d for pattern %s' % (firstfsn, repattern))
     def get_first_fsn(self, regex=None):
-        if self._firstfsn_cache is None:
-            self._firstfsn_cache = {}
         if regex is None:
             regex = self.get_fileformat_re()
         currentpattern = (regex.pattern == self.get_fileformat_re().pattern)
@@ -104,8 +115,6 @@ class SubSystemFiles(SubSystem):
             self.emit('new-firstfsn', self._firstfsn_cache[regex], regex.pattern)
         return self._firstfsn_cache[regex]
     def get_next_fsn(self, regex=None):
-        if self._nextfsn_cache is None:
-            self._nextfsn_cache = {}
         if regex is None:
             regex = self.get_fileformat_re()
         currentpattern = (regex.pattern == self.get_fileformat_re().pattern)
@@ -132,7 +141,7 @@ class SubSystemFiles(SubSystem):
     @property
     def configpath(self): return self._get_subpath('config')
     @property
-    def exposureloadpath(self): return [self._get_subpath(x) for x in ['param', 'images', 'mask', 'eval2d', 'eval1d']]
+    def exposureloadpath(self): return [self._get_subpath(x) for x in ['eval2d', 'eval1d', 'param', 'images', 'mask']]
     @property
     def moviepath(self): return self._get_subpath('movie')
     @property

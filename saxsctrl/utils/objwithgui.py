@@ -12,10 +12,13 @@ class OWG_Param_Type(object):
     String = 'string'
     Folder = 'folder'
     File = 'file'
+    ListOfStrings = 'listofstrings'
     
 class OWG_Hint_Type(object):
     Digits = 'digits'
     OrderPriority = 'orderpriority'
+    Editable = 'editable'
+    ChoicesList = 'choiceslist'
 
 class ObjSetupDialog(Gtk.Dialog):
     __gsignals__ = {'response':'override'}
@@ -43,7 +46,7 @@ class ObjSetupTable(Gtk.Table):
                     'apply':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'revert':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     }
-    def __init__(self, objwithgui, rows=0, columns=0, homogeneous=False):
+    def __init__(self, objwithgui, rows=1, columns=1, homogeneous=False):
         Gtk.Table.__init__(self, rows, columns, homogeneous)
         self.objwithgui = objwithgui
         self._entries = {}
@@ -56,7 +59,7 @@ class ObjSetupTable(Gtk.Table):
                 self._entries[p.name] = Gtk.CheckButton(label=p.blurb)
                 self._entries[p.name].set_alignment(0, 0.5)
                 self._entries[p.name].set_active(self.objwithgui.get_property(p.name))
-                self._entries[p.name].connect('toggled', lambda cb: self.emit('changed', p.name))
+                self._entries[p.name].connect('toggled', lambda cb, n: self.emit('changed', n), p.name)
                 self.attach(self._entries[p.name], 0, 2, row, row + 1)
             else:
                 l = Gtk.Label(label=p.blurb + ':')
@@ -65,7 +68,7 @@ class ObjSetupTable(Gtk.Table):
                 if self.objwithgui._OWG_entrytypes[p.name] == OWG_Param_Type.String:
                     self._entries[p.name] = Gtk.Entry()
                     self._entries[p.name].set_text(self.objwithgui.get_property(p.name))
-                    self._entries[p.name].connect('changed', lambda ent: self.emit('changed', p.name))
+                    self._entries[p.name].connect('changed', lambda ent, n: self.emit('changed', n), p.name)
                 elif self.objwithgui._OWG_entrytypes[p.name] in (OWG_Param_Type.Integer, OWG_Param_Type.Float):
                     self._entries[p.name] = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.objwithgui.get_property(p.name), p.minimum, p.maximum))
                     self._entries[p.name].set_width_chars(20)
@@ -73,7 +76,7 @@ class ObjSetupTable(Gtk.Table):
                         self._entries[p.name].set_digits(0)
                     else:
                         self._entries[p.name].set_digits(self.objwithgui._get_OWG_hint(p.name, OWG_Hint_Type.Digits))
-                    self._entries[p.name].connect('value-changed', lambda sb: self.emit('changed', p.name))
+                    self._entries[p.name].connect('value-changed', lambda sb, n: self.emit('changed', n), p.name)
                 elif self.objwithgui._OWG_entrytypes[p.name] in (OWG_Param_Type.File, OWG_Param_Type.Folder):
                     if self.objwithgui._OWG_entrytypes[p.name] == OWG_Param_Type.File:
                         self._entries[p.name] = FileEntryWithButton(dialogtitle='Select file', dialogaction=Gtk.FileChooserAction.OPEN)
@@ -81,12 +84,26 @@ class ObjSetupTable(Gtk.Table):
                         self._entries[p.name] = FileEntryWithButton(dialogtitle='Select folder', dialogaction=Gtk.FileChooserAction.SELECT_FOLDER)
                     else:
                         raise NotImplementedError
-                    self._entries[p.name].connect('changed', lambda ent: self.emit('changed', p.name))
+                    self._entries[p.name].connect('changed', lambda ent, n: self.emit('changed', n), p.name)
                     self._entries[p.name].set_filename(self.objwithgui.get_property(p.name))
+                elif self.objwithgui._OWG_entrytypes[p.name] == OWG_Param_Type.ListOfStrings:
+                    if self.objwithgui._get_OWG_hint(p.name, OWG_Hint_Type.Editable):
+                        self._entries[p.name] = Gtk.ComboBoxText.new_with_entry()
+                    else:
+                        self._entries[p.name] = Gtk.ComboBoxText()
+                    choiceslist = self.objwithgui._get_OWG_hint(p.name, OWG_Hint_Type.ChoicesList)
+                    currval = self.objwithgui.get_property(p.name)
+                    if currval not in choiceslist:
+                        choiceslist.insert(0, currval)
+                    for i, ch in enumerate(choiceslist):
+                        self._entries[p.name].append_text(ch)
+                        if ch == currval:
+                            self._entries[p.name].set_active(i)
+                    self._entries[p.name].connect('changed', lambda ent, n: self.emit('changed', n), p.name)
                 else:
                     self._entries[p.name] = Gtk.Entry()
                     self._entries[p.name].set_text(self.objwithgui.get_property(p.name))
-                    self._entries[p.name].connect('changed', lambda ent: self.emit('changed', p.name))
+                    self._entries[p.name].connect('changed', lambda ent, n: self.emit('changed', n), p.name)
                     logger.warning('ToDo: the type of this entry (%s) is not yet supported, using simple Gtk.Entry()' % self.objwithgui._OWG_entrytypes[p.name])
                 self.attach(self._entries[p.name], 1, 2, row, row + 1)
             row += 1
@@ -95,8 +112,10 @@ class ObjSetupTable(Gtk.Table):
         if prop.name in self._entries:
             self.revert_changes(keep_changed=True)
     def do_changed(self, propname):
+        logger.debug('OWG_Table. Changed: ' + propname)
         self._changed.add(propname)
     def revert_changes(self, keep_changed=False):
+        logger.debug('OWG-revert-changes(' + str(keep_changed) + ')')
         for pname in self._entries:
             if keep_changed and (pname in self._changed):
                 continue
@@ -108,11 +127,24 @@ class ObjSetupTable(Gtk.Table):
                 self._entries[pname].set_text(self.objwithgui.get_property(pname))
             elif isinstance(self._entries[pname], FileEntryWithButton):
                 self._entries[pname].set_filename(self.objwithgui.get_property(pname))
+            elif isinstance(self._entries[pname], Gtk.ComboBoxText):
+                currval = self.objwithgui.get_property(pname)
+                print self._entries[pname]
+                print self._entries[pname].get_model()
+                
+                for i, ch in enumerate([x[0] for x in self._entries[pname].get_model()]):
+                    if ch == currval:
+                        self._entries[pname].set_active(i)
+                        break
+                if ch != currval:
+                    self._entries[pname].append_text(currval)
+                    self._entries[pname].set_active(i + 1)
             else:
                 raise NotImplementedError
         self._changed = set()
         self.emit('revert')
     def apply_changes(self):
+        logger.debug('OWG-apply-changes')
         for pname in self._entries:
             if isinstance(self._entries[pname], Gtk.CheckButton):
                 value = self._entries[pname].get_active()
@@ -122,6 +154,8 @@ class ObjSetupTable(Gtk.Table):
                 value = self._entries[pname].get_text()
             elif isinstance(self._entries[pname], FileEntryWithButton):
                 value = self._entries[pname].get_filename()
+            elif isinstance(self._entries[pname], Gtk.ComboBoxText):
+                value = self._entries[pname].get_active_text()
             else:
                 raise NotImplementedError
             if self.objwithgui.get_property(pname) != value:
@@ -133,7 +167,7 @@ class ObjWithGUI(GObject.GObject):
     _OWG_nogui_props = []
     _OWG_nosave_props = []
     _OWG_entrytypes = {}
-    _OWG_hints = {'__default__':{OWG_Hint_Type.Digits:4}}
+    _OWG_hints = {'__default__':{OWG_Hint_Type.Digits:4, OWG_Hint_Type.Editable:False, OWG_Hint_Type.ChoicesList:[]}}
     def __init__(self):
         GObject.GObject.__init__(self)
         self._OWG_entrytypes = self._OWG_entrytypes.copy()
@@ -202,4 +236,6 @@ class ObjWithGUI(GObject.GObject):
             if p.name in self._OWG_nosave_props:
                 continue
             configparser.set(self._get_classname(), p.name, self.get_property(p.name))
+    def _get_classname(self):
+        return self.__class__.__name__
         

@@ -49,7 +49,7 @@ class TMCM351(Instrument_TCP):
         GObject.idle_add(self._check_queue)
         try:
             major, minor = self.get_version()
-            logger.info('Connected TMCM module has a firmware version: %d.%d' % (major, minor))
+            logger.info('Firmware version of the connected TMCM module is: %d.%d' % (major, minor))
         except MotorError:
             self.disconnect_from_controller(False)
             raise
@@ -138,7 +138,7 @@ class TMCM351(Instrument_TCP):
         else:
             cmd = None
         # logger.debug('Sending message to TMCM351: 0x' + ''.join('%x' % ord(x) for x in cmd))
-        for i in reversed(range(self.send_recv_retries)):
+        for i in reversed(range(self.send_recv_retries)):  # self.send_recv_retries-1 to 0.
             try:
                 result = self.send_and_receive(cmd, True)
                 value = self.interpret_message(result, instruction)
@@ -146,7 +146,7 @@ class TMCM351(Instrument_TCP):
             except Exception as exc:
                 if not i:  # all retries exhausted
                     raise exc
-                logger.warning('Communication error: ' + exc.message + '; retrying (%d retries left)' % i)
+                logger.warning('Communication error: ' + exc.message + '(type: ' + str(type(exc)) + '); retrying (%d retries left)' % i)
         # logger.debug('Got message from TMCM351: 0x' + ''.join('%x' % ord(x) for x in result) + '; interpreted value: ' + str(value))
         # logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
         # validate checksum, but only if the command is not the get version command.

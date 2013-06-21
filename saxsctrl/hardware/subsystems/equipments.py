@@ -7,7 +7,7 @@ from ..instruments.genix import Genix
 from ..instruments.tmcl_motor import TMCM351
 from ..instruments.vacgauge import VacuumGauge
 from ..instruments.instrument import InstrumentError
-
+from gi.repository import Gtk
 from gi.repository import GObject
 
 __all__ = ['SubSystemEquipments']
@@ -29,9 +29,10 @@ class SubSystemEquipments(SubSystem):
                       'vacgauge':VacuumGauge,
 #                      'haakephoenix':{'class':None, 'port':2002, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
                       }
-    configfilename = GObject.property(type=str, default='equipments.conf', blurb='Config file name')
     def __init__(self, credo):
         SubSystem.__init__(self, credo)
+        if not self.configfile:
+            self.configfile = 'equipments.conf'
         self._list = dict([(n, self.__equipments__[n]()) for n in self.__equipments__])
         self._equipment_connections = {}
         for eq in self._list:
@@ -39,7 +40,6 @@ class SubSystemEquipments(SubSystem):
             self._equipment_connections[eq] = [equip.connect('connect-equipment', self._equipment_connect),
                                                equip.connect('disconnect-equipment', self._equipment_disconnect),
                                                equip.connect('idle', self._equipment_idle)]
-        
     def is_idle(self):
         return all(eq.is_idle() for eq in self)
     def known_equipments(self):
@@ -139,7 +139,7 @@ class SubSystemEquipments(SubSystem):
     def savestate(self, configparser):
         SubSystem.savestate(self, configparser)
         cp = ConfigParser.ConfigParser()
-        cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfilename)
+        cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)
         cp.read(cffn)
         for eq in self:
             eq.savestate(cp)
@@ -148,7 +148,26 @@ class SubSystemEquipments(SubSystem):
     def loadstate(self, configparser):
         SubSystem.loadstate(self, configparser)
         cp = ConfigParser.ConfigParser()
-        cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfilename)
+        logger.debug('SubSystemEquipments.loadstate: ' + self.configfile)
+        cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)
         cp.read(cffn)
         for eq in self:
             eq.loadstate(cp)
+    def create_setup_table(self, homogeneous=False):
+        tab = SubSystem.create_setup_table(self, homogeneous)
+        row, ncols = tab.get_size()
+        f = Gtk.Frame(label='Equipments:')
+        tab.attach(f, 0, ncols, row, row + 1)
+        grid = Gtk.Grid()
+        f.add(grid)
+        for i, eqname in enumerate(self.known_equipments()):
+            b = Gtk.Button(label=eqname.capitalize())
+            b.connect('clicked', lambda b, eq, tab: self._setup_dialog_equipment(eq, tab), eqname, tab)
+            grid.attach(b, i % 6, i / 6, 1, 1)
+        return tab
+    def _setup_dialog_equipment(self, eqname, tab):
+        dia = self.get(eqname).create_setup_dialog(parent=tab.get_toplevel(), flags=Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL)
+        while dia.run() in (Gtk.ResponseType.REJECT, Gtk.ResponseType.APPLY):
+            pass
+        dia.destroy()
+        del dia

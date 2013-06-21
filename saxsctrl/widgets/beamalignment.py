@@ -9,14 +9,14 @@ from ..hardware import sample
 import logging
 import sastool
 from .spec_filechoosers import FileEntryWithButton
-from .widgets import ToolDialog, ExposureInterface
+from .widgets import ToolDialog
 import multiprocessing
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class BeamAlignment(ToolDialog, ExposureInterface):
+class BeamAlignment(ToolDialog):
     _images_pending = []
     def __init__(self, credo, title='Beam alignment'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
@@ -34,6 +34,7 @@ class BeamAlignment(ToolDialog, ExposureInterface):
         self.samplename_entry.set_text('-- please fill --')
         tab.attach(self.samplename_entry, 1, 2, row, row + 1)
         row += 1
+
 
         l = Gtk.Label(label='Exposure time (s):'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)

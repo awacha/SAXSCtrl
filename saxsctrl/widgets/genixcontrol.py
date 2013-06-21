@@ -6,9 +6,9 @@ from gi.repository import Gdk
 import logging
 import multiprocessing
 
-from widgets import StatusLabel
+from .widgets import StatusLabel, ToolDialog
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 
@@ -120,14 +120,13 @@ class GenixStatus(Gtk.Frame):
             
         return status
                     
-class GenixControl(Gtk.Dialog):
+class GenixControl(ToolDialog):
     _timeout_handler = None
     _aux_timeout_handler = None
     error_handler = None
-    def __init__(self, credo=None, title='GeniX3D control', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=None):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_resizable(False)
-        self.credo = credo
+    __gsignals__ = {'response':'override'}
+    def __init__(self, credo, title='GeniX3D control'):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         vbox = self.get_content_area()
         sw = Gtk.ScrolledWindow()
         sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
@@ -264,14 +263,6 @@ class GenixControl(Gtk.Dialog):
                 self.shutterbutton.set_label('Close shutter')
             else:
                 self.shutterbutton.set_label('Open shutter')
-            
-if __name__ == '__main__':
-    gcont = GenixControl()
-    gcont.show_all()
-    try:
-        __IPYTHON__
-    except NameError:
-        def func(*args, **kwargs):
-            Gtk.main_quit()
-        gcont.connect('delete-event', func)
-        Gtk.main()
+    def do_response(self, respid):
+        self.hide()        
+

@@ -98,7 +98,7 @@ class SubSystemSamples(SubSystem):
         return sam
     def get(self):
         return self._selected
-    def clear_samples(self):
+    def clear(self):
         self._list = []
         self._selected = None
         self.emit('changed')

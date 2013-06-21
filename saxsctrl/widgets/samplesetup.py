@@ -8,20 +8,11 @@ from gi.repository import GObject
 # import cPickle as pickle
 import os
 import ConfigParser
-
-RESPONSE_SAVE = 1
-RESPONSE_CLEAR = 2
-RESPONSE_LOAD = 3
-RESPONSE_REFRESH = 4
-RESPONSE_ADD = 5
-RESPONSE_REMOVE = 6
-RESPONSE_DUPLICATE = 7
-RESPONSE_EDIT = 8
-RESPONSE_CLOSE = 9
+from .widgets import ToolDialog
 
 
 class SampleSetup(Gtk.Dialog):
-    def __init__(self, title='Define sample', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+    def __init__(self, title='Edit sample', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
         vb = self.get_content_area()
@@ -135,22 +126,42 @@ class SampleSetup(Gtk.Dialog):
         self._changelist = []
         return sam
         
-class SampleListDialog(Gtk.Dialog):
-    def __init__(self, credo, title='Sample configuration', parent=None, flags=0, buttons=(
-                                                                                           Gtk.STOCK_SAVE, RESPONSE_SAVE,
-                                                                                           Gtk.STOCK_OPEN, RESPONSE_LOAD,
-                                                                                           Gtk.STOCK_CLEAR, RESPONSE_CLEAR,
-                                                                                           Gtk.STOCK_ADD, RESPONSE_ADD,
-                                                                                           Gtk.STOCK_EDIT, RESPONSE_EDIT,
-                                                                                           Gtk.STOCK_REMOVE, RESPONSE_REMOVE,
-                                                                                           Gtk.STOCK_COPY, RESPONSE_DUPLICATE,
-                                                                                           Gtk.STOCK_REFRESH, RESPONSE_REFRESH,
-                                                                                           Gtk.STOCK_CLOSE, RESPONSE_CLOSE,
-                                                                                           )):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_default_response(Gtk.ResponseType.OK)
-        self.credo = credo
+class SampleListDialog(ToolDialog):
+    __gsignals__ = {'response':'override'}
+    def __init__(self, credo, title='Sample configuration'):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY))
+        self.set_default_response(Gtk.ResponseType.CLOSE)
+        self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         vb = self.get_content_area()
+        
+        tbar = Gtk.Toolbar()
+        vb.pack_start(tbar, False, True, 0)
+        
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_NEW)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self.add_sample())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_SAVE)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_save())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_OPEN)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_load())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_EDIT)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_edit())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_REMOVE)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_remove())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_CLEAR)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_clear())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_COPY)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_duplicate())
+        tb = Gtk.ToolButton(stock_id=Gtk.STOCK_REFRESH)
+        tbar.add(tb)
+        tb.connect('clicked', lambda tb:self._tool_refresh())
+        
         sw = Gtk.ScrolledWindow()
         sw.set_size_request(400, 300)
         vb.pack_start(sw, False, True, 0)
@@ -187,7 +198,8 @@ class SampleListDialog(Gtk.Dialog):
         self.sampletreeview.set_rules_hint(True)
         
         self.from_credo()
-        self.connect('response', self.on_response)
+    def _changed(self):
+        self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
     def add_sample(self, sam=None, index=None):
         if sam is None:
             sam = sample.SAXSSample('-- no title --', preparedby=self.credo.username)
@@ -196,6 +208,7 @@ class SampleListDialog(Gtk.Dialog):
         else:
             self.sampleliststore.append(('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
         self.update_liststore()
+        self._changed()
     def update_liststore(self):
         for row in self.sampleliststore:
             row[0] = row[-1].title
@@ -206,52 +219,67 @@ class SampleListDialog(Gtk.Dialog):
             row[5] = row[-1].positiony
             row[6] = row[-1].distminus
             row[7] = unicode(row[-1].transmission)
-    def on_response(self, dialog, respid):
-        if respid == RESPONSE_CLOSE:
-            self.hide()
-        elif respid == RESPONSE_SAVE:
-            self.to_credo()
-            self.credo.save_samples()
-        elif respid == RESPONSE_LOAD:
-            self.credo.load_samples()
-            self.from_credo()
-        elif respid == RESPONSE_CLEAR:
-            self.sampleliststore.clear()
-        elif respid == RESPONSE_REFRESH:
-            self.from_credo()
-        elif respid == RESPONSE_ADD:
-            self.add_sample()
-        elif respid == RESPONSE_REMOVE:
-            sel = self.sampletreeview.get_selection().get_selected()
-            if sel[1] is not None:
-                sel[0].remove(sel[1])
-        elif respid == RESPONSE_DUPLICATE:
-            sel = self.sampletreeview.get_selection().get_selected()
-            if sel[1] is not None:
-                sam = sel[0][sel[1]][-1]
-                sam = sample.SAXSSample(sam)
-                sam.title = 'Copy of ' + sam.title
-                self.add_sample(sam, sel[1])
-        elif respid == RESPONSE_EDIT:
-            sel = self.sampletreeview.get_selection().get_selected()
-            if sel[1] is not None:
-                ssd = SampleSetup('Edit sample', self, Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT)
-                ssd.set_sample(sel[0][sel[1]][-1])
-                resp = ssd.run()
-                if resp == Gtk.ResponseType.OK:
-                    sel[0][sel[1]][-1] = ssd.update_sample(sel[0][sel[1]][-1])
-                    self.update_liststore()
-                ssd.destroy()
-            pass
+    def _tool_remove(self):
+        model, it = self.sampletreeview.get_selection().get_selected()
+        if it is not None:
+            model.remove(it)
+            self._changed()
+    def _tool_duplicate(self):
+        model, it = self.sampletreeview.get_selection().get_selected()
+        if it is not None:
+            sam = model[it][-1]
+            sam = sample.SAXSSample(sam)
+            sam.title = 'Copy of ' + sam.title
+            self.add_sample(sam, it)
+    def _tool_load(self):                
+        self.credo.subsystems['Samples'].load()
+        self.from_credo()
+    def _tool_save(self):
         self.to_credo()
+        self.credo.subsystems['Samples'].save()
+        md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, 'Samples saved to file: ' + self.credo.subsystems['Samples'].configfile)
+        md.run()
+        md.destroy()
+        del md
+        
+    def _tool_clear(self):
+        self.sampleliststore.clear()
+        self._changed()
+    def _tool_refresh(self):
+        self.from_credo()
+    def _tool_edit(self):
+        sel = self.sampletreeview.get_selection().get_selected()
+        if sel[1] is not None:
+            ssd = SampleSetup('Edit sample', self, Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT)
+            ssd.set_sample(sel[0][sel[1]][-1])
+            resp = ssd.run()
+            if resp == Gtk.ResponseType.OK:
+                sel[0][sel[1]][-1] = ssd.update_sample(sel[0][sel[1]][-1])
+                self.update_liststore()
+            ssd.destroy()
+            self._changed()
+        
+    def do_response(self, respid):
+        if respid in(Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+            if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_sensitive():
+                md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.YES_NO, 'You have unsaved modifications. Do you want to apply them?')
+                if md.run() == Gtk.ResponseType.YES:
+                    self.to_credo()
+                md.destroy()
+                del md
+            self.hide()
+        if respid == Gtk.ResponseType.APPLY:
+            self.to_credo()
     def to_credo(self):
-        self.credo.clear_samples()
+        self.credo.subsystems['Samples'].clear()
         for row in self.sampleliststore:
-            self.credo.add_sample(row[-1])
+            self.credo.subsystems['Samples'].add(row[-1])
+        self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
     def from_credo(self):
         self.sampleliststore.clear()
-        for sam in self.credo.get_samples():
+        for sam in self.credo.subsystems['Samples']:
             self.add_sample(sam)
+        self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
             
 class SampleSelector(Gtk.ComboBoxText):
     __gsignals__ = {'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),

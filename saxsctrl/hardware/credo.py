@@ -55,7 +55,7 @@ class Credo(objwithgui.ObjWithGUI):
     beamposx = GObject.property(type=float, default=348.38, blurb='Beam position X (vertical, pixels)')
     beamposy = GObject.property(type=float, default=242.47, blurb='Beam position Y (horizontal, pixels')
     wavelength = GObject.property(type=float, default=1.54182, minimum=0, blurb='X-ray wavelength (Å)')
-    
+    default_mask = GObject.property(type=str, default='mask.mat', blurb='Default mask file')
     # Inhibiting parameters
     shuttercontrol = GObject.property(type=bool, default=True, blurb='Open/close shutter')
     motorcontrol = GObject.property(type=bool, default=True, blurb='Move motors')
@@ -81,6 +81,8 @@ class Credo(objwithgui.ObjWithGUI):
         self._OWG_hints['dist'] = {objwithgui.OWG_Hint_Type.OrderPriority:3, objwithgui.OWG_Hint_Type.Digits:3}
         self._OWG_hints['pixelsize'] = {objwithgui.OWG_Hint_Type.OrderPriority:4}
         self._OWG_hints['wavelength'] = {objwithgui.OWG_Hint_Type.OrderPriority:5, objwithgui.OWG_Hint_Type.Digits:4}
+        self._OWG_hints['default-mask'] = {objwithgui.OWG_Hint_Type.OrderPriority:5, objwithgui.OWG_Hint_Type.Digits:5}
+        self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
         self._OWG_hints['shuttercontrol'] = {objwithgui.OWG_Hint_Type.OrderPriority:6}
         self._OWG_hints['motorcontrol'] = {objwithgui.OWG_Hint_Type.OrderPriority:6}
         self._OWG_hints['bs-in'] = {objwithgui.OWG_Hint_Type.OrderPriority:7, objwithgui.OWG_Hint_Type.Digits:3}
@@ -130,7 +132,9 @@ class Credo(objwithgui.ObjWithGUI):
             self.files.filebegin = self.filebegin
         if param.name == 'ndigits':
             self.files.ndigits = self.ndigits
-    
+        if param.name == 'default-mask':
+            if not os.path.isabs(self.default_mask):
+                self.default_mask = os.path.join(self.subsystems['Files'].rootpath, self.default_mask)
     def get_equipment(self, equipment):
         return self.subsystems['Equipments'].get(equipment)
     def get_motors(self):

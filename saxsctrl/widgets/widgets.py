@@ -41,7 +41,7 @@ class ToolDialog(Gtk.Dialog):
     def __init__(self, credo, title, parent=None, flags=0, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.credo = credo
-        self.set_resizable(False)
+        # self.set_resizable(False)
     
 class ExposureInterface(object):
     def start_exposure(self, exptime, nimages=1, dwelltime=0.003, header_template={}, sensitive=[], insensitive=[]):

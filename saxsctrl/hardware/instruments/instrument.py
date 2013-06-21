@@ -41,11 +41,10 @@ class Instrument(objwithgui.ObjWithGUI):
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
     def __init__(self):
-        self._OWG_nosave_props = ['status']
+        self._OWG_nosave_props.append('status')
+        self._OWG_nogui_props.append('status')
         objwithgui.ObjWithGUI.__init__(self)
         self.configfile = os.path.expanduser('~/.config/credo/' + self._get_classname() + '.conf')
-    def _get_classname(self):
-        return self.__class__.__name__
     def connect_to_controller(self):
         """Connect to the controller. The actual connection parameters (e.g. host, port etc.) 
         to be used should be implemented as GObject properties. This should work as follows:

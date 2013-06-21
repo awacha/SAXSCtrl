@@ -22,13 +22,15 @@ class DataViewer(Gtk.Dialog):
         self.datareduction = None
         vb = self.get_content_area()
         
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(hb, False, True, 0)
         es = ExposureSelector(self.credo)
         es.connect('open', self._exposure_open)
-        vb.pack_start(es, False, True, 0)
+        hb.pack_start(es, True, True, 0)
         
         
         f = Gtk.Frame(label='Currently loaded:')
-        vb.pack_start(f, False, True, 0)
+        hb.pack_start(f, True, True, 0)
         tab = Gtk.Table()
         f.add(tab)
         
@@ -39,7 +41,7 @@ class DataViewer(Gtk.Dialog):
             tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
             self._labels[labelname] = Gtk.Label('<none>')
             self._labels[labelname].set_alignment(0, 0.5)
-            tab.attach(self._labels[labelname], 1, 2, row, row + 1)
+            tab.attach(self._labels[labelname], 1, 2, row, row + 1, xpadding=5)
             row += 1
         b = Gtk.Button(label='Data reduction...')
         tab.attach(b, 2, 3, 0, row, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
@@ -48,7 +50,7 @@ class DataViewer(Gtk.Dialog):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._labels['maskid'] = Gtk.Label('<none>')
         self._labels['maskid'].set_alignment(0, 0.5)
-        tab.attach(self._labels['maskid'], 1, 2, row, row + 1)
+        tab.attach(self._labels['maskid'], 1, 2, row, row + 1, xpadding=5)
 
         hbb = Gtk.HButtonBox()
         tab.attach(hbb, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
