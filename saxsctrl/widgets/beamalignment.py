@@ -11,6 +11,7 @@ import sastool
 from .spec_filechoosers import FileEntryWithButton
 from .widgets import ToolDialog
 import multiprocessing
+from .exposure import ExposureFrame
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -28,32 +29,20 @@ class BeamAlignment(ToolDialog):
         vb.pack_start(tab, False, True, 0)
         row = 0
         
-        l = Gtk.Label(label='Measurement name:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Comment:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.samplename_entry = Gtk.Entry()
-        self.samplename_entry.set_text('-- please fill --')
-        tab.attach(self.samplename_entry, 1, 2, row, row + 1)
+        self.comment_entry = Gtk.Entry()
+        self.comment_entry.set_text('-- please fill --')
+        tab.attach(self.comment_entry, 1, 2, row, row + 1)
         row += 1
 
-
-        l = Gtk.Label(label='Exposure time (s):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.1, 0, 100, 0.1, 1), digits=4)
-        tab.attach(self.exptime_entry, 1, 2, row, row + 1)
+        self.exposure_frame = ExposureFrame(self.credo, 'test')
+        tab.attach(self.exposure_frame, 0, 2, row, row + 1)
+        self.exposure_frame.connect('started', self._on_start)
+        self.exposure_frame.connect('end', self._on_end)
+        self.exposure_frame.connect('image', self._on_image)
         row += 1
 
-        l = Gtk.Label(label='Number of exposures:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 10000, 1, 10), digits=0)
-        tab.attach(self.nimages_entry, 1, 2, row, row + 1)
-        row += 1
-        
-        l = Gtk.Label(label='Initial mask:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.mask_entry = FileEntryWithButton(currentfolder=self.credo.maskpath)
-        tab.attach(self.mask_entry, 1, 2, row, row + 1)
-        row += 1
-        
         self.plot_checkbutton = Gtk.CheckButton('Plot after exposure')
         self.plot_checkbutton.set_alignment(0, 0.5)
         tab.attach(self.plot_checkbutton, 0, 2, row, row + 1)
@@ -138,59 +127,56 @@ class BeamAlignment(ToolDialog):
         ax = sasgui.PlotSASImageWindow.get_current_plot().get_axes().axis()
         for sb, val in zip([self.pri_left_entry, self.pri_right_entry, self.pri_bottom_entry, self.pri_top_entry], ax):
             sb.set_value(val)
+    def _on_start(self, expframe):
+        for w in [self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)]:
+            w.set_sensitive(False)
+        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
+        
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK:
             if self.beamposframe.get_sensitive():
-                self.credo.set_sample(sample.SAXSSample(self.samplename_entry.get_text()))
-                self.credo.set_fileformat('beamtest', 5)
+                self.credo.subsystems['Samples'].set(None)
                 self._images_pending = []
-                self.start_exposure(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(),
-                                    insensitive=[self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)])
-                self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
+                self.exposure_frame.execute({'Comment':self.comment_entry.get_text()})
             else:
-                self.credo.killexposure()
+                self.exposure_frame.kill()
         else:
             self.hide()
         return True
     def get_beamarea(self):
         return (self.pri_top_entry.get_value(), self.pri_bottom_entry.get_value(), self.pri_left_entry.get_value(), self.pri_right_entry.get_value()) 
-    def on_exposure_end(self, credo, state):
-        ExposureInterface.on_exposure_end(self, credo, state)
+    def _on_end(self, expframe, status):
+        for w in [self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)]:
+            w.set_sensitive(True)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
         logger.debug('last image received, analyzing images.')
-        try:
-            mask = sastool.classes.SASMask(self.mask_entry.get_filename())
-        except IOError:
-            mask = sastool.classes.SASMask(self._images_pending[0].shape)
         pri = self.get_beamarea()
-        if (pri[0] - pri[1]) * (pri[2] - pri[3]) == 0:
-            pass  # do not touch the base mask
-        else:
-            mask1 = sastool.classes.SASMask(self._images_pending[0].shape)
-            mask1.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
-            mask &= mask1
-            del mask1
         
         if self.threshold_checkbutton.get_active():
             threshold = self.threshold_entry.get_value()
         else:
             threshold = None
         beampos = []
+        if (pri[0] - pri[1]) * (pri[2] - pri[3]) != 0:
+            mask1 = sastool.classes.SASMask(self._images_pending[0].shape)
+            mask1.edit_rectangle(pri[0], pri[2], pri[1], pri[3], whattodo='unmask')
         for ex in self._images_pending:
+            if (pri[0] - pri[1]) * (pri[2] - pri[3]) != 0:
+                ex.mask &= mask1
             try:
                 if threshold is not None:
                     beampos.append(ex.find_beam_semitransparent(pri, threshold))
                 else:
-                    beampos.append(ex.barycenter(mask=mask))
+                    beampos.append(ex.barycenter())
             except Exception, err:
                 logger.error('Beam finding error: ' + err.message)
         bcx = [b[0] for b in beampos]
         bcy = [b[1] for b in beampos]
-        Imax = [ex.max(mask=mask) for ex in self._images_pending]
-        Isum = [ex.sum(mask=mask) for ex in self._images_pending]
-        Imean = [ex.mean(mask=mask) for ex in self._images_pending]
-        Istd = [ex.std(mask=mask) for ex in self._images_pending]
-        sigma = [ex.sigma(mask=mask) for ex in self._images_pending]
+        Imax = [ex.max() for ex in self._images_pending]
+        Isum = [ex.sum() for ex in self._images_pending]
+        Imean = [ex.mean() for ex in self._images_pending]
+        Istd = [ex.std() for ex in self._images_pending]
+        sigma = [ex.sigma() for ex in self._images_pending]
         sigmax = [s[0] for s in sigma]
         sigmay = [s[1] for s in sigma]
         sigmatot = [(s[0] ** 2 + s[1] ** 2) ** 0.5 for s in sigma]
@@ -203,7 +189,7 @@ class BeamAlignment(ToolDialog):
         self._images_pending = []
         gc.collect()
             
-    def on_exposure_done(self, credo, imgdata):
+    def _on_image(self, expframe, imgdata):
         pri = (self.pri_top_entry.get_value(),
                self.pri_bottom_entry.get_value(),
                self.pri_left_entry.get_value(),

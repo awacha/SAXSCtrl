@@ -8,7 +8,6 @@ from .spec_filechoosers import MaskChooserDialog
 from .exposureselector import ExposureSelector
 import datetime
 from .data_reduction_setup import DataRedSetup, PleaseWaitDialog
-from ..hardware.subsystems.datareduction import DataReduction
 import qrcode
 
 class DataViewer(Gtk.Dialog):
@@ -109,7 +108,7 @@ class DataViewer(Gtk.Dialog):
             return
         exposure = self.plot2d.exposure
         if self.datareduction is None:
-            self.datareduction = DataReduction(self.credo.datareduction)
+            self.datareduction = self.credo.subsystems['DataReduction']
             self._dataredsetup = DataRedSetup(self, 'Data reduction parameters for ' + str(exposure.header), buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
         self._dataredsetup.present()
         resp = self._dataredsetup.run()

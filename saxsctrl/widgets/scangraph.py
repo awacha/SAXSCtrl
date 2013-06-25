@@ -17,7 +17,7 @@ class ScanGraph(Gtk.Dialog):
         hb = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, True, True, 0)
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.add1(vb)
+        hb.pack1(vb, True, True,)
         vb.pack_start(self.figcanvas, True, True, 0)
         self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
         vb.pack_start(self.figtoolbar, False, True, 0)
@@ -30,23 +30,28 @@ class ScanGraph(Gtk.Dialog):
         self.xname = self.scan.get_dataname('x')
         self.xlabel(self.xname)
         
-        ls = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_FLOAT)
+        ls = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_FLOAT)
         self.scalertreeview = Gtk.TreeView(ls)
         cr = Gtk.CellRendererText()
         self.scalertreeview.append_column(Gtk.TreeViewColumn('Name', cr, text=0))
+        cr = Gtk.CellRendererToggle()
+        cr.set_activatable(True)
+        cr.connect('toggled', self.on_cell_toggled)
+        self.scalertreeview.append_column(Gtk.TreeViewColumn('Visible', cr, active=1))
         cr = Gtk.CellRendererSpin()
         cr.set_property('adjustment', Gtk.Adjustment(0, -1e9, 1e9, 1, 10, 0))
         cr.set_property('digits', 1)
         cr.set_property('editable', True)
         cr.connect('edited', self.on_cell_edited)
-        tvc = Gtk.TreeViewColumn('Scaling', cr, text=1)
+        tvc = Gtk.TreeViewColumn('Scaling', cr, text=2)
         tvc.set_min_width(30)
         tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)     
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.add2(vb)
+        hb.pack2(vb, False, False)
         vb.set_size_request(100, -1)
+        hb.set_size_request(740, -1)
         vb.pack_start(self.scalertreeview, True, True, 0)
         self.currvallabels = {}
         for col in self.scan.columns():
@@ -55,6 +60,7 @@ class ScanGraph(Gtk.Dialog):
             self.currvallabels[col] = Gtk.Label('--')
             f.add(self.currvallabels[col])
         self.connect('response', self.on_response)
+        self.set_scalers(None)
     def on_response(self, myself, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.destroy()
@@ -73,18 +79,23 @@ class ScanGraph(Gtk.Dialog):
         self.fig.text(*args, **kwargs)
     def gca(self):
         return self.fig.gca()
-    def redraw_scan(self):
+    def redraw_scan(self, full=False):
         if self.scan is None:
             return
         mod = self.scalertreeview.get_model()
         x = self.scan[self.xname]
         if not self.gca().lines:
+            full = True
+        if full:
+            self.gca().cla()
             for col in self.datacols:
                 try:
-                    scale = [m[1] for m in mod if m[0] == col][0]
+                    scale = [m[2] for m in mod if m[0] == col][0]
+                    visible = [m[1] for m in mod if m[0] == col][0]
                 except IndexError:
                     scale = None
-                if scale is None: continue
+                    visible = False
+                if not visible: continue
                 self.gca().plot(x, self.scan[col] * scale, '.-', label=col)
         else:
             miny = np.inf
@@ -92,10 +103,12 @@ class ScanGraph(Gtk.Dialog):
             for l in self.gca().lines:
                 l.set_xdata(x)
                 try:
-                    scale = [m[1] for m in mod if m[0] == l.get_label()][0]
+                    scale = [m[2] for m in mod if m[0] == l.get_label()][0]
+                    visible = [m[1] for m in mod if m[0] == l.get_label()][0]
                 except IndexError:
                     scale = None
-                if scale is None: continue
+                    visible = False
+                if not visible: continue
                 
                 y = self.scan[l.get_label()] * scale 
                 l.set_ydata(y)
@@ -109,13 +122,23 @@ class ScanGraph(Gtk.Dialog):
         self.fig.canvas.draw()
         for c in self.currvallabels:
             self.currvallabels[c].set_label('%f' % self.scan[c][-1])
-    def set_scalers(self, scalerlist):
+    def set_scalers(self, scalerlist=None):
         mod = self.scalertreeview.get_model()
         mod.clear()
-        for name, scaling in scalerlist:
-            if scaling is not None:
-                mod.append((name, float(scaling)))
+        if scalerlist is None:
+            for name in self.scan.columns()[1:]:
+                mod.append((name, True, 1.0))
+        else:
+            for name, visible, scaling in scalerlist:
+                mod.append((name, visible, float(scaling)))
     def on_cell_edited(self, renderer, path, new_text):
-        self.scalertreeview.get_model()[path][1] = float(new_text)
-        self.redraw_scan()
+        try:
+            self.scalertreeview.get_model()[path][2] = float(new_text)
+        except ValueError:
+            pass
+        else:
+            self.redraw_scan()
         return True
+    def on_cell_toggled(self, renderer, path):
+        self.scalertreeview.get_model()[path][1] ^= True
+        self.redraw_scan(full=True)

@@ -130,6 +130,9 @@ class RootWindow(Gtk.Window):
             menus[mname] = Gtk.Menu()
             mi.set_submenu(menus[mname])   
         
+        mi = Gtk.ImageMenuItem(label='Save settings')
+        menus['File'].append(mi)
+        mi.connect('activate', lambda menuitem:self.credo.savestate())
         mi = Gtk.ImageMenuItem.new_from_stock(Gtk.STOCK_QUIT, None)
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:Gtk.main_quit())
@@ -170,7 +173,6 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
                             Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Configuration'),
                             Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Configuration'),
-                            Tool(self.credo, 'Set-up scan', 'Set-up scan', scan.ScanSetup, 'Configuration'),
                             Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Configuration'),
                             Tool(self.credo, 'Set-up data reduction', 'Data reduction setup', data_reduction_setup.DataRedSetup, 'Configuration'),
                             Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', ['genix', 'pilatus']),
@@ -189,12 +191,28 @@ class RootWindow(Gtk.Window):
             menus[t.toolsection].append(mi)
         self.update_sensitivities()
         
+        ssetupmenuitem = Gtk.MenuItem(label='Subsystems...')
+        menus['Configuration'].append(ssetupmenuitem)
+        sm = Gtk.Menu()
+        ssetupmenuitem.set_submenu(sm)
+        
+        for ss in sorted(self.credo.subsystems):
+            mi = Gtk.MenuItem(label=ss)
+            sm.append(mi)
+            mi.connect('activate', lambda menuitem, ssname:self._run_subsystem_setup(ssname), ss)
+        
         f = Gtk.Frame(label='Log')
         vb.pack_start(f, True, True, 0)
         
         f.add(self.logdisplay)
         self.update_statuslabels()
         GObject.timeout_add_seconds(1, self.update_statuslabels)
+    def _run_subsystem_setup(self, ssname):
+        dia = self.credo.subsystems[ssname].create_setup_dialog(title='Set-up %s subsystem' % ssname)
+        while dia.run() not in [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.DELETE_EVENT]:
+            pass
+        dia.destroy()
+        del dia
     def update_statuslabels(self):
         self._memusage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
         self.statuslabel_memory.set_text('%.1f MB' % (self._memusage / 1024))
@@ -207,6 +225,7 @@ class RootWindow(Gtk.Window):
         return False
     def do_destroy(self):
         logger.debug('Destroying root window.')
+        self.credo.savestate()
         for obj, c in self._connections:
             obj.disconnect(c)
         self._connections = []

@@ -5,8 +5,9 @@ import sastool
 from .spec_filechoosers import MaskChooserDialog
 from .nextfsn_monitor import NextFSNMonitor
 from .samplesetup import SampleSelector
-from .widgets import ExposureInterface
 import multiprocessing
+from .widgets import ToolDialog
+from .exposure import ExposureFrame
 
 logger = logging.getLogger(__name__)
 from gi.repository import GObject
@@ -16,12 +17,11 @@ import os
 from .data_reduction_setup import PleaseWaitInfoBar
 import qrcode
 
-class SingleExposure(Gtk.Dialog, ExposureInterface):
+class SingleExposure(ToolDialog):
     _filechooserdialogs = None
-    def __init__(self, credo, title='Single exposure', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+    def __init__(self, credo, title='Single exposure'):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         self.set_default_response(Gtk.ResponseType.OK)
-        self.credo = credo
         vb = self.get_content_area()
         
         self.entrytab = Gtk.Table()
@@ -35,34 +35,11 @@ class SingleExposure(Gtk.Dialog, ExposureInterface):
         self.entrytab.attach(self.sample_combo, 1, 2, row, row + 1)
         row += 1
         
-        l = Gtk.Label(label='Exposure time (sec):'); l.set_alignment(0, 0.5)
-        self.entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(60, 0.0001, 1e10, 1, 10), digits=4)
-        self.entrytab.attach(self.exptime_entry, 1, 2, row, row + 1)
-        row += 1
-
-        l = Gtk.Label(label='Number of exposures:'); l.set_alignment(0, 0.5)
-        self.entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 1e6, 1, 10), digits=0)
-        self.entrytab.attach(self.nimages_entry, 1, 2, row, row + 1)
-        row += 1
-        
-        l = Gtk.Label(label='Dwell time (sec):'); l.set_alignment(0, 0.5)
-        self.entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0.003, 1e10, 1, 10), digits=4)
-        self.entrytab.attach(self.dwelltime_entry, 1, 2, row, row + 1)
-        row += 1
-
-        
-        l = Gtk.Label(label='Mask:'); l.set_alignment(0, 0.5)
-        self.entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        hb = Gtk.HBox()
-        self.maskfile_entry = Gtk.Entry()
-        hb.pack_start(self.maskfile_entry, True, True, 0)
-        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
-        hb.pack_start(b, False, True, 0)
-        b.connect('clicked', self.on_loadmaskbutton, self.maskfile_entry, Gtk.FileChooserAction.OPEN)
-        self.entrytab.attach(hb, 1, 2, row, row + 1)
+        self.expframe = ExposureFrame(self.credo)
+        self.entrytab.attach(self.expframe, 0, 2, row, row + 1)
+        self.expframe.connect('started', self._on_start)
+        self.expframe.connect('end', self._on_end)
+        self.expframe.connect('image', self._on_image)
         row += 1
         
         self.datareduction_cb = Gtk.CheckButton('Carry out data reduction'); self.datareduction_cb.set_alignment(0, 0.5)
@@ -112,45 +89,19 @@ class SingleExposure(Gtk.Dialog, ExposureInterface):
         self.connect('response', self.on_response)
         self._datareduction = []
         self._expsleft = 0
-    def on_loadmaskbutton(self, button, entry, action):
-        if self._filechooserdialogs is None:
-            self._filechooserdialogs = {}
-        if entry not in self._filechooserdialogs:
-            
-            self._filechooserdialogs[entry] = MaskChooserDialog('Select mask file...', None, action, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
-            if self.credo is not None:
-                self._filechooserdialogs[entry].set_current_folder(self.credo.maskpath)
-        if entry.get_text():
-            self._filechooserdialogs[entry].set_filename(entry.get_text())
-        response = self._filechooserdialogs[entry].run()
-        if response == Gtk.ResponseType.OK:
-            entry.set_text(self._filechooserdialogs[entry].get_filename())
-        self._filechooserdialogs[entry].hide()
-        return True
+
     def on_response(self, dialog, respid):
         if respid == Gtk.ResponseType.OK:
             if self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == Gtk.STOCK_EXECUTE:
-                try:
-                    sastool.classes.SASMask(self.maskfile_entry.get_text())
-                except (NotImplementedError, IOError):
-                    md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, "Please select a valid mask!")
-                    md.run()
-                    md.destroy()
-                    del md
-                    return
                 sam = self.sample_combo.get_sample()
-                self.credo.set_sample(sam)
                 logger.info('Starting single exposure on sample: ' + str(sam))
+                self.credo.subsystems['Samples'].set(sam)
+                self.credo.subsystems['Samples'].moveto(blocking=True)
                 # make an exposure
-                self.credo.set_fileformat('crd', 5)
-                logger.debug('Calling credo.expose')
-                header_template = {'maskid':self.maskfile_entry.get_text()}
-                self.start_exposure(self.exptime_entry.get_value(), self.nimages_entry.get_value_as_int(), self.dwelltime_entry.get_value(), header_template=header_template,
-                                    insensitive=[self.entrytab, self.get_widget_for_response(Gtk.ResponseType.CLOSE)])
-                self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
+                self.expframe.execute()
             else:
                 # break the exposure
-                self.credo.killexposure()
+                self.expframe.kill()
         elif respid == Gtk.ResponseType.CLOSE:
             self.hide()
             return
@@ -177,10 +128,32 @@ class SingleExposure(Gtk.Dialog, ExposureInterface):
             return False
         self.datared_infobar.set_label_text(message)
         return True
-    def on_exposure_end(self, credo, state):
-        ExposureInterface.on_exposure_end(self, credo, state)
+    def _on_start(self, expframe):
+        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
+        for w in [self.entrytab]:
+            w.set_sensitive(False)
+        pass
+    def _on_end(self, expframe, state):
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
+        for w in [self.entrytab]:
+            w.set_sensitive(True)
+    def _on_image(self, expframe, exposure):
+        logger.debug('Image received.')
+        if self.datareduction_cb.get_active():
+            if not hasattr(self, 'datared_infobar'):
+                self.datared_infobar = PleaseWaitInfoBar()
+                self.get_content_area().pack_start(self.datared_infobar, False, False, 0)
+                self.get_content_area().reorder_child(self.datared_infobar, 0)
+                self.datared_infobar.show_all()
+                self._datared_connection = [self.credo.datareduction.connect('done', self.on_datareduction_done),
+                                            self.credo.datareduction.connect('message', self.on_datareduction_message)]
+            self._datareduction.append(self.credo.datareduction.do_reduction(exposure))
+            self.datared_infobar.set_n_jobs(len(self._datareduction))
+        else:
+            GObject.idle_add(self.plot_image, exposure)
+        
     def plot_image(self, exposure):
+        logger.debug('Plotting image.')
         if self.plot2D_checkbutton.get_active():
             if self.reuse2D_checkbutton.get_active():
                 win = sasgui.plot2dsasimage.PlotSASImageWindow.get_current_plot()
@@ -203,18 +176,3 @@ class SingleExposure(Gtk.Dialog, ExposureInterface):
             win.show_all()
             win.present()
         return False
-    def on_exposure_done(self, credo, exposure):
-        mask = sastool.classes.SASMask(self.maskfile_entry.get_text())
-        exposure.set_mask(mask)
-        if self.datareduction_cb.get_active():
-            if not hasattr(self, 'datared_infobar'):
-                self.datared_infobar = PleaseWaitInfoBar()
-                self.get_content_area().pack_start(self.datared_infobar, False, False, 0)
-                self.get_content_area().reorder_child(self.datared_infobar, 0)
-                self.datared_infobar.show_all()
-                self._datared_connection = [self.credo.datareduction.connect('done', self.on_datareduction_done),
-                                            self.credo.datareduction.connect('message', self.on_datareduction_message)]
-            self._datareduction.append(self.credo.datareduction.do_reduction(exposure))
-            self.datared_infobar.set_n_jobs(len(self._datareduction))
-        else:
-            GObject.idle_add(self.plot_image, exposure)

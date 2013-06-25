@@ -34,14 +34,10 @@ class Credo(objwithgui.ObjWithGUI):
     __gsignals__ = {'setup-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'shutter':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'equipment-connection':(GObject.SignalFlags.RUN_FIRST, None, (str, bool, object)),
-                    'scan-dataread':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'scan-end':(GObject.SignalFlags.RUN_FIRST, None, (object, bool)),
-                    'virtualpointdetectors-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'scan-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     'transmission-report':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object)),
                     'transmission-end':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object, bool)),
                     'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'notify':'override',
                    }
     
     # Accounting properties
@@ -55,7 +51,6 @@ class Credo(objwithgui.ObjWithGUI):
     beamposx = GObject.property(type=float, default=348.38, blurb='Beam position X (vertical, pixels)')
     beamposy = GObject.property(type=float, default=242.47, blurb='Beam position Y (horizontal, pixels')
     wavelength = GObject.property(type=float, default=1.54182, minimum=0, blurb='X-ray wavelength (Å)')
-    default_mask = GObject.property(type=str, default='mask.mat', blurb='Default mask file')
     # Inhibiting parameters
     shuttercontrol = GObject.property(type=bool, default=True, blurb='Open/close shutter')
     motorcontrol = GObject.property(type=bool, default=True, blurb='Move motors')
@@ -95,6 +90,7 @@ class Credo(objwithgui.ObjWithGUI):
         self.subsystems['Scan'] = subsystems.SubSystemScan(self)
         self.subsystems['Exposure'] = subsystems.SubSystemExposure(self)
         self.subsystems['VirtualDetectors'] = subsystems.SubSystemVirtualDetectors(self)
+        self.subsystems['DataReduction'] = subsystems.SubSystemDataReduction(self)
         # load state: this will load the state information of all the subsystems as well.
         self.loadstate()
         try:
@@ -124,17 +120,8 @@ class Credo(objwithgui.ObjWithGUI):
 #             self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
 #         for name in self.path_properties:
 #             self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
-
-    def do_notify(self, param):
-        if param.name == 'rootpath':
-            self.files.rootpath = self.rootpath
-        if param.name == 'filebegin':
-            self.files.filebegin = self.filebegin
-        if param.name == 'ndigits':
-            self.files.ndigits = self.ndigits
-        if param.name == 'default-mask':
-            if not os.path.isabs(self.default_mask):
-                self.default_mask = os.path.join(self.subsystems['Files'].rootpath, self.default_mask)
+    def _get_classname(self):
+        return 'CREDO'
     def get_equipment(self, equipment):
         return self.subsystems['Equipments'].get(equipment)
     def get_motors(self):
@@ -145,50 +132,30 @@ class Credo(objwithgui.ObjWithGUI):
     def loadstate(self):
         cp = ConfigParser.ConfigParser()
         cp.read(RCFILE)
+        objwithgui.ObjWithGUI.loadstate(self, cp)
         for ss in self.subsystems.values():
             ss.loadstate(cp)
-        if not cp.has_section('CREDO'):
-            return
-        for p in self.props:
-            if not cp.has_option('CREDO', p.name):
-                continue
-            if p.value_type.name == 'gboolean':
-                val = cp.getboolean('CREDO', p.name)
-            elif p.value_type.name in ['gint', 'guint', 'glong', 'gulong',
-                                       'gshort', 'gushort', 'gint8', 'guint8',
-                                       'gint16', 'guint16', 'gint32', 'guint32',
-                                       'gint64', 'guint64']:
-                val = cp.getint('CREDO', p.name)
-            elif p.value_type.name in ['gfloat', 'gdouble']:
-                val = cp.getfloat('CREDO', p.name)
-            else:
-                val = cp.get('CREDO', p.name)
-            if self.get_property(p.name) != val:
-                self.set_property(p.name, val)
         del cp
     def savestate(self):
         cp = ConfigParser.ConfigParser()
         cp.read(RCFILE)
-        if cp.has_section('CREDO'):
-            cp.remove_section('CREDO')
-        cp.add_section('CREDO')
-        for p in self.props:
-            cp.set('CREDO', p.name, self.get_property(p.name))
+        objwithgui.ObjWithGUI.savestate(self, cp)
         for ss in self.subsystems.values():
             ss.savestate(cp)
         if not os.path.exists(os.path.split(RCFILE)[0]):
             os.makedirs(os.path.split(RCFILE)[0])
         with open(RCFILE, 'wt') as f:
-            print "SAVING SETTINGS."
             cp.write(f)
+            logger.info('Saved settings to %s.' % RCFILE)
         del cp
-        return True
 
-    def expose(self, exptime, nimages=1, dwelltime=0.003, mask=None, header_template=None):
+    def expose(self, exptime, nimages=1, dwelltime=0.003, mask=None, header_template=None, filebegin=None):
+        if filebegin is not None and (self.subsystems['Files'].filebegin != filebegin):
+            self.subsystems['Files'].filebegin = filebegin
         self.subsystems['Exposure'].exptime = exptime
         self.subsystems['Exposure'].nimages = nimages
         self.subsystems['Exposure'].dwelltime = dwelltime
-        self.subsystems['Exposure'].start(header_template, mask)
+        return self.subsystems['Exposure'].start(header_template, mask)
     
     def trim_detector(self, threshold=4024, gain=None, blocking=False):
         if gain is None:

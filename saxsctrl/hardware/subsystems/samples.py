@@ -84,6 +84,9 @@ class SubSystemSamples(SubSystem):
     def __iter__(self):
         return iter(self._list)
     def set(self, sam):
+        if sam is None:  # no sample
+            self._selected = None
+            return
         sams = [s for s in self._list if s == sam]
         if not sams:
             raise SubSystemSamplesError('No sample %s defined.' % str(sam))
@@ -104,6 +107,9 @@ class SubSystemSamples(SubSystem):
         self.emit('changed')
     def moveto(self, blocking=False):
         sam = self.get()
+        if sam is None:
+            logger.info('Skipping moving sample: no sample selected.')
+            return
         logger.info('Moving sample %s into the beam.' % sam.title)
         try:
             tmcm = self.credo().get_equipment('tmcm351')
@@ -132,3 +138,16 @@ class SubSystemSamples(SubSystem):
             del self._tmcmconn
         self.emit('sample-in-beam', sam)
         return True
+    def savestate(self, configparser):
+        SubSystem.savestate(self, configparser)
+        if self._selected is None:
+            configparser.set(self._get_classname(), 'Selected', '__None__')
+        else:
+            configparser.set(self._get_classname(), 'Selected', self._selected.title)
+    def loadstate(self, configparser):
+        SubSystem.loadstate(self, configparser)
+        if configparser.has_option(self._get_classname(), 'Selected'):
+            sel = configparser.get(self._get_classname(), 'Selected')
+            if sel == '__None__':
+                sel = None
+            self.set(sel)

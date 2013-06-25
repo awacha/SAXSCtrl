@@ -3,13 +3,14 @@ from gi.repository import GObject
 from .subsystem import SubSystem, SubSystemError
 from ..instruments.tmcl_motor import MotorError
 from ..instruments.pilatus import PilatusError
+from ..instruments.genix import GenixError
 import os
 import weakref
 import time
 import logging
 import sastool
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 __all__ = ['SubSystemScan']
 
@@ -151,6 +152,7 @@ class SubSystemScan(SubSystem):
     scanfilename = GObject.property(type=str, default='credoscan.spec', blurb='Scan file name')
     operate_shutter = GObject.property(type=bool, default=False, blurb='Open/close shutter between exposures')
     autoreturn = GObject.property(type=bool, default=True, blurb='Auto-return')
+    comment = GObject.property(type=str, default='--please fill--', blurb='Comment')
     _current_step = None
     _original_shuttermode = None
     currentscan = None
@@ -178,19 +180,7 @@ class SubSystemScan(SubSystem):
             self.scanfile = self.reload_scanfile()
     def get_supported_devices(self):
         return ScanDevice.possible_devices(self.credo())
-    def start(self, header_template={}, mask=None):
-        """Set-up and start a scan measurement.
-        
-        Inputs:
-            value_begin: the starting value. In 'Time' mode this is ignored.
-            value_end: the ending value. In 'Time' mode this is ignored.
-            nstep: the number of steps.
-            countingtime: the counting time in seconds.
-            waittime: least wait time in seconds. Moving the motors does not contribute to this!
-            header_template: template header for expose()
-            operate_shutter: if the shutter is to be closed between exposures.
-            autoreturn: if the scan device should be returned to the starting state at the end.
-        """
+    def prepare(self, header_template={}, mask=None):
         logger.debug('Initializing scan.')
         if self.scandevice is None:
             raise SubSystemError('No scan device!')
@@ -211,6 +201,7 @@ class SubSystemScan(SubSystem):
         command = 'scan ' + str(self.scandevice) + ' from ' + str(self.value_begin) + ' to ' + str(self.value_end) + ' by ' + str(step) + ' ct = ' + str(self.countingtime) + ' wt = ' + str(self.waittime)
         self.currentscan.countingtype = self.currentscan.COUNTING_TIME
         self.currentscan.countingvalue = self.countingtime
+        self.currentscan.comment = self.comment
         self.currentscan.fsn = None
         self.currentscan.start_record_mode(command, self.nstep, self.scanfile)
 
@@ -235,10 +226,18 @@ class SubSystemScan(SubSystem):
         self._header_template['scanfsn'] = self.currentscan.fsn
         self._mask = mask
         self._firsttime = None
+
+    def start(self):
+        """Set-up and start a scan measurement.
+        """
         self._do_next_step()
+    
+    def execute(self, header_template={}, mask=None):
+        self.prepare(header_template, mask)
+        self.start()
         
     def is_last_step(self):
-        return (self._current_step >= self.nstep - 1) or (self.scandevice.name() == 'Time')
+        return (self._current_step >= self.nstep) or (self.scandevice.name() == 'Time')
         
     def _exposure_fail(self, sse, message):
         self.emit('scan-fail', status)
@@ -247,10 +246,6 @@ class SubSystemScan(SubSystem):
         self._current_step += 1
         if self.is_last_step() or not status:
             # we are at the last step
-            if self._ex_conn is not None:
-                for c in self._ex_conn:
-                    sse.disconnect(c)
-                self._ex_conn = None
             if self._original_shuttermode:
                 self.credo().get_equipment('genix').shutter_close()
             self.emit('scan-end', status)
@@ -274,18 +269,23 @@ class SubSystemScan(SubSystem):
         self.emit('scan-report', self.currentscan)
     
     def _do_next_step(self):
+        logger.debug('Do-next-step starting.')
         if hasattr(self, '_kill'):
+            logger.debug('Do-next-step: found _kill, emitting scan-end.')
             self.emit('scan-end', False)
             del self._kill
             return
         if self._current_step is None:
+            logger.debug('Very first step.')
             # we are starting:
             self._current_step = 0
             if self._original_shuttermode and not self.operate_shutter:  # if an exposure should open the shutter but we leave it open during exposures
                 self.credo().subsystems['Exposure'].operate_shutter = False
                 self.credo().get_equipment('genix').shutter_open()
+                logger.debug('Opened shutter in _do_next_step.')
             # otherwise we either 1) should not touch the shutter 2) can rely on the open/close behaviour of the Exposure subsystem
         elif self._current_step == self.nstep - 1:
+            logger.debug('Last step.')
             # last exposure, set back operate_shutter of Exposure subsystem
             self.credo().subsystems['Exposure'].operate_shutter = self._original_shuttermode
         try:
@@ -293,30 +293,45 @@ class SubSystemScan(SubSystem):
             self._where = self.scandevice.moveto(self.value_begin + (self.value_end - self.value_begin) / (self.nstep - 1) * self._current_step)
         except ScanDeviceError as sde:
             self.emit('scan-fail', sde.message)
+        logger.debug('Adding timeout for starting exposure')
         GObject.timeout_add(int(self.waittime * 1000), self._start_exposure)
     def _start_exposure(self): 
+        logger.debug('Starting exposure in scan sequence.')
         self.credo().subsystems['Exposure'].start(self._header_template, self._mask)
+        logger.debug('Done starting exposure in scan sequence')
         return False    
-    def kill(self, stop_processing_results=False):
+    def kill(self):
+        logger.debug('Killing of scan sequence requested')
+        self._kill = True
         try:
-            self.credo().subsystems['Exposure'].kill(stop_processing_results)
+            self.credo().subsystems['Exposure'].kill()
         except:
             pass
-        self._kill = True
         logger.info('Stopping scan sequence on user request.')
     
     def do_scan_end(self, status):
+        if self._ex_conn is not None:
+            for c in self._ex_conn:
+                sse.disconnect(c)
+            self._ex_conn = None
         if self.autoreturn:
             logger.info('Auto-returning...')
             try:
                 self.scandevice.moveto(self.value_begin)
             except ScanDeviceError:
-                self.emit('scan-fail', 'Error on auto-return.') 
+                self.emit('scan-fail', 'Error on auto-return.')
         self._firsttime = None
         self._where = None
         self.currentscan.stop_record_mode()
         if self.credo().subsystems['Exposure'].operate_shutter != self._original_shuttermode:
             self.credo().subsystems['Exposure'].operate_shutter = self._original_shuttermode
+        if self.credo().subsystems['Exposure'].operate_shutter:
+            try:
+                if self.credo().get_equipment('genix').shutter_state():
+                    logger.warning('Shutter left open at the end of scan, closing.')
+                    self.credo().get_equipment('genix').shutter_close()
+            except GenixError:
+                logger.warning('Error closing shutter.')
         logger.info('Scan #%d finished.' % self.currentscan.fsn)
 
     def do_scan_fail(self, message):

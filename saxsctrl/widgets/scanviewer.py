@@ -24,7 +24,7 @@ class ScanViewer(Gtk.Dialog):
         l = Gtk.Label(label='Scan file:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.scanfile_entry = FileEntryWithButton()
-        self.scanfile_entry.set_filename(self.credo.scanfile)
+        self.scanfile_entry.set_filename(self.credo.subsystems['Scan'].scanfilename)
         self.entrytable.attach(self.scanfile_entry, 1, 2, row, row + 1)
         b = Gtk.Button(stock=Gtk.STOCK_REFRESH)
         self.entrytable.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
@@ -57,39 +57,39 @@ class ScanViewer(Gtk.Dialog):
         self.scan_treeview.set_grid_lines(Gtk.TreeViewGridLines.BOTH)
         # self.scan_treeview.connect('row-activated', self.on_row_activated)
         self.scan_treeview.get_selection().connect('changed', self.on_scan_selection_changed)
-        sw.set_size_request(-1, 100)
+        sw.set_size_request(-1, 300)
         
-        f = Gtk.Frame(label='Columns in scan:')
-        vp.add2(f)
-        sw = Gtk.ScrolledWindow()
-        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        f.add(sw)
-        self.cols_liststore = Gtk.ListStore(GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN)
-        self.cols_treeview = Gtk.TreeView(self.cols_liststore)
-        sw.add(self.cols_treeview)
-        self.cols_treeview.set_headers_visible(True)
-        self.cols_treeview.set_rules_hint(True)
-        self.cols_treeview.get_selection().set_mode(Gtk.SelectionMode.BROWSE)
-        sw.set_size_request(-1, 200)
-        cr = Gtk.CellRendererText()
-        self.cols_treeview.append_column(Gtk.TreeViewColumn('Index', cr, text=0))
-        cr = Gtk.CellRendererText()
-        self.cols_treeview.append_column(Gtk.TreeViewColumn('Name', cr, text=1))
-        cr = Gtk.CellRendererToggle()
-        cr.set_radio(True)
-        cr.set_activatable(True)
-        cr.connect('toggled', self.on_cellrenderer_toggled, 'X', 2)
-        self.cols_treeview.append_column(Gtk.TreeViewColumn('X', cr, active=2))
-        cr = Gtk.CellRendererToggle()
-        cr.set_radio(True)
-        cr.set_activatable(True)
-        cr.connect('toggled', self.on_cellrenderer_toggled, 'Y', 3)
-        self.cols_treeview.append_column(Gtk.TreeViewColumn('Y', cr, active=3))
-        cr = Gtk.CellRendererToggle()
-        # cr.set_radio()
-        cr.set_activatable(True)
-        cr.connect('toggled', self.on_cellrenderer_toggled, 'Norming', 4)
-        self.cols_treeview.append_column(Gtk.TreeViewColumn('Norming', cr, active=4))
+#         f = Gtk.Frame(label='Columns in scan:')
+#         vp.add2(f)
+#         sw = Gtk.ScrolledWindow()
+#         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+#         f.add(sw)
+#         self.cols_liststore = Gtk.ListStore(GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN, GObject.TYPE_BOOLEAN)
+#         self.cols_treeview = Gtk.TreeView(self.cols_liststore)
+#         sw.add(self.cols_treeview)
+#         self.cols_treeview.set_headers_visible(True)
+#         self.cols_treeview.set_rules_hint(True)
+#         self.cols_treeview.get_selection().set_mode(Gtk.SelectionMode.BROWSE)
+#         sw.set_size_request(-1, 200)
+#         cr = Gtk.CellRendererText()
+#         self.cols_treeview.append_column(Gtk.TreeViewColumn('Index', cr, text=0))
+#         cr = Gtk.CellRendererText()
+#         self.cols_treeview.append_column(Gtk.TreeViewColumn('Name', cr, text=1))
+#         cr = Gtk.CellRendererToggle()
+#         cr.set_radio(True)
+#         cr.set_activatable(True)
+#         cr.connect('toggled', self.on_cellrenderer_toggled, 'X', 2)
+#         self.cols_treeview.append_column(Gtk.TreeViewColumn('X', cr, active=2))
+#         cr = Gtk.CellRendererToggle()
+#         cr.set_radio(True)
+#         cr.set_activatable(True)
+#         cr.connect('toggled', self.on_cellrenderer_toggled, 'Y', 3)
+#         self.cols_treeview.append_column(Gtk.TreeViewColumn('Y', cr, active=3))
+#         cr = Gtk.CellRendererToggle()
+#         # cr.set_radio()
+#         cr.set_activatable(True)
+#         cr.connect('toggled', self.on_cellrenderer_toggled, 'Norming', 4)
+#         self.cols_treeview.append_column(Gtk.TreeViewColumn('Norming', cr, active=4))
         hbb = Gtk.HButtonBox()
         vb.pack_start(hbb, False, True, 0)
         b = Gtk.Button('Plot selected curve')
@@ -103,19 +103,19 @@ class ScanViewer(Gtk.Dialog):
         self.reload_list()
         self.connect('response', self.on_response)
     def on_scan_selection_changed(self, treeselection):
-        self.cols_liststore.clear()
-        model, paths = treeselection.get_selected_rows()
-        if not paths:
-            # no selection
-            return True
-        row = self.scan_liststore[paths[0]]
-        scan = self.spec[row[0]]
-        for i, c in enumerate(scan.columns()):
-            self.cols_liststore.append((i, c, False, False, False))
-        if len(self.cols_liststore) > 0:
-            self.cols_liststore[0][2] = True
-        if len(self.cols_liststore) > 1:
-            self.cols_liststore[1][3] = True
+#         self.cols_liststore.clear()
+#         model, paths = treeselection.get_selected_rows()
+#         if not paths:
+#             # no selection
+#             return True
+#         row = self.scan_liststore[paths[0]]
+#         scan = self.spec[row[0]]
+#         for i, c in enumerate(scan.columns()):
+#             self.cols_liststore.append((i, c, False, False, False))
+#         if len(self.cols_liststore) > 0:
+#             self.cols_liststore[0][2] = True
+#         if len(self.cols_liststore) > 1:
+#             self.cols_liststore[1][3] = True
         return True
     def on_cellrenderer_toggled(self, crtoggle, path, what, colidx):
         if what == 'X' or what == 'Y':
@@ -146,17 +146,16 @@ class ScanViewer(Gtk.Dialog):
         model, paths = self.scan_treeview.get_selection().get_selected_rows()
         row = model[paths[0]]
         scan = self.spec[row[0]]
-        Xcol = [i for i, c in enumerate(self.cols_liststore) if c[2]][0]
-        Ycol = [i for i, c in enumerate(self.cols_liststore) if c[3]][0]
-        Ncols = [i for i, c in enumerate(self.cols_liststore) if c[4]]
-        x = scan.get_column(Xcol)
-        y = scan.get_column(Ycol)
-        if Ncols:
-            y = y / scan.get_column(Ncols[0])
+#         Xcol = [i for i, c in enumerate(self.cols_liststore) if c[2]][0]
+#         Ycol = [i for i, c in enumerate(self.cols_liststore) if c[3]][0]
+#         Ncols = [i for i, c in enumerate(self.cols_liststore) if c[4]]
+#         x = scan.get_column(Xcol)
+#         y = scan.get_column(Ycol)
+#         if Ncols:
+#             y = y / scan.get_column(Ncols[0])
         
-        sg = scangraph.ScanGraph(scan, 'SAXS Control -- Scan #' + str(scan.fsn) + ' ' + str(scan.comment))
-        sg.datacols = scan.columns()[Ycol]
-        sg.set_scalers([(scan.columns()[Ycol], 1)])
+        sg = scangraph.ScanGraph(scan, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
+        # sg.datacols = scan.columns()[Ycol]
         sg.redraw_scan()
         sg.show_all()
     def on_response(self, dialog, respid):

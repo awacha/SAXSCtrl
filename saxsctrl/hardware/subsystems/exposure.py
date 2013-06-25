@@ -6,6 +6,7 @@ from ..instruments.pilatus import PilatusError
 import logging
 import os
 import time
+from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -26,36 +27,55 @@ class ExposureMessageType(object):
 class SubSystemExposure(SubSystem):
     __gsignals__ = {'exposure-image':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
-                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)), }
+                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
+                    'notify':'override', }
     exptime = GObject.property(type=float, minimum=0, default=1, blurb='Exposure time (sec)')
     dwelltime = GObject.property(type=float, minimum=0.003, default=0.003, blurb='Dwell time between exposures (sec)')
     nimages = GObject.property(type=int, minimum=1, default=1, blurb='Number of images to take (sec)')
     operate_shutter = GObject.property(type=bool, default=True, blurb='Open/close shutter')
     cbf_file_timeout = GObject.property(type=float, default=3, blurb='Timeout for cbf files')
     timecriticalmode = GObject.property(type=bool, default=False, blurb='Time-critical mode')
+    default_mask = GObject.property(type=str, default='mask.mat', blurb='Default mask file')
     def __init__(self, credo, **kwargs):
         SubSystem.__init__(self, credo)
         self._OWG_nogui_props.append('configfile')
+        self._OWG_hints['default-mask'] = {objwithgui.OWG_Hint_Type.OrderPriority:None}
+        self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
         self._thread = None
         for k in kwargs:
             self.set_property(k, kwargs[k])
         self._stopswitch = multiprocessing.Event()
         self._queue = multiprocessing.queues.Queue()
-
-    def kill(self, stop_processing_results=False):
+        self._default_mask = None
+    def do_notify(self, param):
+        if param.name == 'default-mask':
+            if not os.path.isabs(self.default_mask):
+                self.default_mask = os.path.join(self.credo().subsystems['Files'].maskpath, self.default_mask)
+            else:
+                try:
+                    self._default_mask = sastool.classes.SASMask(self.default_mask)
+                except IOError:
+                    logger.error('Cannot load default mask from file: ' + self.default_mask)
+                else:
+                    logger.info('Loaded default mask from file: ' + self.default_mask)
+        else:
+            logger.debug('Other parameter modified: ' + param.name)
+    def get_mask(self):
+        return self._default_mask
+    def kill(self, stop_processing_results=True):
         self.credo().get_equipment('pilatus').stopexposure()
         if stop_processing_results:
-            self.exposurethread._goswitch.clear()
+            self._stopswitch.set()
 
     def start(self, header_template=None, mask=None):
         logger.debug('Exposure subsystem: starting exposure.')
         pilatus = self.credo().get_equipment('pilatus')
         genix = self.credo().get_equipment('genix')
         sample = self.credo().subsystems['Samples'].get()
-        if sample is None:
-            raise SubSystemExposureError('No sample selected.')
         if not pilatus.is_idle():
             raise SubSystemExposureError('Detector is busy.')
+        if mask is None:
+            mask = self._default_mask
 
         fsn = self.credo().subsystems['Files'].get_next_fsn()
         exposureformat = self.credo().subsystems['Files'].get_exposureformat()
@@ -64,10 +84,16 @@ class SubSystemExposure(SubSystem):
             header_template = {}
         else:
             header_template = header_template.copy()
-        header_template.update(sample.get_header())
+        if sample is not None:
+            header_template.update(sample.get_header())
+        else:
+            header_template.update({'Title':'None'})
         header_template['__Origin__'] = 'CREDO'
         header_template['__particle__'] = 'photon'
-        header_template['Dist'] = self.credo().dist - sample.distminus
+        if sample is not None:
+            header_template['Dist'] = self.credo().dist - sample.distminus
+        else:
+            header_template['Dist'] = self.credo().dist
         header_template['BeamPosX'] = self.credo().beamposx
         header_template['BeamPosY'] = self.credo().beamposy
         header_template['PixelSize'] = self.credo().pixelsize / 1000.
@@ -85,7 +111,7 @@ class SubSystemExposure(SubSystem):
         logger.debug('Header prepared.')
         GObject.idle_add(self._check_if_exposure_finished)
         logger.info('Starting exposure of %s. Files will be named like: %s' % (str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
-        
+        self._stopswitch.clear()
         pilatus.prepare_exposure(self.exptime, self.nimages, self.dwelltime)
         self._thread = threading.Thread(target=self._thread_worker, args=(os.path.join(self.credo().subsystems['Files'].imagespath, exposureformat),
                                                                           os.path.join(self.credo().subsystems['Files'].parampath, headerformat),
@@ -98,7 +124,7 @@ class SubSystemExposure(SubSystem):
         self._pilatus_idle_handler = pilatus.connect('idle', self._pilatus_idle, genix)
         pilatus.execute_exposure(exposureformat % fsn)
         self._thread.start()
-        return False
+        return fsn
     def _pilatus_idle(self, pilatus, genix):
         # we get this signal when the exposure is finished.
         pilatus.disconnect(self._pilatus_idle_handler)

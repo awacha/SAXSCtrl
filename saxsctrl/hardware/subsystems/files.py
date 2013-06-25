@@ -69,7 +69,7 @@ class SubSystemFiles(SubSystem):
         else:
             logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: None, event: ' + str(event))
             
-        if (event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED)) and ():
+        if (event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED)):
             basename = filename.get_basename()
             if basename:
                 for regex in self._known_regexes():
@@ -132,6 +132,8 @@ class SubSystemFiles(SubSystem):
         return self._nextfsn_cache[regex]
     def _get_subpath(self, subdir):
         pth = os.path.join(os.path.expanduser(self.rootpath), subdir)
+        while os.path.islink(pth):
+            pth = os.readlink(pth)
         if not os.path.isdir(pth):
             if not os.path.exists(pth):
                 os.mkdir(pth)  # an OSError is raised if no permission.
@@ -141,7 +143,14 @@ class SubSystemFiles(SubSystem):
     @property
     def configpath(self): return self._get_subpath('config')
     @property
-    def exposureloadpath(self): return [self._get_subpath(x) for x in ['eval2d', 'eval1d', 'param', 'images', 'mask']]
+    def exposureloadpath(self):
+        ret = []
+        for p in ['eval2d', 'eval1d', 'param', 'images', 'mask']:
+            try:
+                ret.append(self._get_subpath(p))
+            except OSError:
+                logger.warning('Subpath %s cannot be found, not including it to exposureloadpath!' % p)
+        return ret
     @property
     def moviepath(self): return self._get_subpath('movie')
     @property

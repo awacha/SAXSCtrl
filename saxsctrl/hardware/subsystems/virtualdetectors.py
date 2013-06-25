@@ -268,7 +268,7 @@ class SubSystemVirtualDetectors(SubSystem):
             if not os.path.isabs(self.configfile):
                 self.configfile = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)
             else:
-                pass
+                self.load()
     def create_setup_table(self, homogeneous=False):
         tab = SubSystem.create_setup_table(self, homogeneous)
         nrows, ncols = tab.get_size()
