@@ -3,6 +3,7 @@ import re
 import logging
 from .subsystem import SubSystem
 import ConfigParser
+import sastool
 
 from gi.repository import GObject
 from gi.repository import Gio
@@ -32,7 +33,12 @@ class SubSystemFiles(SubSystem):
         self._lastevents = []
     def do_notify(self, prop):
         if prop.name in ['rootpath']:
-            self._setup(self.rootpath)
+            if os.path.expanduser(self.rootpath) != self.rootpath:
+                self.rootpath = os.path.expanduser(self.rootpath)
+            elif os.path.realpath(self.rootpath) != self.rootpath:
+                self.rootpath = os.path.realpath(self.rootpath)
+            else:
+                self._setup(self.rootpath)
         if prop.name in ['filebegin', 'ndigits', 'rootpath']:
             self.emit('changed')
     def _setup(self, rootpath):
@@ -44,7 +50,7 @@ class SubSystemFiles(SubSystem):
             logger.debug('SubSystemFiles._setup(): setting rootpath to %s (was: %s)' % (rootpath, self.rootpath))
             self.rootpath = rootpath
         self.monitors = []
-        for folder in self.exposureloadpath:
+        for folder in self._watchpath():
             dirmonitor = Gio.file_new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.NONE, None)
             self.monitors.append((dirmonitor, dirmonitor.connect('changed', self._on_monitor_event)))
             logger.debug('SubSystemFiles._setup(): Added directory monitor for path %s' % folder)
@@ -53,6 +59,8 @@ class SubSystemFiles(SubSystem):
         for f in self._search_formats():
             self.get_next_fsn(self.get_format_re(f, self.ndigits, False))
             self.get_first_fsn(self.get_format_re(f, self.ndigits, False))
+    def _watchpath(self):
+        return [self._get_subpath(subdir) for subdir in ['images', 'param', 'eval2d', 'eval1d']]
     def _search_formats(self):
         regex = re.compile('(?P<begin>[a-zA-Z0-9]+)_(?P<fsn>\d+)')
         formats = set()
@@ -145,11 +153,32 @@ class SubSystemFiles(SubSystem):
     @property
     def exposureloadpath(self):
         ret = []
-        for p in ['eval2d', 'eval1d', 'param', 'images', 'mask']:
+        for p in ['eval2d', 'eval1d', 'param', 'images']:
             try:
                 ret.append(self._get_subpath(p))
             except OSError:
                 logger.warning('Subpath %s cannot be found, not including it to exposureloadpath!' % p)
+        ret.extend(sastool.misc.find_subdirs(self._get_subpath('mask'), None))
+        return ret
+    @property
+    def rawloadpath(self):
+        ret = []
+        for p in ['param', 'images']:
+            try:
+                ret.append(self._get_subpath(p))
+            except OSError:
+                logger.warning('Subpath %s cannot be found, not including it to exposureloadpath!' % p)
+        ret.extend(sastool.misc.find_subdirs(self._get_subpath('mask'), None))
+        return ret
+    @property
+    def reducedloadpath(self):
+        ret = []
+        for p in ['eval2d', 'eval1d']:
+            try:
+                ret.append(self._get_subpath(p))
+            except OSError:
+                logger.warning('Subpath %s cannot be found, not including it to exposureloadpath!' % p)
+        ret.extend(sastool.misc.find_subdirs(self._get_subpath('mask'), None))
         return ret
     @property
     def moviepath(self): return self._get_subpath('movie')
@@ -175,8 +204,21 @@ class SubSystemFiles(SubSystem):
     def get_exposureformat(self, filebegin=None, ndigits=None): return self.get_fileformat(filebegin, ndigits) + '.cbf'
     def get_headerformat_re(self, strict=False): return re.compile(self.get_fileformat_re().pattern + '\.param', strict)
     def get_exposureformat_re(self, strict=False): return re.compile(self.get_fileformat_re().pattern + '\.cbf', strict)
+    def get_eval2dformat(self, filebegin='crd', ndigits=5): return self.get_fileformat(filebegin, ndigits) + '.npz'
+    def get_evalheaderformat(self, filebegin='crd', ndigits=5): return self.get_fileformat(filebegin, ndigits) + '.param'
     def get_format_re(self, filebegin, ndigits, strict=False):
         if strict:
             return re.compile(filebegin + '_' + '(?P<fsn>\d{%d})' % ndigits)
         else:
             return re.compile(filebegin + '_' + '(?P<fsn>\d+)')
+    def writeheader(self, header, raw=True):
+        if raw:
+            header.write(os.path.join(self.parampath, self.get_headerformat() % header['FSN']))
+        else:
+            header.write(os.path.join(self.eval2dpath, self.get_headerformat() % header['FSN']))
+    def writereduced(self, exposure):
+        exposure.write(os.path.join(self.eval2dpath, self.get_eval2dformat() % exposure['FSN']))
+        exposure.header.write(os.path.join(self.eval2dpath, self.get_evalheaderformat() % exposure['FSN']))
+    def writeradial(self, exposure):
+        exposure.radial_average().save(os.path.join(self.eval1dpath, 'crd_%d.txt' % exposure['FSN']))
+        

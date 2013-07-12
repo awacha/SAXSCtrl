@@ -10,6 +10,7 @@ class ExposureFrame(Gtk.Frame):
                     'fail':(GObject.SignalFlags.RUN_FIRST, None, (str,))}
     def __init__(self, credo, fixedformat=None):
         Gtk.Frame.__init__(self, label='Expose...')
+        self._connections = []
         self.credo = credo
         tab = Gtk.Table()
         self.add(tab)
@@ -24,9 +25,9 @@ class ExposureFrame(Gtk.Frame):
                     self._fileformat_entry.set_active(i)
             elif f == self.credo.subsystems['Files'].filebegin:
                 self._fileformat_entry.set_active(i)
-        self._fileformat_entry.connect('changed', lambda ffe:self._fileformat_entry_changed())
+        self._connections.append((self._fileformat_entry, self._fileformat_entry.connect('changed', lambda ffe:self._fileformat_entry_changed())))
         if fixedformat is None:
-            self.credo.subsystems['Files'].connect('notify::filebegin', lambda ssf, par: (ssf.filebegin in [x[0] for x in self._fileformat_entry.get_model()]) or (self._fileformat_entry.append_text(ssf.filebegin)))
+            self._connections.append((self.credo.subsystems['Files'], self.credo.subsystems['Files'].connect('notify::filebegin', lambda ssf, par: (ssf.filebegin in [x[0] for x in self._fileformat_entry.get_model()]) or (self._fileformat_entry.append_text(ssf.filebegin)))))
         tab.attach(self._fileformat_entry, 1, 2, row, row + 1)
         if fixedformat is not None:
             self._fileformat_entry.set_sensitive(False)
@@ -49,7 +50,7 @@ class ExposureFrame(Gtk.Frame):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 9999999999, 1, 10), digits=0)
         tab.attach(self._nimages_entry, 1, 2, row, row + 1)
-        self._nimages_entry.connect('value-changed', lambda sb:self._dwelltime_entry.set_sensitive(self._nimages_entry.get_value_as_int() > 1))
+        self._connections.append((self._nimages_entry, self._nimages_entry.connect('value-changed', lambda sb:self._dwelltime_entry.set_sensitive(self._nimages_entry.get_value_as_int() > 1))))
         row += 1
 
         l = Gtk.Label('Mask file:'); l.set_alignment(0, 0.5)
@@ -65,7 +66,7 @@ class ExposureFrame(Gtk.Frame):
             self._nextfsn_label = Gtk.Label(str(self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(fixedformat, None))))
         else:
             self._nextfsn_label = Gtk.Label(str(self.credo.subsystems['Files'].get_next_fsn()))
-        self.credo.subsystems['Files'].connect('new-nextfsn', lambda ssf, fsn, regex: (regex.startswith(self._fileformat_entry.get_active_text()) and  (self._nextfsn_label.set_text(str(fsn)))))
+        self._connections.append((self.credo.subsystems['Files'], self.credo.subsystems['Files'].connect('new-nextfsn', lambda ssf, fsn, regex: (regex.startswith(self._fileformat_entry.get_active_text()) and  (self._nextfsn_label.set_text(str(fsn)))))))
         tab.attach(self._nextfsn_label, 1, 2, row, row + 1, xpadding=2)
         row += 1
         
@@ -86,6 +87,13 @@ class ExposureFrame(Gtk.Frame):
         self._starttime = None
         self._remtime_timeout = None
         self._images_remaining = 0
+    def do_destroy(self):
+        if hasattr(self, '_conns'):
+            for c in self._conns:
+                self.credo.subsystems['Exposure'].disconnect(c)
+        if hasattr(self, '_connections'):
+            for entity, c in self._connections:
+                entity.disconnect(c)
     def _fileformat_entry_changed(self):
         self._nextfsn_label.set_text(str(self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(self._fileformat_entry.get_active_text(), None))))
     def execute(self, header_template={}):

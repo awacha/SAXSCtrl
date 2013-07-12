@@ -79,6 +79,8 @@ class Genix(Instrument_ModbusTCP):
     _considered_idle = [GenixStatus.Disconnected, GenixStatus.FullPower, GenixStatus.Standby, GenixStatus.PowerDown, GenixStatus.XRaysOff, GenixStatus.Idle]
     shutter = GObject.property(type=str, default=ShutterStatus.Disconnected, blurb='Shutter state')
     def __init__(self):
+        if self._OWG_nosave_props is None:
+            self._OWG_nosave_props = []
         self._OWG_nosave_props.append('shutter')
         Instrument_ModbusTCP.__init__(self)
         self._shutter_lock = multiprocessing.Lock()
@@ -350,5 +352,5 @@ class Genix(Instrument_ModbusTCP):
         else:
             return self.status
     def get_current_parameters(self):
-        return {'HT':self.get_ht(), 'Current':self.get_current(), 'TubeTime':self.get_tube_time(), 'Status':self.get_status_int(), 'Shutter':['closed', 'open'][int(self.shutter_state())]}
+        return {'HT':self.get_ht(), 'Current':self.get_current(), 'TubeTime':self.get_tube_time(), 'Status':self.get_status_int()}
         

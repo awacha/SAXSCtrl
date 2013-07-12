@@ -40,7 +40,7 @@ class MotorMonitorFrame(Gtk.Frame):
         self.on_motors_changed(self.credo.get_equipment('tmcm351'))
         self.show_all()
     def on_row_activated(self, treeview, path, column):
-        dd = MotorDriver(self.credo, self.motorlist[path][0], 'Move motor ' + self.motorlist[path][0], parent=self.get_toplevel(), buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        dd = MotorDriver(self.credo, self.motorlist[path][0], 'Move motor ' + self.motorlist[path][0])
         dd.connect('response', lambda dialog, response:dd.destroy())
         dd.show_all()
     def on_motor_move(self, tmcm, mot, pos, speed, load):
@@ -60,7 +60,6 @@ class MotorMonitorFrame(Gtk.Frame):
                 row[6] = mot.get_load()
     def on_motors_changed(self, tmcm=None):
         self.motorlist.clear()
-        print tmcm.motors
         for m in sorted(tmcm.motors):
             self.motorlist.append((m, tmcm.motors[m].alias, '%.2f' % (tmcm.motors[m].get_pos()), '%.2f' % (tmcm.motors[m].get_speed()), tmcm.motors[m].get_left_limit(), tmcm.motors[m].get_right_limit(), tmcm.motors[m].get_load()))
     def on_motor_limit(self, tmcm, mot, left, right):
@@ -69,21 +68,16 @@ class MotorMonitorFrame(Gtk.Frame):
                 row[4] = left
                 row[5] = right
 
-class MotorMonitor(Gtk.Dialog):
-    def __init__(self, credo, title='Motor positions', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_resizable(False)
-        self.credo = credo
+class MotorMonitor(ToolDialog):
+    def __init__(self, credo, title='Motor positions'):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         self.mmframe = MotorMonitorFrame(self.credo)
         self.get_content_area().pack_start(self.mmframe, True, True, 0)
         self.show_all()
-        self.connect('response', self.on_response)
-    def on_response(self, dlg, response):
-        self.hide()
         
 class MotorDriver(ToolDialog):
-    def __init__(self, credo, motorname, title='Motor control', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
-        ToolDialog.__init__(self, credo, title, parent, flags, buttons)
+    def __init__(self, credo, motorname, title='Motor control',):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         self.motorname = motorname
         self.motorconns = []
         vbox = self.get_content_area()

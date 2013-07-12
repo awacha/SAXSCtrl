@@ -6,18 +6,20 @@ from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
+from .widgets import ToolDialog
 
-class ScanGraph(Gtk.Dialog):
-    def __init__(self, scan, title='Scan results', parent=None, flags=0, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_default_response(Gtk.ResponseType.OK)
+class ScanGraph(ToolDialog):
+    RESPONSE_DERIVATIVE = 1
+    RESPONSE_INTEGRATE = 2
+    def __init__(self, scan, title='Scan results'):
+        ToolDialog.__init__(self, None, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, 'Derivative', self.RESPONSE_DERIVATIVE, 'Integrate', self.RESPONSE_INTEGRATE))
         vb = self.get_content_area()
         self.fig = Figure()
         self.figcanvas = FigureCanvasGTK3Agg(self.fig)
         hb = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, True, True, 0)
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.pack1(vb, True, True,)
+        hb.pack1(vb, True, False)
         vb.pack_start(self.figcanvas, True, True, 0)
         self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
         vb.pack_start(self.figtoolbar, False, True, 0)
@@ -48,22 +50,37 @@ class ScanGraph(Gtk.Dialog):
         tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)     
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
-        vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        vb = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         hb.pack2(vb, False, False)
         vb.set_size_request(100, -1)
         hb.set_size_request(740, -1)
-        vb.pack_start(self.scalertreeview, True, True, 0)
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        vb.pack1(sw, True, True)
+        sw.add(self.scalertreeview)
+        sw = Gtk.ScrolledWindow()
+        vb.pack2(sw, True, True)
+        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.currvallabels = {}
+        vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sw.add_with_viewport(vb)
         for col in self.scan.columns():
             f = Gtk.Frame(label=col)
             vb.pack_start(f, False, False, 0)
             self.currvallabels[col] = Gtk.Label('--')
             f.add(self.currvallabels[col])
-        self.connect('response', self.on_response)
         self.set_scalers(None)
-    def on_response(self, myself, respid):
+    def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.destroy()
+        elif respid == self.RESPONSE_DERIVATIVE:
+            sg = ScanGraph(self.scan.diff(), title='Derivative of ' + self.get_title())
+            sg.redraw_scan()
+            sg.show_all()
+        elif respid == self.RESPONSE_INTEGRATE:
+            sg = ScanGraph(self.scan.integrate(), title='Integrated ' + self.get_title())
+            sg.redraw_scan()
+            sg.show_all()
         return
     def xlabel(self, *args, **kwargs):
         self.gca().set_xlabel(*args, **kwargs)

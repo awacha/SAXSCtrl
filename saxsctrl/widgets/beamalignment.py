@@ -119,7 +119,6 @@ class BeamAlignment(ToolDialog):
                 thislabel[what] = Gtk.Label(label='--'); thislabel[what].set_alignment(0, 0.5)
                 tab.attach(thislabel[what], col + 1, col + 2, row + 1, row + 2, xpadding=3)
             self.resultlabels[name] = thislabel
-        self.connect('response', self.on_response)
         vb.show_all()
     def on_threshold_toggled(self, cb, entry):
         entry.set_sensitive(cb.get_active())
@@ -132,7 +131,7 @@ class BeamAlignment(ToolDialog):
             w.set_sensitive(False)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
         
-    def on_response(self, dialog, respid):
+    def do_response(self, respid):
         if respid == Gtk.ResponseType.OK:
             if self.beamposframe.get_sensitive():
                 self.credo.subsystems['Samples'].set(None)
@@ -141,7 +140,7 @@ class BeamAlignment(ToolDialog):
             else:
                 self.exposure_frame.kill()
         else:
-            self.hide()
+            self.destroy()
         return True
     def get_beamarea(self):
         return (self.pri_top_entry.get_value(), self.pri_bottom_entry.get_value(), self.pri_left_entry.get_value(), self.pri_right_entry.get_value()) 

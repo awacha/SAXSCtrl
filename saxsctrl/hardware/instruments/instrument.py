@@ -41,6 +41,7 @@ class Instrument(objwithgui.ObjWithGUI):
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
     def __init__(self):
+        self._OWG_init_lists()
         self._OWG_nosave_props.append('status')
         self._OWG_nogui_props.append('status')
         objwithgui.ObjWithGUI.__init__(self)
@@ -129,15 +130,26 @@ class Instrument(objwithgui.ObjWithGUI):
         in order to save them (e.g. in the header file of a SAXS exposure).
         """
         return {}
-    def wait_for_idle(self):
-        """Wait until the instrument becomes idle. During the wait, this calls the default GObject
-        main loop.
+    def wait_for_idle(self, alternative_breakfunc=lambda :False):
+        """Wait until the instrument becomes idle or alternative_breakfunc() returns True. 
+        During the wait, this calls the default GObject main loop.
         """
-        while not self.is_idle():
+        while not (self.is_idle() or alternative_breakfunc()):
             for i in range(100):
                 GObject.main_context_default().iteration(False)
                 if not GObject.main_context_default().pending():
                     break
+        return (not alternative_breakfunc())
+    def wait_for_status(self, desiredstatus, alternative_breakfunc=lambda :False):
+        """Wait until the instrument comes into the desired state or alternative_breakfunc() returns True. 
+        During the wait, this calls the default GObject main loop.
+        """
+        while not (self.status == desiredstatus or alternative_breakfunc()):
+            for i in range(100):
+                GObject.main_context_default().iteration(False)
+                if not GObject.main_context_default().pending():
+                    break
+        return (not alternative_breakfunc())
     def _get_address(self):
         raise NotImplementedError
     def _set_address(self, address):

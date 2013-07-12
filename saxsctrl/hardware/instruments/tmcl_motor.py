@@ -22,6 +22,7 @@ class MotorError(InstrumentError):
 
 class TMCM351Status(InstrumentStatus):
     Moving = 'moving'
+    Queued = 'queued'
 
 class StepperStatus(InstrumentStatus):
     pass
@@ -346,17 +347,18 @@ class StepperMotor(GObject.GObject):
         GObject.idle_add(self.motor_monitor)
         self.status = StepperStatus.Busy
     def do_motor_stop(self):
-        self.driver().save_settings()
         self.status = StepperStatus.Idle
         self._circumstances = {}
+        self.driver().save_settings()
     def motor_monitor(self):
         try:
+            speed = self.get_speed()
+            load = self.get_load()
             pos = self.get_pos()
             if (min(self.softlimits) > pos) or (max(self.softlimits) < pos):
                 self.stop()
-            speed = self.get_speed()
-            self.emit('motor-report', pos, self.get_speed(), self.get_load())
             self.check_limits()
+            self.emit('motor-report', pos, speed, load)
             if speed != 0:
                 return True
             else:

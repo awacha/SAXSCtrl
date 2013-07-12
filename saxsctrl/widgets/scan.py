@@ -167,7 +167,7 @@ class Scan(ToolDialog):
         
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
-            self.hide()
+            self.destroy()
             return
         if respid == Gtk.ResponseType.OK:
             if self.get_widget_for_response(respid).get_label() == Gtk.STOCK_STOP:
@@ -202,7 +202,7 @@ class Scan(ToolDialog):
         return True
     def _scan_report(self, subsys, scan):
         self._scangraph.redraw_scan()
-    def _scan_fail(self, mesg):
+    def _scan_fail(self, subsys, mesg):
         md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Scan failure')
         md.format_secondary_text(mesg)
         md.run()

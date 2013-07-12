@@ -10,6 +10,7 @@ from .widgets import ToolDialog
 from .exposure import ExposureFrame
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 from gi.repository import GObject
 import sasgui
 import datetime
@@ -86,11 +87,10 @@ class SingleExposure(ToolDialog):
         
         vb.pack_start(NextFSNMonitor(self.credo, 'Next exposure'), True, True, 0)
         
-        self.connect('response', self.on_response)
         self._datareduction = []
         self._expsleft = 0
 
-    def on_response(self, dialog, respid):
+    def do_response(self, respid):
         if respid == Gtk.ResponseType.OK:
             if self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == Gtk.STOCK_EXECUTE:
                 sam = self.sample_combo.get_sample()
@@ -102,9 +102,10 @@ class SingleExposure(ToolDialog):
             else:
                 # break the exposure
                 self.expframe.kill()
-        elif respid == Gtk.ResponseType.CLOSE:
-            self.hide()
-            return
+        elif respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+            logger.debug('Destroying a SingleExposure Window.')
+            self.destroy()
+            logger.debug('Destroying of a SingleExposure window ended.')
     def on_datareduction_done(self, datareduction, jobidx, exposure):
         if not hasattr(self, '_datared_connection'):
             return False

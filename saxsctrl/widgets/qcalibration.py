@@ -70,7 +70,7 @@ class QCalibrationDialog(sasgui.QCalibrator):
                 self.credo.set_property(prop, self.get_property(prop))
     def on_response(self, dialog, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT, Gtk.ResponseType.OK):
-            self.hide()
+            self.destroy()
         if respid in (Gtk.ResponseType.APPLY, Gtk.ResponseType.OK):
             self.to_credo()
         return

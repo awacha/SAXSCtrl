@@ -131,23 +131,30 @@ class SubSystemSamples(SubSystem):
             motor.moveto(pos)
         logger.info('Motors are on their way...')
         if blocking:
-            self.credo().subsystems['Equipments'].wait_for_idle('tmcm351')
+            logger.debug('Waiting for sample to get into beam position')
+            if callable(blocking):
+                return self.credo().subsystems['Equipments'].wait_for_idle('tmcm351', blocking)
+            else:
+                return self.credo().subsystems['Equipments'].wait_for_idle('tmcm351')
+            logger.debug('Sample is in the beam.')
+        else:
+            return True
     def _tmcm_idle(self, tmcm, sam):
         if hasattr(self, '_tmcmconn'):
             tmcm.disconnect(self._tmcmconn)
             del self._tmcmconn
         self.emit('sample-in-beam', sam)
         return True
-    def savestate(self, configparser):
-        SubSystem.savestate(self, configparser)
+    def savestate(self, configparser, sectionprefix=''):
+        SubSystem.savestate(self, configparser, sectionprefix)
         if self._selected is None:
-            configparser.set(self._get_classname(), 'Selected', '__None__')
+            configparser.set(sectionprefix + self._get_classname(), 'Selected', '__None__')
         else:
-            configparser.set(self._get_classname(), 'Selected', self._selected.title)
-    def loadstate(self, configparser):
-        SubSystem.loadstate(self, configparser)
-        if configparser.has_option(self._get_classname(), 'Selected'):
-            sel = configparser.get(self._get_classname(), 'Selected')
+            configparser.set(sectionprefix + self._get_classname(), 'Selected', self._selected.title)
+    def loadstate(self, configparser, sectionprefix=''):
+        SubSystem.loadstate(self, configparser, sectionprefix)
+        if configparser.has_option(sectionprefix + self._get_classname(), 'Selected'):
+            sel = configparser.get(sectionprefix + self._get_classname(), 'Selected')
             if sel == '__None__':
                 sel = None
             self.set(sel)

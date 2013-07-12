@@ -2,7 +2,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 from .spec_filechoosers import MaskEntryWithButton
 import sastool
-PREFIXES = ['crd', 'scan', 'test', 'transmission', 'beamtest', 'timedscan']
+DEFAULT_PREFIX = 'crd'
 
 class ExposureBrowserDialog(Gtk.Dialog):
     __gsignals__ = {'selected':(GObject.SignalFlags.RUN_FIRST, None, (int,)),
@@ -139,9 +139,12 @@ class ExposureSelector(Gtk.Frame):
         l = Gtk.Label('Filename prefix:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._fileprefix_combo = Gtk.ComboBoxText.new_with_entry()
-        for pf in PREFIXES:
+        for i, pf in enumerate(self.credo.subsystems['Files'].formats()):
             self._fileprefix_combo.append_text(pf)
-        self._fileprefix_combo.set_active(0)
+            if pf == DEFAULT_PREFIX:
+                self._fileprefix_combo.set_active(i)
+        if self._fileprefix_combo.get_active_text() is None:
+            self._fileprefix_combo.set_active(0)
         tab.attach(self._fileprefix_combo, 1, 2, row, row + 1)
         row += 1
         

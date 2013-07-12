@@ -10,7 +10,7 @@ import time
 import logging
 import sastool
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 __all__ = ['SubSystemScan']
 
@@ -240,7 +240,7 @@ class SubSystemScan(SubSystem):
         return (self._current_step >= self.nstep) or (self.scandevice.name() == 'Time')
         
     def _exposure_fail(self, sse, message):
-        self.emit('scan-fail', status)
+        self.emit('scan-fail', message)
     
     def _exposure_end(self, sse, status):
         self._current_step += 1
@@ -312,7 +312,7 @@ class SubSystemScan(SubSystem):
     def do_scan_end(self, status):
         if self._ex_conn is not None:
             for c in self._ex_conn:
-                sse.disconnect(c)
+                self.credo().subsystems['Exposure'].disconnect(c)
             self._ex_conn = None
         if self.autoreturn:
             logger.info('Auto-returning...')

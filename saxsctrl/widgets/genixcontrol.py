@@ -124,7 +124,7 @@ class GenixControl(ToolDialog):
     _timeout_handler = None
     _aux_timeout_handler = None
     error_handler = None
-    __gsignals__ = {'response':'override'}
+    __gsignals__ = {'destroy':'override'}
     def __init__(self, credo, title='GeniX3D control'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         vbox = self.get_content_area()
@@ -184,16 +184,14 @@ class GenixControl(ToolDialog):
         self.rampupbutton.set_sensitive(status in (genix.GenixStatus.Standby, genix.GenixStatus.Idle))
         self.warmupbutton.set_sensitive(status in (genix.GenixStatus.PowerDown, genix.GenixStatus.Idle))
         return True
-    def finalize(self, *args, **kwargs):
-        if self._timeout_handler is not None:
+    def do_destroy(self):
+        if hasattr(self, '_timeout_handler') and self._timeout_handler is not None:
             GObject.source_remove(self._timeout_handler)
             self._timeout_handler = None
-        if self._aux_timeout_handler is not None:
+        if hasattr(self, '_aux_timeout_handler') and self._aux_timeout_handler is not None:
             GObject.source_remove(self._aux_timeout_handler)
             self._aux_timeout_handler = None
-            
-    def __del__(self):
-        self.finalize()
+        
     def on_warmup(self, widget, status=None, statstr=None, color=None):
         if not self.credo.get_equipment('genix').xrays_state():
             return
@@ -263,6 +261,4 @@ class GenixControl(ToolDialog):
                 self.shutterbutton.set_label('Close shutter')
             else:
                 self.shutterbutton.set_label('Open shutter')
-    def do_response(self, respid):
-        self.hide()        
 

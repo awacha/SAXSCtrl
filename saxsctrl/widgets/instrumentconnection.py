@@ -2,14 +2,13 @@ from gi.repository import Gtk
 from ..hardware.instruments import pilatus, genix, tmcl_motor
 from ..hardware import credo
 from ..hardware import subsystems
+from .widgets import ToolDialog
 
-class InstrumentConnections(Gtk.Dialog):
+class InstrumentConnections(ToolDialog):
     _filechooserdialogs = None
-    def __init__(self, credo, title='Connections', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.set_resizable(False)
+    def __init__(self, credo, title='Connections'):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
         self.connect('response', lambda dialog, response_id:self.hide())
-        self.credo = credo
         self.credo.subsystems['Equipments'].connect('equipment-connection', self._on_connect_equipment)
 
         vb = self.get_content_area()
@@ -54,7 +53,6 @@ class InstrumentConnections(Gtk.Dialog):
 
         self.set_button_images()
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
-        self.connect('response', self.on_response)
         self.show_all()
         
     def set_button_images(self):
@@ -96,7 +94,7 @@ class InstrumentConnections(Gtk.Dialog):
         if propobject.get_property(propname) != entry.get_text():
             self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
         
-    def on_response(self, slf, response):
+    def do_response(self, response):
         if response in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY):
             if self.credo.subsystems['Files'].rootpath != self.filepath_entry.get_text():
                 self.credo.subsystems['Files'].rootpath = self.filepath_entry.get_text()
@@ -104,5 +102,5 @@ class InstrumentConnections(Gtk.Dialog):
                 self.credo.subsystems['Scan'].scanfilename = self.scanfile_entry.get_text()
             self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         if response not in (Gtk.ResponseType.APPLY,):
-            self.hide()
+            self.destroy()
         return True

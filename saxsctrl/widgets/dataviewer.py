@@ -7,17 +7,17 @@ import os
 from .spec_filechoosers import MaskChooserDialog
 from .exposureselector import ExposureSelector
 import datetime
-from .data_reduction_setup import DataRedSetup, PleaseWaitDialog
+from .data_reduction_setup import PleaseWaitDialog
 import qrcode
+from .widgets import ToolDialog
 
-class DataViewer(Gtk.Dialog):
+class DataViewer(ToolDialog):
     _filechooserdialogs = None
     _datared_jobidx = 0
     _datared_connections = None
-    def __init__(self, credo, title='Data display', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+    def __init__(self, credo, title='Data display'):
+        ToolDialog.__init__(self, credo, title)
         self.set_default_response(Gtk.ResponseType.OK)
-        self.credo = credo
         self.datareduction = None
         vb = self.get_content_area()
         
@@ -68,8 +68,6 @@ class DataViewer(Gtk.Dialog):
         self.plot1d.set_size_request(200, -1)
         p.pack2(self.plot1d, True, False)
         p.set_size_request(-1, 480)
-        self.connect('response', self.on_response)
-        # self.connect('delete-event', self.hide_on_delete)
         
         
         vb.show_all()
@@ -153,6 +151,4 @@ class DataViewer(Gtk.Dialog):
             self.plot2d.set_exposure(ex)
         maskmaker.destroy()
         return
-    def on_response(self, dialog, respid):
-        self.hide()
         

@@ -42,4 +42,4 @@ class InstrumentSetup(ToolDialog):
         if respid in (Gtk.ResponseType.APPLY, Gtk.ResponseType.REJECT):
             self.stop_emission('response')
         if respid in (Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.DELETE_EVENT):
-            self.hide() 
+            self.destroy()

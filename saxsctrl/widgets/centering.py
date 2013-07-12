@@ -104,7 +104,6 @@ class CenteringDialog(ToolDialog):
         tab.attach(self.beamposy_label, 1, 2, 1, 2, xpadding=10)
         
         
-        self.connect('response', self.on_response)
         self._radavgwin = None
     def _exposure_loaded(self, es, ex):
         self.plot2d.set_exposure(ex)
@@ -146,11 +145,11 @@ class CenteringDialog(ToolDialog):
         basename = os.path.basename(ex['FileName']).rsplit('.', 1)[0]
         ex.header.write(os.path.join(self.credo.subsystems['Files'].eval2dpath, basename + '.param'))
         
-    def on_response(self, dialog, respid):
+    def do_response(self, respid):
         if respid == Gtk.ResponseType.APPLY:  # execute
             self.execute_findbeam()
         if respid == Gtk.ResponseType.YES:  # save
             self.save_beampos()
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
-            self.hide()
+            self.destroy()
             

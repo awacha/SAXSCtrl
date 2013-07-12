@@ -7,6 +7,7 @@ from ..instruments.genix import Genix
 from ..instruments.tmcl_motor import TMCM351
 from ..instruments.vacgauge import VacuumGauge
 from ..instruments.instrument import InstrumentError
+from ..instruments.haakephoenix import HaakePhoenix
 from gi.repository import Gtk
 from gi.repository import GObject
 
@@ -27,7 +28,7 @@ class SubSystemEquipments(SubSystem):
                       'pilatus':Pilatus,
                       'tmcm351':TMCM351,
                       'vacgauge':VacuumGauge,
-#                      'haakephoenix':{'class':None, 'port':2002, 'connectfunc':'connect_to_controller', 'disconnectfunc':'disconnect_from_controller'},
+                      'haakephoenix':HaakePhoenix,
                       }
     def __init__(self, credo):
         SubSystem.__init__(self, credo)
@@ -46,19 +47,16 @@ class SubSystemEquipments(SubSystem):
         return self.__equipments__.keys()
     def connected_equipments(self):
         return [e for e in self.known_equipments() if self.is_connected(e)]
-    def wait_for_idle(self, equipment):
+    def wait_for_idle(self, equipment, alternative_breakfunction=lambda :False):
         eq = self.get(equipment)
-        while not eq.is_idle():
+        return eq.wait_for_idle(alternative_breakfunction)
+    def wait_for_all_idle(self, alternative_breakfunction=lambda :False):
+        while not (self.is_idle() or alternative_breakfunction()):
             for i in range(100):
                 GObject.main_context_default().iteration(False)
                 if not GObject.main_context_default().pending():
                     break
-    def wait_for_all_idle(self):
-        while not self.is_idle():
-            for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
-                    break
+        return (not alternative_breakfunction())
     def has_equipment(self, equipment):
         return equipment.lower() in self._list
     def is_connected(self, equipment):
@@ -136,8 +134,8 @@ class SubSystemEquipments(SubSystem):
             if eq.connected():
                 dic.update(eq.get_current_parameters())
         return dic
-    def savestate(self, configparser):
-        SubSystem.savestate(self, configparser)
+    def savestate(self, configparser, sectionprefix=''):
+        SubSystem.savestate(self, configparser, sectionprefix)
         cp = ConfigParser.ConfigParser()
         cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)
         cp.read(cffn)
@@ -145,8 +143,8 @@ class SubSystemEquipments(SubSystem):
             eq.savestate(cp)
         with open(cffn, 'wt') as f:
             cp.write(f)
-    def loadstate(self, configparser):
-        SubSystem.loadstate(self, configparser)
+    def loadstate(self, configparser, sectionprefix=''):
+        SubSystem.loadstate(self, configparser, sectionprefix)
         cp = ConfigParser.ConfigParser()
         logger.debug('SubSystemEquipments.loadstate: ' + self.configfile)
         cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)

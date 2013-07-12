@@ -10,7 +10,7 @@ import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -51,6 +51,7 @@ class Tool(object):
         self.window = None
         self.button = None
         self.menuitem = None
+        self._windowconn = []
     def createwindow(self, button):
         if self.window is None:
             try:
@@ -60,7 +61,8 @@ class Tool(object):
                 self.window = None
                 raise
             else:
-                self.window.connect('delete-event', self.on_delete)
+                self._windowconn.append(self.window.connect('delete-event', self.on_delete))
+                self._windowconn.append(self.window.connect('destroy', self.on_delete))
                 self.window.show_all()
         if self.window is not None:
             self.window.present()
@@ -88,10 +90,16 @@ class Tool(object):
         if self.menuitem is not None:
             self.menuitem.set_sensitive(sensitivity)
     def on_delete(self, *args):
+        for c in self._windowconn:
+            self.window.disconnect(c)
+        self._windowconn = []
         self.window.destroy()
         del self.window
         self.window = None
-
+    def destroywindow(self):
+        if self.window is not None:
+            logger.debug('Destroying tool: ' + self.buttonname)
+            self.window.destroy()
                 
 class RootWindow(Gtk.Window):
     _memusage = None
@@ -124,7 +132,7 @@ class RootWindow(Gtk.Window):
 
         menus = {}     
         
-        for mname in ['File', 'Configuration', 'Hardware', 'Scan', 'Expose', 'View']:
+        for mname in ['File', 'Setup', 'Calibration', 'Hardware', 'Scan', 'Expose', 'View']:
             mi = Gtk.MenuItem(label='_' + mname, use_underline=True)
             menubar.append(mi)
             menus[mname] = Gtk.Menu()
@@ -171,20 +179,22 @@ class RootWindow(Gtk.Window):
         
         self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
-                            Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Configuration'),
-                            Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Configuration'),
-                            Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Configuration'),
-                            Tool(self.credo, 'Set-up data reduction', 'Data reduction setup', data_reduction_setup.DataRedSetup, 'Configuration'),
+                            Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Setup'),
+                            Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup'),
+                            Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Setup'),
+                            Tool(self.credo, 'Data reduction', 'Data reduction', datareduction.DataReduction, 'View'),
                             Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', ['genix', 'pilatus']),
                             Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', ['genix', 'pilatus']),
                             Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus']),
                             Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351']),
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View'),
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View'),
-                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Configuration'),
-                            Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Configuration'),
+                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration'),
+                            Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration'),
                             Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', ['tmcm351']),
-                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose')  # , genixneeded=True, pilatusneeded=True, motorneeded=True)
+                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose'),  # , genixneeded=True, pilatusneeded=True, motorneeded=True)
+                            Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge']),
+                            Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix']),
                             ]
         for t in self.toolbuttons:
             mi = t.createmenuitem()
@@ -192,7 +202,7 @@ class RootWindow(Gtk.Window):
         self.update_sensitivities()
         
         ssetupmenuitem = Gtk.MenuItem(label='Subsystems...')
-        menus['Configuration'].append(ssetupmenuitem)
+        menus['Setup'].append(ssetupmenuitem)
         sm = Gtk.Menu()
         ssetupmenuitem.set_submenu(sm)
         
@@ -212,7 +222,6 @@ class RootWindow(Gtk.Window):
         while dia.run() not in [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.DELETE_EVENT]:
             pass
         dia.destroy()
-        del dia
     def update_statuslabels(self):
         self._memusage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
         self.statuslabel_memory.set_text('%.1f MB' % (self._memusage / 1024))
@@ -225,11 +234,15 @@ class RootWindow(Gtk.Window):
         return False
     def do_destroy(self):
         logger.debug('Destroying root window.')
-        self.credo.savestate()
+        for tb in self.toolbuttons:
+            tb.destroywindow()
+        
         for obj, c in self._connections:
             obj.disconnect(c)
         self._connections = []
-        del self.credo
+        if hasattr(self, 'credo'):
+            self.credo.savestate()
+            del self.credo
     def __del__(self):
         logger.debug('Destructing root window.')
     def on_entry_changed(self, entry, entrytext):

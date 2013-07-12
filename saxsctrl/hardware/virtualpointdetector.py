@@ -11,6 +11,7 @@ class VirtualPointDetector(objwithgui.ObjWithGUI):
     scaler = GObject.property(type=float, default=1, blurb='Scaling factor')
     visible = GObject.property(type=bool, default=True, blurb='Visible on graphs')
     def __init__(self, name, scaler=None):
+        self._OWG_init_lists()
         self._OWG_hints['name'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
         self._OWG_hints['scaler'] = {objwithgui.OWG_Hint_Type.OrderPriority:1}
         self._OWG_hints['visible'] = {objwithgui.OWG_Hint_Type.OrderPriority:2}
@@ -50,6 +51,7 @@ class VirtualPointDetectorExposure(VirtualPointDetector):
             mode: 'max' or 'min' or 'mean' or 'sum' or 'barycenter_x' or 'barycenter_y'
                 what to do with the portion selected by the mask.
         """
+        self._OWG_init_lists()
         self._OWG_entrytypes['mode'] = objwithgui.OWG_Param_Type.ListOfStrings
         self._OWG_hints['mode'] = {objwithgui.OWG_Hint_Type.ChoicesList:['max', 'min', 'mean', 'sum', 'barycenter_x', 'barycenter_y', 'sigma_x', 'sigma_y', 'sigma_tot']}
         self._OWG_entrytypes['mask'] = objwithgui.OWG_Param_Type.File
@@ -111,6 +113,7 @@ class VirtualPointDetectorEpoch(VirtualPointDetector):
 class VirtualPointDetectorGenix(VirtualPointDetector):
     genixparam = GObject.property(type=str, default='HT', blurb='GeniX parameter to record')
     def __init__(self, name, scaler=None, genixparam=None):
+        self._OWG_init_lists()
         self._OWG_entrytypes['genixparam'] = objwithgui.OWG_Param_Type.ListOfStrings
         self._OWG_hints['genixparam'] = {objwithgui.OWG_Hint_Type.ChoicesList:['HT', 'Status', 'Current', 'TubeTime']}
         VirtualPointDetector.__init__(self, name, scaler)
@@ -137,6 +140,7 @@ class VirtualPointDetectorGenix(VirtualPointDetector):
 class VirtualPointDetectorHeader(VirtualPointDetector):
     headerfield = GObject.property(type=str, default='FSN', blurb='Header field')
     def __init__(self, name, scaler=None, headerfield=None):
+        self._OWG_init_lists()
         self._OWG_entrytypes['headerfield'] = objwithgui.OWG_Param_Type.ListOfStrings
         self._OWG_hints['headerfield'] = {objwithgui.OWG_Hint_Type.ChoicesList:['FSN', 'MeasTime', 'Dist', 'BeamPosX', 'BeamPosY', 'Wavelength', 'PixelSize'],
                                           objwithgui.OWG_Hint_Type.Editable:True}

@@ -11,6 +11,7 @@ class SubSystemException(Exception):
 class SubSystem(objwithgui.ObjWithGUI):
     configfile = GObject.property(type=str, default='', blurb='Configuration file')
     def __init__(self, credo):
+        self._OWG_init_lists()
         self._OWG_entrytypes['configfile'] = objwithgui.OWG_Param_Type.File
         objwithgui.ObjWithGUI.__init__(self)
         self.credo = weakref.ref(credo)

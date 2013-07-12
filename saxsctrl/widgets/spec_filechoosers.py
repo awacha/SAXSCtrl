@@ -36,6 +36,8 @@ RESPONSE_OPEN = 2
 
 class FileEntryWithButton(Gtk.HBox):
     _filechooserdialog = None
+    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ())}
+    _changed = False
     def __init__(self, dialogtitle='Open file...', dialogaction=Gtk.FileChooserAction.OPEN, currentfolder=None, dialogclass=Gtk.FileChooserDialog, * args):
         Gtk.HBox.__init__(self, *args)
         self.entry = Gtk.Entry()
@@ -46,6 +48,15 @@ class FileEntryWithButton(Gtk.HBox):
         self.currentfolder = currentfolder
         self.button.connect('clicked', self.on_button, self.entry, dialogaction)
         self.dialogclass = dialogclass
+        self.entry.connect('changed', lambda e:self._entry_changed())
+        self.entry.connect('focus-out-event', lambda entry, event: self._entry_finalized())
+    def _entry_changed(self):
+        self._changed = True
+    def _entry_finalized(self):
+        if self._changed:
+            self.emit('changed')
+    def do_changed(self):
+        self._changed = False
     def get_path(self):
         return self.entry.get_text()
     get_filename = get_path
@@ -63,6 +74,7 @@ class FileEntryWithButton(Gtk.HBox):
         response = self._filechooserdialog.run()
         if response == Gtk.ResponseType.OK:
             entry.set_text(self._filechooserdialog.get_filename())
+            self.emit('changed')
         self._filechooserdialog.hide()
         return True
     def set_filename(self, filename):

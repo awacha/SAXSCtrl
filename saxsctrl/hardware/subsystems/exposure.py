@@ -63,7 +63,10 @@ class SubSystemExposure(SubSystem):
     def get_mask(self):
         return self._default_mask
     def kill(self, stop_processing_results=True):
-        self.credo().get_equipment('pilatus').stopexposure()
+        try:
+            self.credo().get_equipment('pilatus').stopexposure()
+        except PilatusError:
+            pass
         if stop_processing_results:
             self._stopswitch.set()
 
@@ -163,12 +166,15 @@ class SubSystemExposure(SubSystem):
         pass
     def _process_exposure(self, exposurename, headername, stopswitch, queue, headertemplate, cbf_file_timeout, mask):
         # try to load the header from the CBF file.
+        logger.debug('process_exposure starting')
         t0 = time.time()
         cbfdata = cbfheader = None
         while (time.time() - t0) < cbf_file_timeout:
             try:
                 cbfdata, cbfheader = sastool.io.twodim.readcbf(exposurename, load_header=True, load_data=True)
+                break
             except IOError:
+                logger.debug('Waiting for image...')
                 if stopswitch.wait(0.01):
                     # break signaled.
                     return False 
@@ -177,6 +183,7 @@ class SubSystemExposure(SubSystem):
             # timeout.
             raise SubSystemExposureError('Timeout on waiting for CBF file.')
         # create the exposure object
+        logger.debug('Creating exposure')
         if self.timecriticalmode:
             ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
         else:
@@ -184,20 +191,24 @@ class SubSystemExposure(SubSystem):
         
         # do some fine adjustments on the header template:
         # a) include the CBF header written by camserver.
+        logger.debug('updating header')
         ex.header.update(cbfheader)
         # b) get instrument states
-        if not self.timecriticalmode:
-            ex.header.update(self.credo().subsystems['Equipments'].get_current_parameters())
+        logger.debug('Getting equipment status')
+        ex.header.update(self.credo().subsystems['Equipments'].get_current_parameters())
         # c) readout virtual detectors
         if not self.timecriticalmode:
+            logger.debug('Reading out virtual detectors')
             vdresults = self.credo().subsystems['VirtualDetectors'].readout_all(ex, self.credo().get_equipment('genix'))
             ex.header.update({('VirtDet_' + k): vdresults[k] for k in vdresults})
         # d) set the end date to the current time.
         ex.header['EndDate'] = datetime.datetime.now()
         # and save the header to the parampath.
+        logger.debug('Writing header')
         ex.header.write(headername)
         logger.debug('Header %s written.' % (headername))
         queue.put((ExposureMessageType.Image, ex))
+        logger.debug('Process_exposure took %f seconds.' % (time.time() - t0))
         del ex
         return True
     def _thread_worker(self, expname_template, headername_template, stopswitch, outqueue, exptime, nimages, dwelltime, firstfsn, cbf_file_timeout, header_template, mask):
@@ -216,12 +227,13 @@ class SubSystemExposure(SubSystem):
             for i in range(0, nimages):
                 # wait for each exposure. Check for user break inbetween.
                 t1 = time.time()
-                nextend = t0 + exptime * (i + 1) + dwelltime * i + 0.1
-                if nextend > t1:
-                    logger.debug('Sleeping %f seconds' % (nextend - t1))
-                    is_userbreak = stopswitch.wait(nextend - t1)
+                nextend = t0 + exptime * (i + 1) + dwelltime * i
+                wait = nextend - t1
+                if wait > 0:
+                    logger.debug('Sleeping %f seconds' % wait)
+                    is_userbreak = stopswitch.wait(wait)
                 else:
-                    logger.warning('Exposure lag: %f seconds' % (t1 - nextend))
+                    logger.warning('Exposure lag: %f seconds' % (-wait))
                     is_userbreak = stopswitch.is_set()
                 header_template['FSN'] = (firstfsn + i)
                 result = self._process_exposure(expname_template % (firstfsn + i), headername_template % (firstfsn + i),

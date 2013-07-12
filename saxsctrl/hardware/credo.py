@@ -87,10 +87,14 @@ class Credo(objwithgui.ObjWithGUI):
         self.subsystems['Files'] = subsystems.SubSystemFiles(self)
         self.subsystems['Samples'] = subsystems.SubSystemSamples(self)
         self.subsystems['Equipments'] = subsystems.SubSystemEquipments(self)
-        self.subsystems['Scan'] = subsystems.SubSystemScan(self)
-        self.subsystems['Exposure'] = subsystems.SubSystemExposure(self)
         self.subsystems['VirtualDetectors'] = subsystems.SubSystemVirtualDetectors(self)
+        self.subsystems['Exposure'] = subsystems.SubSystemExposure(self)
+        self.subsystems['Scan'] = subsystems.SubSystemScan(self)
+        self.subsystems['Transmission'] = subsystems.SubSystemTransmission(self)
         self.subsystems['DataReduction'] = subsystems.SubSystemDataReduction(self)
+
+        self._OWG_parts = self.subsystems.values()
+        
         # load state: this will load the state information of all the subsystems as well.
         self.loadstate()
         try:
@@ -129,19 +133,20 @@ class Credo(objwithgui.ObjWithGUI):
         return [mots[m] for m in sorted(mots)]
     def get_motor(self, name):
         return [m for m in self.get_motors() if ((m.name == name) or (m.alias == name) or (str(m) == name))][0]
-    def loadstate(self):
-        cp = ConfigParser.ConfigParser()
-        cp.read(RCFILE)
-        objwithgui.ObjWithGUI.loadstate(self, cp)
-        for ss in self.subsystems.values():
-            ss.loadstate(cp)
-        del cp
+    def loadstate(self, configparser=None, sectionprefix=''):
+        if configparser is None:
+            configparser = ConfigParser.ConfigParser()
+            configparser.read(RCFILE)
+        objwithgui.ObjWithGUI.loadstate(self, configparser, sectionprefix)
+#         for ss in self.subsystems.values():
+#             ss.loadstate(cp)
+        del configparser
     def savestate(self):
         cp = ConfigParser.ConfigParser()
         cp.read(RCFILE)
         objwithgui.ObjWithGUI.savestate(self, cp)
-        for ss in self.subsystems.values():
-            ss.savestate(cp)
+#         for ss in self.subsystems.values():
+#             ss.savestate(cp)
         if not os.path.exists(os.path.split(RCFILE)[0]):
             os.makedirs(os.path.split(RCFILE)[0])
         with open(RCFILE, 'wt') as f:

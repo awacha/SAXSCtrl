@@ -196,6 +196,7 @@ class SampleListDialog(ToolDialog):
         self.sampletreeview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self.sampletreeview.set_headers_visible(True)
         self.sampletreeview.set_rules_hint(True)
+        self.sampletreeview.connect('row-activated', lambda tv, path, column:self._tool_edit())
         
         self.from_credo()
     def _changed(self):
@@ -310,6 +311,8 @@ class SampleSelector(Gtk.ComboBoxText):
         if self.samplelist[self.get_active()][-1] != sam_before:
             self.emit('sample-changed', self.samplelist[self.get_active()][-1])
     def set_sample(self, sam):
+        if isinstance(sam, basestring) and sam == '':
+            sam = None
         if isinstance(sam, sample.SAXSSample) or (sam is None):
             for i, row in enumerate(self.samplelist):
                 if row[-1] == sam:
@@ -323,6 +326,6 @@ class SampleSelector(Gtk.ComboBoxText):
                     self.set_active(i)
                     self.emit('sample-changed', row[-1])
                     return
-        raise ValueError('Sample not in list!')
+        raise ValueError('Sample not in list: ' + str(sam))
     def get_sample(self):
         return self.samplelist[self.get_active()][-1]

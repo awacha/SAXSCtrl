@@ -21,7 +21,7 @@ import datetime
 import logging
 import time
 import glob
-from widgets import StatusLabel
+from widgets import StatusLabel, ToolDialog
 import multiprocessing
 
 logger = logging.getLogger(__name__)
@@ -172,13 +172,12 @@ def append_and_select_text_to_combo(combo, txt):
     idx = [x for x in range(len(combo.get_model())) if combo.get_model()[x][0] == txt][0]
     combo.set_active(idx)
     
-class PilatusControl(Gtk.Dialog):
-    def __init__(self, credo, title='Control the Pilatus detector', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, Gtk.ResponseType.APPLY)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
+class PilatusControl(ToolDialog):
+    def __init__(self, credo, title='Control the Pilatus detector'):
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, Gtk.ResponseType.APPLY))
         vbox = self.get_content_area()
         self.statusmonitor = PilatusStatus()
         vbox.pack_start(self.statusmonitor, False, True, 0)
-        self.credo = credo
         
         tab = Gtk.Table()
         vbox.pack_start(tab, False, True, 0)
@@ -224,23 +223,16 @@ class PilatusControl(Gtk.Dialog):
         b.connect('clicked', self.on_rbd)
         bb.add(b)
         
-        # --------------------------------------------------------------------------
-        
-#        def _handler(arg, arg1):
-#            GObject.idle_add(self.on_disconnect_from_camserver, arg)
-#        self.credo.pilatus.register_event_handler('disconnect_from_camserver', _handler)
-        
-        self.connect('response', self.on_response)
         self.connect('focus-in-event', self.restartmonitor)
         self.startmonitor()
         self.show_all()
     def on_set_tau(self, *args):
         self.credo.get_equipment('pilatus').set_tau(self.tau_entry.get_value() * 1e-9)
         self.statusmonitor.updatemonitor_slow(self.credo.get_equipment('pilatus'))
-    def on_response(self, dialog, respid):
+    def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.stopmonitor()
-            self.hide()
+            self.destroy()
         elif respid in (Gtk.ResponseType.APPLY,):
             self.statusmonitor.updatemonitor(self.credo.get_equipment('pilatus'))
             self.statusmonitor.updatemonitor_slow(self.credo.get_equipment('pilatus'))
