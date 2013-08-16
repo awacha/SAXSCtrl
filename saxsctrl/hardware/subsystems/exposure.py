@@ -36,8 +36,8 @@ class SubSystemExposure(SubSystem):
     cbf_file_timeout = GObject.property(type=float, default=3, blurb='Timeout for cbf files')
     timecriticalmode = GObject.property(type=bool, default=False, blurb='Time-critical mode')
     default_mask = GObject.property(type=str, default='mask.mat', blurb='Default mask file')
-    def __init__(self, credo, **kwargs):
-        SubSystem.__init__(self, credo)
+    def __init__(self, credo, offline=True, **kwargs):
+        SubSystem.__init__(self, credo, offline)
         self._OWG_nogui_props.append('configfile')
         self._OWG_hints['default-mask'] = {objwithgui.OWG_Hint_Type.OrderPriority:None}
         self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
@@ -125,6 +125,7 @@ class SubSystemExposure(SubSystem):
         if self.operate_shutter and genix.shutter_state() == False:
             genix.shutter_open()
         self._pilatus_idle_handler = pilatus.connect('idle', self._pilatus_idle, genix)
+        self.credo().subsystems['Files'].increment_next_fsn()
         pilatus.execute_exposure(exposureformat % fsn)
         self._thread.start()
         return fsn

@@ -2,12 +2,16 @@ from gi.repository import Gtk
 from gi.repository import GObject
 from .spec_filechoosers import MaskEntryWithButton
 import time
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class ExposureFrame(Gtk.Frame):
     __gsignals__ = {'started':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
                     'image':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'fail':(GObject.SignalFlags.RUN_FIRST, None, (str,))}
+                    'fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'destroy':'override'}
     def __init__(self, credo, fixedformat=None):
         Gtk.Frame.__init__(self, label='Expose...')
         self._connections = []
@@ -36,13 +40,15 @@ class ExposureFrame(Gtk.Frame):
         l = Gtk.Label('Exposure time (sec):'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(10, 0.0001, 3600 * 24 * 7, 10, 100), digits=4)
+        self._exptime_entry.set_value(self.credo.subsystems['Exposure'].exptime)
         tab.attach(self._exptime_entry, 1, 2, row, row + 1)
         row += 1
 
         l = Gtk.Label('Dwell time (sec):'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.003, 0.0001, 3600 * 24 * 7, 10, 100), digits=4)
+        self._dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.003, 0.003, 3600 * 24 * 7, 10, 100), digits=4)
         tab.attach(self._dwelltime_entry, 1, 2, row, row + 1)
+        self._dwelltime_entry.set_value(self.credo.subsystems['Exposure'].dwelltime)
         self._dwelltime_entry.set_sensitive(False)
         row += 1
         
@@ -50,6 +56,7 @@ class ExposureFrame(Gtk.Frame):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 9999999999, 1, 10), digits=0)
         tab.attach(self._nimages_entry, 1, 2, row, row + 1)
+        self._nimages_entry.set_value(self.credo.subsystems['Exposure'].nimages)
         self._connections.append((self._nimages_entry, self._nimages_entry.connect('value-changed', lambda sb:self._dwelltime_entry.set_sensitive(self._nimages_entry.get_value_as_int() > 1))))
         row += 1
 
@@ -121,6 +128,7 @@ class ExposureFrame(Gtk.Frame):
             self.nimages_progress.show()
         self._remtime_timeout = GObject.timeout_add(500, self._update_remtime)
     def do_image(self, img):
+        logger.debug('Exposureframe::image')
         self._images_remaining -= 1
         self._starttime = time.time()
     def _update_remtime(self):

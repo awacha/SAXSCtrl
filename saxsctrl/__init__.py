@@ -4,7 +4,11 @@ import sys
 import os
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-handler = logging.handlers.TimedRotatingFileHandler(os.path.expanduser('~/SAXSCtrl.log'), 'D')
+if 'ONLINE' in [x.upper() for x in sys.argv]:
+    handler = logging.handlers.TimedRotatingFileHandler(os.path.expanduser('~/SAXSCtrl.log'), 'D')
+else:
+    handler = logging.handlers.TimedRotatingFileHandler(os.path.expanduser('~/SAXSCtrl_OFFLINE.log'), 'D')
+    
 formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)

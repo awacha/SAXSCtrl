@@ -22,7 +22,10 @@ class TransmissionMeasurement(ToolDialog):
         l = Gtk.Label(label='Sample:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._sample_combo = SampleSelector(self.credo, autorefresh=False)
-        self._sample_combo.set_sample(sst.samplename)
+        try:
+            self._sample_combo.set_sample(sst.samplename)
+        except ValueError:
+            pass
         self._entrytab.attach(self._sample_combo, 1, 2, row, row + 1)
         self._sample_combo.connect('sample-changed', lambda combo, sample:self.clear_data())
         row += 1
@@ -30,7 +33,10 @@ class TransmissionMeasurement(ToolDialog):
         l = Gtk.Label(label='Empty sample:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._empty_combo = SampleSelector(self.credo, autorefresh=False)
-        self._empty_combo.set_sample(sst.emptyname)
+        try:
+            self._empty_combo.set_sample(sst.emptyname)
+        except ValueError:
+            pass
         self._entrytab.attach(self._empty_combo, 1, 2, row, row + 1)
         self._empty_combo.connect('sample-changed', lambda combo, sample:self.clear_data())
         row += 1
@@ -38,18 +44,21 @@ class TransmissionMeasurement(ToolDialog):
         l = Gtk.Label(label='Exposure time:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(sst.countingtime, 0.0001, 1e10, 1, 10), digits=4)
+        self._exptime_entry.set_value(sst.countingtime)
         self._entrytab.attach(self._exptime_entry, 1, 2, row, row + 1)
         row += 1
 
         l = Gtk.Label(label='Number of exposures:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(sst.nimages, 1, 1e10, 1, 10), digits=0)
+        self._nimages_entry.set_value(sst.nimages)
         self._entrytab.attach(self._nimages_entry, 1, 2, row, row + 1)
         row += 1
 
         l = Gtk.Label(label='Number of iterations:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._ncycles_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(sst.iterations, 1, 1e10, 1, 10), digits=0)
+        self._ncycles_entry.set_value(sst.iterations)
         self._entrytab.attach(self._ncycles_entry, 1, 2, row, row + 1)
         row += 1
     
@@ -76,15 +85,12 @@ class TransmissionMeasurement(ToolDialog):
         
         self._resultlabels = {}
         for row, what in enumerate(['Dark background', 'Empty beam', 'Sample'], 1):
-            print row, what
             l = Gtk.Label(what + ':'); l.set_alignment(0, 0.5)
             what = what.split()[0].lower()
             self._resultstable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
             self._resultlabels[what] = {}
             for column, how in enumerate(['Mean cps', 'Stddev cps', '# of exposures'], 1):
-                print '  ', column, how
                 if row == 1:
-                    print 'row==1'
                     l = Gtk.Label(how); l.set_alignment(0, 0.5)
                     self._resultstable.attach(l, column, column + 1, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
                 how = how.split()[0].lower()
@@ -118,9 +124,12 @@ class TransmissionMeasurement(ToolDialog):
                                 sst.connect('sample', lambda s, mean, std, num, what: self._on_data(mean, std, num, what), 'sample'),
                                 sst.connect('transm', lambda s, mean, std, num: self._on_transm(mean, std, num)),
                                 ]
-                sst.execute()
                 self._entrytab.set_sensitive(False)
                 self.get_widget_for_response(respid).set_label(Gtk.STOCK_STOP)
+                for ch in self.get_action_area().get_children():
+                    ch.set_sensitive(False)
+                sst.execute()
+                self.get_widget_for_response(respid).set_sensitive(True)
         elif respid == Gtk.ResponseType.APPLY:
             sam = self.credo.subsystems['Samples'].set(self._sample_combo.get_sample().title)
             sam.transmission = sastool.classes.ErrorValue(self._transmresult[0], self._transmresult[1])
@@ -151,6 +160,8 @@ class TransmissionMeasurement(ToolDialog):
         self._tsconn = []
         self._entrytab.set_sensitive(True)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
+        for ch in self.get_action_area().get_children():
+            ch.set_sensitive(True)
         pass
     def _on_data(self, mean, std, num, what):
         self._resultlabels[what]['mean'].set_text('%.4f' % mean)

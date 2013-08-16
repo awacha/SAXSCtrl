@@ -13,7 +13,7 @@ import re
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
 RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
@@ -91,7 +91,7 @@ class SeqCommand(GObject.GObject):
                 return self.emit(signalname, *args)
         else:
             return self.emit(signalname, *args)
-        
+    
 class SeqCommandComment(SeqCommand):
     cmd_regex = '#.*'
     def execute(self, credo, prevval, vars):
@@ -125,9 +125,12 @@ class SeqCommandGenixPower(SeqCommand):
             waitstate = genix.GenixStatus.PowerDown
         else:
             raise SequenceError('Invalid power level: ' + self.level, ErrorSeverity.fatal)
-        g.wait_for_status(waitstate, lambda :self._kill)
+        g.wait_for_status(waitstate, self._handler)
         if self._kill:
             raise KillException()
+    def _handler(self):
+        self.limited_emit('pulse', 'Setting GeniX power to ' + self.level)
+        return self._kill
     def simulate(self, credo, prevval, vars):
         logger.info('Simulating: setting Genix Power to ' + self.level)
         
@@ -196,11 +199,11 @@ class SeqCommandMoveMotor(SeqCommand):
     def execute(self, credo, prevval, vars):
         self._kill = False
         try:
-            motor = credo.get_motor(self.motor)
+            motor = credo.subsystems['Motors'].get(self.motor)
             motor.moveto(float(self.to))
         except Exception as exc:
             raise SequenceError(exc.message, ErrorSeverity.critical)
-        credo.subsystems['Equipments'].wait_for_idle('tmcm351', self._handler)
+        credo.subsystems['Motors'].wait_for_idle(self._handler)
         if self._kill:
             raise KillException()
     def _handler(self):
@@ -217,11 +220,11 @@ class SeqCommandMoverelMotor(SeqCommand):
     def execute(self, credo, prevval, vars):
         self._kill = False
         try:
-            motor = credo.get_motor(self.motor)
+            motor = credo.subsystems['Motors'].get(self.motor)
             motor.moverel(float(self.to))
         except Exception as exc:
             raise SequenceError(exc.message, ErrorSeverity.critical)
-        credo.subsystems['Equipments'].wait_for_idle('tmcm351', self._handler)
+        credo.subsystems['Motors'].wait_for_idle(self._handler)
         if self._kill:
             raise KillException()
     def _handler(self):

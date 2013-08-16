@@ -4,7 +4,7 @@ import ConfigParser
 from .subsystem import SubSystem, SubSystemError
 from ..instruments.pilatus import Pilatus
 from ..instruments.genix import Genix
-from ..instruments.tmcl_motor import TMCM351
+from ..instruments.tmcl_motor import TMCM351, TMCM6110
 from ..instruments.vacgauge import VacuumGauge
 from ..instruments.instrument import InstrumentError
 from ..instruments.haakephoenix import HaakePhoenix
@@ -14,7 +14,7 @@ from gi.repository import GObject
 __all__ = ['SubSystemEquipments']
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class SubSystemEquipments(SubSystem):
@@ -27,14 +27,16 @@ class SubSystemEquipments(SubSystem):
     __equipments__ = {'genix':Genix,
                       'pilatus':Pilatus,
                       'tmcm351':TMCM351,
+                      'tmcm6110':TMCM6110,
                       'vacgauge':VacuumGauge,
                       'haakephoenix':HaakePhoenix,
                       }
-    def __init__(self, credo):
-        SubSystem.__init__(self, credo)
+    _motor_drivers = ['tmcm351', 'tmcm6110']
+    def __init__(self, credo, offline=True):
+        SubSystem.__init__(self, credo, offline)
         if not self.configfile:
             self.configfile = 'equipments.conf'
-        self._list = dict([(n, self.__equipments__[n]()) for n in self.__equipments__])
+        self._list = dict([(n, self.__equipments__[n](offline=self.offline)) for n in self.__equipments__])
         self._equipment_connections = {}
         for eq in self._list:
             equip = self._list[eq]
@@ -66,6 +68,8 @@ class SubSystemEquipments(SubSystem):
             raise SubSystemError('Equipment %s not connected.' % equipment)
         else:
             return self._list[equipment.lower()]
+    def get_motor_drivers(self):
+        return [eq for eq in self.known_equipments() if eq in self._motor_drivers]
     def _equipment_idle(self, equipment):
         # this is called if the 'idle' signal of an equipment is emitted.
         if self.is_idle():
@@ -94,7 +98,7 @@ class SubSystemEquipments(SubSystem):
             setattr(eq, k, kwargs[k])
         try:
             eq.connect_to_controller()
-        except Exception as exc:
+        except InstrumentError as exc:
             if not eq.connected():
                 logger.error('Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + exc.message)
                 raise SubSystemError('Cannot connect to equipment: ' + exc.message)
@@ -135,6 +139,9 @@ class SubSystemEquipments(SubSystem):
                 dic.update(eq.get_current_parameters())
         return dic
     def savestate(self, configparser, sectionprefix=''):
+        if self.offline:
+            logger.warning('Not saving equipments state: we are off-line')
+            return
         SubSystem.savestate(self, configparser, sectionprefix)
         cp = ConfigParser.ConfigParser()
         cffn = os.path.join(self.credo().subsystems['Files'].configpath, self.configfile)

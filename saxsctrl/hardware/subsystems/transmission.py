@@ -33,7 +33,7 @@ class SubSystemTransmission(SubSystem):
     iterations = GObject.property(type=int, default=1, minimum=1, maximum=10000, blurb='Number of iterations')
     beamstop_motor = GObject.property(type=str, default='BeamStop_Y', blurb='Beam-stop motor name')
     method = GObject.property(type=str, default='max', blurb='Intensity counting method')
-    def __init__(self, credo):
+    def __init__(self, credo, offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['mask'] = objwithgui.OWG_Param_Type.File
         self._OWG_entrytypes['method'] = objwithgui.OWG_Param_Type.ListOfStrings
@@ -42,7 +42,7 @@ class SubSystemTransmission(SubSystem):
         self._whatsnext = 'dark'
         self._mask = None
         self._kill = False
-        SubSystem.__init__(self, credo)
+        SubSystem.__init__(self, credo, offline)
         if not self.mask:
             self.mask = self.credo().subsystems['Exposure'].default_mask
     def do_notify(self, prop):
@@ -53,7 +53,7 @@ class SubSystemTransmission(SubSystem):
                 self._mask = sastool.classes.SASMask(self.mask)
     def execute(self):
         self._kill = False
-        mot = self.credo().get_motor(self.beamstop_motor)
+        mot = self.credo().subsystems['Motors'].get(self.beamstop_motor)
         g = self.credo().get_equipment('genix')
         if not g.is_idle():
             raise TransmissionException('X-ray source is busy.')
@@ -69,7 +69,7 @@ class SubSystemTransmission(SubSystem):
             logger.info('X-ray source is already at low-power mode.')
         mot.moveto(self.beamstop_out)
         logger.info('Moving beam-stop out of the beam.')
-        self.credo().subsystems['Equipments'].wait_for_idle('tmcm351')
+        self.credo().subsystems['Motors'].wait_for_idle()
         logger.info('Beam-stop is out of beam.')
         self._iterations_finished = 0
         self._I = np.zeros((self.iterations * self.nimages, 3))
@@ -163,10 +163,10 @@ class SubSystemTransmission(SubSystem):
             self.credo().subsystems['Exposure'].disconnect(c)
         self.credo().subsystems['Exposure'].operate_shutter = self._oldshuttermode
         self._ex_conn = []
-        mot = self.credo().get_motor(self.beamstop_motor)
+        mot = self.credo().subsystems['Motors'].get(self.beamstop_motor)
         mot.moveto(self.beamstop_in)
         logger.info('Moving beam-stop in the beam.')
-        self.credo().subsystems['Equipments'].wait_for_idle('tmcm351')
+        self.credo().subsystems['Motors'].wait_for_idle()
         logger.info('Beam-stop is in the beam.')
     def do_dark(self, mean, std, n):
         logger.debug('Intensity of dark current up to now: %d +/- %d (from %d exposures)' % (mean, std, n))

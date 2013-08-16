@@ -1,4 +1,4 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply
+from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, ConnectionBrokenError
 import logging
 from gi.repository import GObject
 from ...utils import objwithgui
@@ -15,10 +15,12 @@ class VacuumGaugeError(InstrumentError):
 class VacuumGauge(Instrument_TCP):
     logfile = GObject.property(type=str, default='log.vac', blurb='Log file')
     logtimeout = GObject.property(type=float, default=5, minimum=1, blurb='Logging interval (sec)')
-    def __init__(self):
+    send_recv_retries = GObject.property(type=int, minimum=1, default=3, blurb='Number of retries on communication failure')
+    
+    def __init__(self, offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['logfile'] = objwithgui.OWG_Param_Type.File
-        Instrument_TCP.__init__(self)
+        Instrument_TCP.__init__(self, offline)
         self.timeout = 0.1
         self.timeout2 = 0.1
         self.port = 2002
@@ -57,8 +59,22 @@ class VacuumGauge(Instrument_TCP):
     def execute(self, code, data=''):
         mesg = '001' + code + data
         mesg = mesg + chr(sum(ord(x) for x in mesg) % 64 + 64) + '\r'
-        result = self.send_and_receive(mesg, blocking=True)
-        message = self.interpret_message(result, code)
+        for i in reversed(range(self.send_recv_retries)):
+            try:
+                result = self.send_and_receive(mesg, blocking=True)
+                message = self.interpret_message(result, code)
+                break
+            except VacuumGaugeError as vge:
+                if not i:
+                    raise
+                logger.warning('Communication error: ' + exc.message + '(type: ' + str(type(exc)) + '); retrying (%d retries left)' % i)
+            except (ConnectionBrokenError, InstrumentError) as exc:
+                logger.error('Connection of instrument %s broken: ' % self._get_classname() + exc.message)
+                raise VacuumGaugeError('Connection broken: ' + exc.message)
+            except Exception as exc:
+                logger.error('Instrument error on module %s: ' % self.hwtype + exc.message)
+                raise VacuumGaugeError('Instrument error: ' + exc.message)
+            
         return message
     def interpret_message(self, message, command=None):
         if command is None:

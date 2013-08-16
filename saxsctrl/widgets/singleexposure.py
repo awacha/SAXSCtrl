@@ -38,9 +38,10 @@ class SingleExposure(ToolDialog):
         
         self.expframe = ExposureFrame(self.credo)
         self.entrytab.attach(self.expframe, 0, 2, row, row + 1)
-        self.expframe.connect('started', self._on_start)
-        self.expframe.connect('end', self._on_end)
-        self.expframe.connect('image', self._on_image)
+        self._conns = [self.expframe.connect('started', self._on_start),
+                     self.expframe.connect('end', self._on_end),
+                     self.expframe.connect('image', self._on_image),
+                     ]
         row += 1
         
         self.datareduction_cb = Gtk.CheckButton('Carry out data reduction'); self.datareduction_cb.set_alignment(0, 0.5)
@@ -54,8 +55,10 @@ class SingleExposure(ToolDialog):
         f.add(vb1)
         self.plot2D_checkbutton = Gtk.CheckButton('Plot image afterwards'); self.plot2D_checkbutton.set_alignment(0, 0.5)
         vb1.pack_start(self.plot2D_checkbutton, True, True, 0)
+        self.plot2D_checkbutton.set_active(True)
         self.reuse2D_checkbutton = Gtk.CheckButton('Re-use plot window'); self.reuse2D_checkbutton.set_alignment(0, 0.5)
         vb1.pack_start(self.reuse2D_checkbutton, True, True, 0)
+        self.reuse2D_checkbutton.set_active(True)
 
         f = Gtk.Frame(label='1D plot')
         vb.pack_start(f, False, True, 0)
@@ -66,8 +69,9 @@ class SingleExposure(ToolDialog):
         self.plot1D_checkbutton = Gtk.CheckButton('Plot curve afterwards'); self.plot1D_checkbutton.set_alignment(0, 0.5)
         tab.attach(self.plot1D_checkbutton, 0, 2, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         row += 1
-        
+        self.plot1D_checkbutton.set_active(True)
         self.reuse1D_checkbutton = Gtk.CheckButton('Re-use plot window'); self.reuse1D_checkbutton.set_alignment(0, 0.5)
+        self.reuse1D_checkbutton.set_active(True)
         tab.attach(self.reuse1D_checkbutton, 0, 2, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         row += 1
         
@@ -89,6 +93,11 @@ class SingleExposure(ToolDialog):
         
         self._datareduction = []
         self._expsleft = 0
+    def do_destroy(self):
+        if hasattr(self, '_conns'):
+            for c in self._conns:
+                self.expframe.disconnect(c)
+            del self._conns
 
     def do_response(self, respid):
         if respid == Gtk.ResponseType.OK:
@@ -174,6 +183,11 @@ class SingleExposure(ToolDialog):
             func = win.__getattribute__(self.plot1d_method.get_active_text())
             func(rad, label=str(exposure.header))
             win.legend(loc='best')
+            if self.q_or_pixel_checkbutton.get_active():
+                win.xlabel(u'q (1/\xc5)')
+            else:
+                win.xlabel(u'Radial pixel number')
+            win.ylabel('Intensity (total counts)')
             win.show_all()
             win.present()
         return False

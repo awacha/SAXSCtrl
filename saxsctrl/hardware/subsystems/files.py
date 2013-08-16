@@ -23,13 +23,16 @@ class SubSystemFiles(SubSystem):
     filebegin = GObject.property(type=str, default='crd', blurb='First part of exposure names')
     ndigits = GObject.property(type=int, default=5, minimum=1, blurb='Number of digits in exposure names')
     rootpath = GObject.property(type=str, default='~/credo_data/current', blurb='Data root path')
-    def __init__(self, credo, rootpath=None, filebegin=None, ndigits=None):
-        SubSystem.__init__(self, credo)
+    scanfilename = GObject.property(type=str, default='credoscan.spec', blurb='Scan file')
+    def __init__(self, credo, offline=True, rootpath=None, filebegin=None, ndigits=None):
+        SubSystem.__init__(self, credo, offline)
         self.monitors = []
         if filebegin is not None: self.filebegin = filebegin
         if ndigits is not None: self.ndigits = ndigits
         if rootpath is not None: self.rootpath = rootpath
         self._setup(self.rootpath)
+        self.scanfile = None
+        self.scanfilename = 'credoscan.spec'
         self._lastevents = []
     def do_notify(self, prop):
         if prop.name in ['rootpath']:
@@ -41,6 +44,19 @@ class SubSystemFiles(SubSystem):
                 self._setup(self.rootpath)
         if prop.name in ['filebegin', 'ndigits', 'rootpath']:
             self.emit('changed')
+        if prop.name in ['scanfilename']:
+            if not os.path.isabs(self.scanfilename):
+                self.scanfilename = os.path.join(self.scanpath, self.scanfilename)
+            else:
+                self.reload_scanfile()
+    def reload_scanfile(self):
+        if isinstance(self.scanfile, sastool.classes.SASScanStore):
+            self.scanfile.finalize()
+            del self.scanfile
+        logger.debug('Reloading scan file from ' + self.scanfilename + '')
+        self.scanfile = sastool.classes.SASScanStore(self.scanfilename, 'CREDO spec file', [])
+        logger.debug('Scan file reloaded: ' + str(self.scanfile))
+        return self.scanfile
     def _setup(self, rootpath):
         logger.debug('Running SubSystemFiles._setup()')
         for monitor, connection in self.monitors:
@@ -138,6 +154,14 @@ class SubSystemFiles(SubSystem):
         if currentpattern:
             self.emit('new-nextfsn', self._nextfsn_cache[regex], regex.pattern)
         return self._nextfsn_cache[regex]
+    def increment_next_fsn(self, regex=None):
+        if regex is None:
+            regex = self.get_fileformat_re()
+        self._nextfsn_cache[regex] = self.get_next_fsn(regex) + 1
+        if (regex.pattern == self.get_fileformat_re().pattern):
+            self.emit('new-nextfsn', self._nextfsn_cache[regex], regex.pattern)
+        return self._nextfsn_cache[regex]
+        
     def _get_subpath(self, subdir):
         pth = os.path.join(os.path.expanduser(self.rootpath), subdir)
         while os.path.islink(pth):

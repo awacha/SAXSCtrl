@@ -16,10 +16,10 @@ class HaakePhoenixError(InstrumentError):
 class HaakePhoenix(Instrument_TCP):
     logfile = GObject.property(type=str, default='log.temp', blurb='Log file')
     logtimeout = GObject.property(type=float, default=5, minimum=1, blurb='Logging interval (sec)')
-    def __init__(self):
+    def __init__(self, offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['logfile'] = objwithgui.OWG_Param_Type.File
-        Instrument_TCP.__init__(self)
+        Instrument_TCP.__init__(self, offline)
         self.timeout = 0.1
         self.timeout2 = 0.1
         self.port = 2003

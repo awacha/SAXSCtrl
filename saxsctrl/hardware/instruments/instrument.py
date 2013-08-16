@@ -21,6 +21,9 @@ logger.setLevel(logging.INFO)
 class InstrumentError(StandardError):
     pass
 
+class ConnectionBrokenError(InstrumentError):
+    pass
+
 class InstrumentTimeoutError(InstrumentError):
     pass
 
@@ -36,16 +39,19 @@ class Instrument(objwithgui.ObjWithGUI):
                     'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever the instrument becomes idle, i.e. the status parameter changes to something considered as idle state (checked by the class attribute _considered_idle) 
                     'notify': 'override',
                     }
+    offline = GObject.property(type=bool, default=True, blurb='Off-line mode')
     status = GObject.property(type=str, default=InstrumentStatus.Disconnected, blurb='Instrument status')
     _considered_idle = [InstrumentStatus.Idle, InstrumentStatus.Disconnected]
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
-    def __init__(self):
+    def __init__(self, offline=True):
         self._OWG_init_lists()
         self._OWG_nosave_props.append('status')
         self._OWG_nogui_props.append('status')
         objwithgui.ObjWithGUI.__init__(self)
-        self.configfile = os.path.expanduser('~/.config/credo/' + self._get_classname() + '.conf')
+        self.offline = offline
+        if not self.configfile:
+            self.configfile = os.path.expanduser('~/.config/credo/' + self._get_classname() + '.conf')
     def connect_to_controller(self):
         """Connect to the controller. The actual connection parameters (e.g. host, port etc.) 
         to be used should be implemented as GObject properties. This should work as follows:
@@ -161,8 +167,6 @@ class Instrument(objwithgui.ObjWithGUI):
     address = property(__ga, __sa, None, 'Address of the instrument')
         
 class CommunicationCollector(threading.Thread):
-    class ConnectionBroken(Exception):
-        pass
     def __init__(self, parent, queue, lock, sleep=0.1, mesgseparator=None):
         threading.Thread.__init__(self, name=self.__class__.__name__)
         self.parent = weakref.ref(parent)
@@ -171,6 +175,7 @@ class CommunicationCollector(threading.Thread):
         self.kill = threading.Event()
         self.sleeptime = sleep
         self.mesgseparator = mesgseparator
+        logger.debug('Initialized CommunicationCollector thread with sleep time %f' % self.sleeptime)
     def do_read(self):
         raise NotImplementedError
     def run(self):
@@ -179,9 +184,12 @@ class CommunicationCollector(threading.Thread):
                 continue
             try:
                 mesg = self.do_read()
-            except self.ConnectionBroken:
+            except ConnectionBrokenError:
+                logger.warning('Communication error in communicationcollector thread: shutting down socket.')
+                self.lock.release()
                 self.parent().disconnect_from_controller(False)
-            finally:
+                break
+            else:
                 self.lock.release()
             if mesg is not None:
                 if self.mesgseparator is not None:
@@ -189,17 +197,21 @@ class CommunicationCollector(threading.Thread):
                         self.queue.put(m)
                 else:
                     self.queue.put(mesg)
-                
+        logger.debug('Communication collector thread ending.')
+        
+        
 class Instrument_ModbusTCP(Instrument):
     host = GObject.property(type=str, default='', blurb='Host name')
     port = GObject.property(type=int, minimum=0, default=502, blurb='Port number')
-    def __init__(self):
+    def __init__(self, offline=True):
         self._communications_lock = multiprocessing.Lock()
         self._modbus = None
-        Instrument.__init__(self)
+        Instrument.__init__(self, offline)
     def connected(self):
         return self._modbus is not None
     def connect_to_controller(self):
+        if self.offline:
+            raise InstrumentError('Cannot connect to controller: we are off-line')
         with self._communications_lock:
             if self.connected():
                 raise InstrumentError('Already connected')
@@ -209,7 +221,7 @@ class Instrument_ModbusTCP(Instrument):
                 self._modbus.open()
                 self._post_connect()
                 self.status = InstrumentStatus.Idle
-            except Exception as ex:
+            except (socket.timeout, InstrumentError) as ex:
                 self._modbus = None
                 logger.error('Cannot connect to instrument at %s:%d' % (self.host, self.port))
                 raise InstrumentError('Cannot connect to instrument at %s:%d. Reason: %s' % (self.host, self.port, ex.message))
@@ -270,13 +282,15 @@ class Instrument_TCP(Instrument):
     _mesgseparator = None
     collector_sleep = GObject.property(type=float, minimum=0, default=0.1, blurb='Sleeping time for collector thread.')
     _commands = None
-    def __init__(self):
+    def __init__(self, offline=True):
         self._socket = None
         self._socketlock = multiprocessing.Lock()
         self._inqueue = multiprocessing.queues.Queue()
-        Instrument.__init__(self)
+        Instrument.__init__(self, offline)
 
     def connect_to_controller(self):
+        if self.offline:
+            raise InstrumentError('Cannot connect to controller: we are off-line')
         with self._socketlock:
             if self.connected():
                 raise InstrumentError('Cannot connect: already connected.')
@@ -284,6 +298,7 @@ class Instrument_TCP(Instrument):
                 self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 ip = socket.gethostbyname(self.host)
                 self._socket.connect((ip, self.port))
+                logger.debug('Connected to TCP socket at %s:%d' % (self.host, self.port))
             except socket.gaierror:
                 self._socket = None
                 raise InstrumentError('Cannot resolve host name.')
@@ -293,19 +308,29 @@ class Instrument_TCP(Instrument):
             self._socket.settimeout(self.timeout)
             self._socket.setblocking(False)
         try:
+            logger.debug('Starting up reply collector thread for socket %s:%d' % (self.host, self.port))
             GObject.idle_add(self._check_inqueue)
             self._collector = CommunicationCollector_TCP(self._socket, self, self._inqueue, self._socketlock, self.collector_sleep, mesgseparator=self._mesgseparator)
             self._collector.daemon = True
             self._collector.start()
+            logger.debug('Running post-connect.')
             self._post_connect()
+            logger.debug('Post-connect finished successfully.')
             self.status = InstrumentStatus.Idle
-        except Exception as ex:
-            if hasattr(self, '_collector') and self._collector.is_alive():
+        except InstrumentError as ex:
+            logger.debug('InstrumentError exception during post-socket-setup initialization.')
+            if hasattr(self, '_collector'):
+                logger.debug('Stopping collector thread')
                 self._collector.kill.set()
-                self._collector.join()
+                try:
+                    self._collector.join()
+                except RuntimeError:
+                    pass
+                logger.debug('Collector thread stopped.')
             with self._socketlock:
-                self._socket.close()
-                self._socket = None
+                if self._socket is not None:
+                    self._socket.close()
+                    self._socket = None
             raise InstrumentError('Error while connecting to instrument at %s:%d: %s' % (self.host, self.port, ex.message))
         logger.info('Connected to instrument at %s:%d' % (self.host, self.port))
         self.emit('connect-equipment')
@@ -317,16 +342,19 @@ class Instrument_TCP(Instrument):
         except:
             pass
         with self._socketlock:
-            if self._socket is None:
-                return
             logger.debug('Disconnecting.')
             self._collector.kill.set()
-            self._collector.join()
+            try:
+                self._collector.join()
+            except RuntimeError:
+                pass
+            if not self.connected(): return
             try:
                 self._socket.close()
             except socket.error:
                 pass
-            self._socket = None
+            finally:
+                self._socket = None
         self.status = InstrumentStatus.Disconnected
         self.emit('disconnect-equipment', status)
     def _read_from_socket(self, timeout=None):
@@ -339,9 +367,9 @@ class Instrument_TCP(Instrument):
             # catch. Otherwise we try to continue with the other characters. 
             rlist, wlist, xlist = select.select([self._socket], [], [self._socket], timeout)
             if xlist:
-                raise CommunicationCollector.ConnectionBroken()
+                raise ConnectionBrokenError('socket is exceptional on starting phase of read')
             if not rlist:
-                raise InstrumentTimeoutError()
+                raise InstrumentTimeoutError('socket is not readable on starting phase of read')
             message = self._socket.recv(1)
             # read subsequent characters with zero timeout. We do this in order to
             # avoid waiting too long after the end of each message, and to use 
@@ -352,29 +380,31 @@ class Instrument_TCP(Instrument):
             while True:
                 rlist, wlist, xlist = select.select([self._socket], [], [self._socket], self.timeout2)
                 if xlist:
-                    raise CommunicationCollector.ConnectionBroken()
+                    raise ConnectionBrokenError('socket is exceptional on second phase of read')
                 if not rlist:
-                    raise InstrumentTimeoutError()
+                    raise InstrumentTimeoutError('socket is not readable on second phase of read')
                 # if the input message ended, and nothing is to be read, an exception
                 # will be raised, which we will catch.
                 mesg = self._socket.recv(self.recvbufsize)
                 if mesg == '': 
                     # if no exception is raised and an empty string has been read, it
                     # signifies that the connection has been broken.
-                    raise CommunicationCollector.ConnectionBroken()
+                    raise ConnectionBrokenError('empty string read from socket: other end hung up.')
                 message = message + mesg
-        except InstrumentTimeoutError:
+        except InstrumentTimeoutError as ite:
             # this signifies the end of message, or a timeout when reading the first char.
             # In the former case, we simply ignore this condition. In the latter, we raise
             # an exception.
             if message is None:
-                raise InstrumentError('Timeout while reading reply!')
-        except CommunicationCollector.ConnectionBroken:
+                raise InstrumentError('Timeout while reading reply: ' + ite.message)
+        except ConnectionBrokenError as cbe:
             # this is a serious error, we tear down the connection on our side.
             # We call the disconnecting method in this funny way, since it needs locking
             # self._socket_lock, which is now locked.
             GObject.idle_add(lambda :(self.disconnect_from_controller(False) and False))
-            raise InstrumentError('Connection broken!')
+            raise cbe
+        except socket.error as se:
+            raise InstrumentError('Communication Error: ' + se.message) 
         finally:
             self._socket.settimeout(self.timeout)
         return message
@@ -441,7 +471,7 @@ class CommunicationCollector_TCP(CommunicationCollector):
         while True:
             rlist, wlist, xlist = select.select([self.socket], [], [self.socket], 0.001)
             if xlist:
-                raise self.ConnectionBroken()
+                raise ConnectionBrokenError()
             if not rlist:
                 break
             try:
@@ -452,7 +482,7 @@ class CommunicationCollector_TCP(CommunicationCollector):
             message = message + mesg
             if mesg == '':
                 # this signifies that the other end of the connection broke.
-                raise self.ConnectionBroken()
+                raise ConnectionBrokenError
         if message == '':
             # nothing has been read
             return None

@@ -286,11 +286,12 @@ class SampleSelector(Gtk.ComboBoxText):
     __gsignals__ = {'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                   }
     autorefresh = GObject.property(type=bool, default=True)
-    def __init__(self, credo, autorefresh=True):
+    def __init__(self, credo, autorefresh=True, shortnames=False):
         Gtk.ComboBox.__init__(self)
         self.credo = credo
         self.credo.subsystems['Samples'].connect('changed', lambda sss:self.reload_samples())
         self.autorefresh = autorefresh
+        self.shortnames = shortnames
         self.credo.subsystems['Samples'].connect('selected', lambda sss, sam: (self.autorefresh) and self.set_sample(sam))
         self.samplelist = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT)
         self.set_model(self.samplelist)
@@ -307,7 +308,10 @@ class SampleSelector(Gtk.ComboBoxText):
         for i, sam in enumerate(self.credo.subsystems['Samples']):
             if sam == self.credo.subsystems['Samples'].get():
                 self.set_active(i)
-            self.samplelist.append((str(sam), sam))
+            if self.shortnames:
+                self.samplelist.append((sam.title, sam))
+            else:
+                self.samplelist.append((str(sam), sam))
         if self.samplelist[self.get_active()][-1] != sam_before:
             self.emit('sample-changed', self.samplelist[self.get_active()][-1])
     def set_sample(self, sam):

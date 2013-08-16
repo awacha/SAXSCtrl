@@ -23,7 +23,7 @@ class ScanViewer(ToolDialog):
         l = Gtk.Label(label='Scan file:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.scanfile_entry = FileEntryWithButton()
-        self.scanfile_entry.set_filename(self.credo.subsystems['Scan'].scanfilename)
+        self.scanfile_entry.set_filename(self.credo.subsystems['Files'].scanfilename)
         self.entrytable.attach(self.scanfile_entry, 1, 2, row, row + 1)
         b = Gtk.Button(stock=Gtk.STOCK_REFRESH)
         self.entrytable.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
@@ -97,7 +97,10 @@ class ScanViewer(ToolDialog):
         row = model[paths[0]]
         scan = self.spec[row[0]]
         
-        sg = scangraph.ScanGraph(scan, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
+        if isinstance(scan._N, tuple):
+            sg = scangraph.ImagingGraph(scan, 'Imaging #' + str(scan.fsn) + ' -- ' + str(scan.comment))
+        else:
+            sg = scangraph.ScanGraph(scan, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
         sg.redraw_scan()
         sg.show_all()
 

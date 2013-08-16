@@ -4,9 +4,10 @@ from gi.repository import GObject
 
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class VacuumGauge(ToolDialog):
+    __gtype_name__ = 'SAXSCtrl_Widgets_VacuumGauge'
     __gsignals__ = {'destroy':'override'}
     def __init__(self, credo, title='Vacuum status'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
@@ -38,6 +39,5 @@ class VacuumGauge(ToolDialog):
         if hasattr(self, '_timeouthandle') and self._timeouthandle is not None:
             GObject.source_remove(self._timeouthandle)
             self._timeouthandle = None
-            logger.debug('Unregistered timeout handler on destroy.')
     def do_response(self, respid):
         self.destroy()

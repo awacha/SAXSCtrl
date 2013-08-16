@@ -74,12 +74,12 @@ class ScanDeviceTime(ScanDevice):
 class ScanDeviceMotor(ScanDevice):
     def __init__(self, credo, motorname):
         ScanDevice.__init__(self, credo)
-        self.motor = self.credo().get_equipment('tmcm351').get_motor(motorname)
+        self.motor = self.credo().subsystems['Motors'].get(motorname)
         self.arg = self.motor.alias
     def moveto(self, position):
         try:
             self.motor.moveto(position)
-            self.credo().get_equipment('tmcm351').wait_for_idle()
+            self.motor.driver().wait_for_idle()
         except MotorError as me:
             raise ScanDeviceError('Positioning failure: ' + me.message)
         return self.where()
@@ -99,11 +99,7 @@ class ScanDeviceMotor(ScanDevice):
         return 'Motor:' + self.arg
     @classmethod
     def possible_devices(cls, credo):
-        t = credo.get_equipment('tmcm351')
-        if t.connected():
-            return ['Motor:' + mot.alias for mot in t.motors.itervalues()]
-        else:
-            return []
+        return ['Motor:' + mot.alias for mot in credo.subsystems['Motors'].get_motors()]
         
 class ScanDevicePilatus(ScanDevice):
     def __init__(self, credo, what):
@@ -149,7 +145,6 @@ class SubSystemScan(SubSystem):
     nstep = GObject.property(type=int, minimum=2, default=2, blurb='Number of steps (>=2)')
     waittime = GObject.property(type=float, minimum=0, default=0, blurb='Wait time (sec)')
     devicename = GObject.property(type=str, default='Time:Clock', blurb='Device name')
-    scanfilename = GObject.property(type=str, default='credoscan.spec', blurb='Scan file name')
     operate_shutter = GObject.property(type=bool, default=False, blurb='Open/close shutter between exposures')
     autoreturn = GObject.property(type=bool, default=True, blurb='Auto-return')
     comment = GObject.property(type=str, default='--please fill--', blurb='Comment')
@@ -159,28 +154,23 @@ class SubSystemScan(SubSystem):
     _header_template = None
     _mask = None
     _ex_conn = None
-    def __init__(self, credo):
+    def __init__(self, credo, offline=True):
         self.scandevice = None
-        self.scanfile = None
-        SubSystem.__init__(self, credo)
+        SubSystem.__init__(self, credo, offline)
         self._init_scan_device()
     def do_notify(self, prop):
-        if prop.name == 'scanfilename':
-            self._init_scan_file()
-        if prop.name == 'devicename':
-            self._init_scan_device()
+        try:
+            if prop.name == 'devicename':
+                self._init_scan_device()
+        except SubSystemError:
+            pass
     def _init_scan_device(self):
         self.scandevice = ScanDevice.new_from_name(self.credo(), self.devicename)
-    def _init_scan_file(self):
-        if not os.path.isabs(self.scanfilename):
-            logger.debug('Initializing scan file: setting scanfilename to absolute path')
-            self.scanfilename = os.path.join(self.credo().subsystems['Files'].scanpath, self.scanfilename)
-        else:
-            logger.debug('Initializing scan file: loading.')
-            self.scanfile = self.reload_scanfile()
     def get_supported_devices(self):
         return ScanDevice.possible_devices(self.credo())
     def prepare(self, header_template={}, mask=None):
+        if self.scandevice is None:
+            self._init_scan_device()
         logger.debug('Initializing scan.')
         if self.scandevice is None:
             raise SubSystemError('No scan device!')
@@ -195,15 +185,15 @@ class SubSystemScan(SubSystem):
         logger.debug('Initializing scan object.')
         # Initialize the scan object
         self.currentscan = sastool.classes.scan.SASScan(columns, self.nstep)
-        self.currentscan.motors = [m.alias for m in self.credo().get_motors()]
-        self.currentscan.motorpos = [m.get_pos() for m in self.credo().get_motors()]
+        self.currentscan.motors = [m.alias for m in self.credo().subsystems['Motors'].get_motors()]
+        self.currentscan.motorpos = [m.get_pos() for m in self.credo().subsystems['Motors'].get_motors()]
         step = (self.value_end - self.value_begin) / (self.nstep - 1)
         command = 'scan ' + str(self.scandevice) + ' from ' + str(self.value_begin) + ' to ' + str(self.value_end) + ' by ' + str(step) + ' ct = ' + str(self.countingtime) + ' wt = ' + str(self.waittime)
         self.currentscan.countingtype = self.currentscan.COUNTING_TIME
         self.currentscan.countingvalue = self.countingtime
         self.currentscan.comment = self.comment
         self.currentscan.fsn = None
-        self.currentscan.start_record_mode(command, self.nstep, self.scanfile)
+        self.currentscan.start_record_mode(command, self.nstep, self.credo().subsystems['Files'].scanfile)
 
         logger.info('Starting scan #%d: %s' % (self.currentscan.fsn, command))
 
@@ -281,8 +271,6 @@ class SubSystemScan(SubSystem):
             self._current_step = 0
             if self._original_shuttermode and not self.operate_shutter:  # if an exposure should open the shutter but we leave it open during exposures
                 self.credo().subsystems['Exposure'].operate_shutter = False
-                self.credo().get_equipment('genix').shutter_open()
-                logger.debug('Opened shutter in _do_next_step.')
             # otherwise we either 1) should not touch the shutter 2) can rely on the open/close behaviour of the Exposure subsystem
         elif self._current_step == self.nstep - 1:
             logger.debug('Last step.')
@@ -297,6 +285,9 @@ class SubSystemScan(SubSystem):
         GObject.timeout_add(int(self.waittime * 1000), self._start_exposure)
     def _start_exposure(self): 
         logger.debug('Starting exposure in scan sequence.')
+        if (self._current_step == 0) and self._original_shuttermode and not self.operate_shutter:
+            self.credo().get_equipment('genix').shutter_open()
+            logger.debug('Opened shutter before starting of the first exposure.')
         self.credo().subsystems['Exposure'].start(self._header_template, self._mask)
         logger.debug('Done starting exposure in scan sequence')
         return False    
@@ -336,14 +327,6 @@ class SubSystemScan(SubSystem):
 
     def do_scan_fail(self, message):
         logger.error('Scan failure: ' + message)
-    def reload_scanfile(self):
-        if isinstance(self.scanfile, sastool.classes.SASScanStore):
-            self.scanfile.finalize()
-            del self.scanfile
-        logger.debug('Reloading scan file from ' + self.scanfilename + '')
-        self.scanfile = sastool.classes.SASScanStore(self.scanfilename, 'CREDO spec file', [str(m) for m in self.credo().get_motors()])
-        logger.debug('Scan file reloaded: ' + str(self.scanfile))
-        return self.scanfile
     @property
     def stepsize(self):
         return (self.value_end - self.value_begin) / (self.nstep - 1)

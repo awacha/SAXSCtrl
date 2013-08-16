@@ -7,6 +7,8 @@ import scan
 import subsystem
 import transmission
 import virtualdetectors
+import motors
+import imaging
 
 from datareduction import *
 from equipments import *
@@ -17,3 +19,5 @@ from scan import *
 from subsystem import *
 from transmission import *
 from virtualdetectors import *
+from motors import *
+from imaging import *

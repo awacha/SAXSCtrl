@@ -39,6 +39,8 @@ class Credo(objwithgui.ObjWithGUI):
                     'transmission-end':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object, bool)),
                     'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
                    }
+    # offline mode. In this mode settings files cannot be written and connections to instruments cannot be made.
+    offline = GObject.property(type=bool, default=False, blurb='Offline mode')
     
     # Accounting properties
     username = GObject.property(type=str, default='Anonymous', blurb='User name')
@@ -67,8 +69,11 @@ class Credo(objwithgui.ObjWithGUI):
     
     # changing any of the properties in this list will trigger a path-changed event.
     path_properties = ['filepath', 'imagepath']
-    def __init__(self):
+    def __init__(self, offline=True):
         objwithgui.ObjWithGUI.__init__(self)
+        self._OWG_nogui_props.append('offline')
+        self._OWG_nosave_props.append('offline')
+        self.offline = offline
         self._OWG_hints['username'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
         self._OWG_hints['projectname'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
         self._OWG_hints['beamposx'] = {objwithgui.OWG_Hint_Type.OrderPriority:1, objwithgui.OWG_Hint_Type.Digits:3}
@@ -84,55 +89,31 @@ class Credo(objwithgui.ObjWithGUI):
         self._OWG_hints['bs-out'] = {objwithgui.OWG_Hint_Type.OrderPriority:8, objwithgui.OWG_Hint_Type.Digits:3}
         # initialize subsystems
         self.subsystems = {}
-        self.subsystems['Files'] = subsystems.SubSystemFiles(self)
-        self.subsystems['Samples'] = subsystems.SubSystemSamples(self)
-        self.subsystems['Equipments'] = subsystems.SubSystemEquipments(self)
-        self.subsystems['VirtualDetectors'] = subsystems.SubSystemVirtualDetectors(self)
-        self.subsystems['Exposure'] = subsystems.SubSystemExposure(self)
-        self.subsystems['Scan'] = subsystems.SubSystemScan(self)
-        self.subsystems['Transmission'] = subsystems.SubSystemTransmission(self)
-        self.subsystems['DataReduction'] = subsystems.SubSystemDataReduction(self)
-
+        self.subsystems['Files'] = subsystems.SubSystemFiles(self, offline=self.offline)
+        self.subsystems['Samples'] = subsystems.SubSystemSamples(self, offline=self.offline)
+        self.subsystems['Equipments'] = subsystems.SubSystemEquipments(self, offline=self.offline)
+        self.subsystems['Motors'] = subsystems.SubSystemMotors(self, offline=self.offline)
+        self.subsystems['VirtualDetectors'] = subsystems.SubSystemVirtualDetectors(self, offline=self.offline)
+        self.subsystems['Exposure'] = subsystems.SubSystemExposure(self, offline=self.offline)
+        self.subsystems['Scan'] = subsystems.SubSystemScan(self, offline=self.offline)
+        self.subsystems['Imaging'] = subsystems.SubSystemImaging(self, offline=self.offline)
+        self.subsystems['Transmission'] = subsystems.SubSystemTransmission(self, offline=self.offline)
+        self.subsystems['DataReduction'] = subsystems.SubSystemDataReduction(self, offline=self.offline)
+        
         self._OWG_parts = self.subsystems.values()
         
         # load state: this will load the state information of all the subsystems as well.
         self.loadstate()
-        try:
-            self.subsystems['Equipments'].connect_to_all()
-        except subsystems.SubSystemError as err:
-            logger.warning(err.message)
+        if not self.offline:
+            try:
+                self.subsystems['Equipments'].connect_to_all()
+            except subsystems.SubSystemError as err:
+                logger.warning(err.message)
         
-#        self.tmcm.load_settings(os.path.expanduser('~/.config/credo/motorrc'))
-        
-        
-#         self.connect('notify::scanfile', lambda obj, param:self.reload_scanfile())
-#         self.reload_scanfile()
-#         # samples
-#         
-#         # data reduction
-#         self.datareduction = datareduction.DataReduction()
-#         self.datareduction.load_state()
-#         self.datareduction.set_property('fileformat', self.fileformat + '.cbf')
-#         self.datareduction.set_property('headerformat', self.fileformat + '.param')
-#         self.datareduction.set_property('datadirs', self.get_exploaddirs())
-#         self.datareduction.save_state()
-#         self.emit('path-changed')
-#         
-#         self.load_samples()
-#         # emit signals if parameters change
-#         for name in self.setup_properties:
-#             self.connect('notify::' + name, lambda crd, prop:crd.emit('setup-changed'))
-#         for name in self.path_properties:
-#             self.connect('notify::' + name, lambda crd, prop:crd.emit('path-changed'))
     def _get_classname(self):
         return 'CREDO'
     def get_equipment(self, equipment):
         return self.subsystems['Equipments'].get(equipment)
-    def get_motors(self):
-        mots = self.get_equipment('tmcm351').motors
-        return [mots[m] for m in sorted(mots)]
-    def get_motor(self, name):
-        return [m for m in self.get_motors() if ((m.name == name) or (m.alias == name) or (str(m) == name))][0]
     def loadstate(self, configparser=None, sectionprefix=''):
         if configparser is None:
             configparser = ConfigParser.ConfigParser()
@@ -142,6 +123,9 @@ class Credo(objwithgui.ObjWithGUI):
 #             ss.loadstate(cp)
         del configparser
     def savestate(self):
+        if self.offline:
+            logger.warning('Not saving settings, since we are in off-line mode.')
+            return
         cp = ConfigParser.ConfigParser()
         cp.read(RCFILE)
         objwithgui.ObjWithGUI.savestate(self, cp)
@@ -172,98 +156,3 @@ class Credo(objwithgui.ObjWithGUI):
             self.subsystems[ss].destroy()
             del self.subsystems[ss]
         gc.collect()
-    def move_beamstop(self, state=False):
-        try:
-            beamstopymotor = [m for m in self.get_motors() if m.alias == 'BeamStop_Y'][0]
-        except IndexError:
-            raise CredoError('No motor with alias "BeamStop_Y".')
-        if not state:
-            # should move the beamstop out. Ensure that the X-ray source is in low-power mode.
-            if (self.genix.get_ht() > 30 or self.genix.get_current() > 0.3):
-                logger.info('Putting GeniX into low-power mode.')
-                self.genix.do_standby()
-                self.wait_for_event(lambda :self.genix.whichstate() == genix.GENIX_STANDBY)
-                logger.info('Low-power mode reached.')
-            logger.info('Moving out beamstop.')
-            self.move_motor(beamstopymotor, self.bs_out, blocking=True)
-            logger.info('Beamstop is out.')
-        else:
-            logger.info('Moving in beamstop.')
-            self.move_motor(beamstopymotor, self.bs_in, blocking=True)
-            logger.info('Beamstop is in.')
-            self.wait_for_event(lambda :not beamstopymotor.is_moving())
-            logger.info('Putting GeniX into full-power mode.')
-            self.genix.do_rampup()
-            self.wait_for_event(lambda :self.genix.whichstate() == genix.GENIX_FULLPOWER)
-            logger.info('Full-power mode reached.')
-    
-    def is_beamstop_in(self):
-        try:
-            beamstopymotor = [m for m in self.get_motors() if m.alias == 'BeamStop_Y'][0]
-        except IndexError:
-            raise CredoError('No motor with alias "BeamStop_Y".')
-        return beamstopymotor.get_pos() == self.bs_in
-    def do_transmission(self):
-        if not hasattr(self, 'transmdata'):
-            return
-        if self.transmdata['next_is'] == 'D':
-            if self.transmdata['repeat'] > 0:
-                logger.info('Transmission: Dark current')
-            sam = sample.SAXSSample('Dark current', None, None, None, None, 'SYSTEM', None, 0)
-            with self.freeze_notify():
-                self.shuttercontrol = False
-            if self.transmdata['manageshutter']:
-                self.shutter = False
-            self.transmdata['next_is'] = 'E'
-        elif self.transmdata['next_is'] == 'E':
-            logger.info('Transmission: Empty beam (%s)' % self.transmdata['emptysample'].title)
-            sam = self.transmdata['emptysample']
-            self.transmdata['next_is'] = 'S'
-            if self.transmdata['manageshutter']:
-                with self.freeze_notify():
-                    self.shuttercontrol = True
-        else:
-            logger.info('Transmission: Sample (%s)' % self.transmdata['sample'].title)
-            sam = self.transmdata['sample']
-            self.transmdata['repeat'] -= 1
-            self.transmdata['next_is'] = 'D'
-            if self.transmdata['manageshutter']:
-                with self.freeze_notify():
-                    self.shuttercontrol = True
-        if (self.transmdata['repeat'] == 0 and self.transmdata['next_is'] == 'E') or self.transmdata['kill']:
-            if self.transmdata['Isample'] and self.transmdata['Iempty'] and self.transmdata['Idark']:
-                data = {}
-                for n in ['sample', 'empty', 'dark']:
-                    data[n] = sastool.classes.ErrorValue(np.mean(self.transmdata['I' + n]),
-                                                       np.std(self.transmdata['I' + n]))
-                Iempty = data['empty'] - data['dark']
-                if Iempty.is_zero():
-                    transm = None
-                else:
-                    transm = (data['sample'] - data['dark']) / Iempty
-            else:
-                transm = None
-            self.emit('transmission-end', self.transmdata['Iempty'], self.transmdata['Isample'], self.transmdata['Idark'],
-                      transm, not self.transmdata['kill'])
-            return
-
-        self.moveto_sample(sam)
-        self.set_sample(sam)
-        if self.transmdata['firstexposure']:
-            self.expose(self.transmdata['exptime'], self.transmdata['expnum'], 0.003, None, quick=False)
-            self.transmdata['firstexposure'] = False
-        else:
-            self.expose(self.transmdata['exptime'], self.transmdata['expnum'], 0.003, None, quick=True)
-    def do_transmission_end(self, Iempty, Isample, Transmission, state):
-        logger.info('End of transmission measurement.')
-        del self.transmdata
-    def transmission(self, sample, emptysample, exptime, expnum, mask, mode='max', repeat=1):
-        # if self.is_beamstop_in():
-        #    self.move_beamstop(False)
-        self.transmdata = {'sample':sample, 'emptysample':emptysample, 'exptime':exptime,
-                           'expnum':expnum, 'repeat':repeat, 'next_is':'D', 'firstexposure':True,
-                           'mode':mode, 'mask':mask, 'kill':False, 'manageshutter':self.shuttercontrol}
-        self.do_transmission()
-    def killtransmission(self):
-        self.transmdata['kill'] = True
-        self.killexposure()

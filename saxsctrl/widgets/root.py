@@ -1,5 +1,6 @@
 from gi.repository import Gtk
 from gi.repository import GObject
+from gi.repository import Gdk
 import logging
 import logging.handlers
 import time
@@ -10,7 +11,7 @@ import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -18,25 +19,8 @@ def my_excepthook(type_, value, traceback_):
     try:
         logger.critical('Unhandled exception', exc_info=(type_, value, traceback_))
     except:
-        raise
-#     dialog = Gtk.MessageDialog(None, Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK,
-#                                str(type_) + ': ' + str(value))
-#     dialog.format_secondary_text('Traceback:')
-#     msgarea = dialog.get_message_area()
-#     sw = Gtk.ScrolledWindow()
-#     sw.set_size_request(200, 300)
-#     msgarea.pack_start(sw, True, True, 0)
-#     tv = Gtk.TextView()
-#     sw.add(tv)
-#     tv.get_buffer().set_text('\n'.join(traceback.format_tb(traceback_)))
-#     tv.set_editable(False)
-#     tv.set_wrap_mode(Gtk.WrapMode.WORD)
-#     # tv.get_default_attributes().font = Pango.FontDescription('serif,monospace')
-#     tv.set_justification(Gtk.Justification.LEFT)
-#     msgarea.show_all()
-#     dialog.set_title('Error!')
-#     dialog.run()
-#     dialog.destroy()
+        pass
+        # print traceback.format_exception(type_, value, traceback_)
     
 sys.excepthook = my_excepthook
 
@@ -119,7 +103,10 @@ class RootWindow(Gtk.Window):
         self._entrychanged_delayhandlers = {}
         self.set_title('SAXS Control -- ROOT')
         # self.set_resizable(False)
-        self.credo = credo.Credo()
+        if 'ONLINE' in [x.upper() for x in sys.argv]:
+            self.credo = credo.Credo(offline=False)
+        else:
+            self.credo = credo.Credo(offline=True)
         self._connections.append((self.credo.subsystems['Equipments'],
                                   self.credo.subsystems['Equipments'].connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())))
         
@@ -132,7 +119,7 @@ class RootWindow(Gtk.Window):
 
         menus = {}     
         
-        for mname in ['File', 'Setup', 'Calibration', 'Hardware', 'Scan', 'Expose', 'View']:
+        for mname in ['File', 'Setup', 'Calibration', 'Hardware', 'Scan', 'Expose', 'View', 'Utilities']:
             mi = Gtk.MenuItem(label='_' + mname, use_underline=True)
             menubar.append(mi)
             menus[mname] = Gtk.Menu()
@@ -149,6 +136,17 @@ class RootWindow(Gtk.Window):
         hb.pack_start(self.statuslabel_memory, False, False, 3)
         self.statuslabel_uptime = Gtk.Label(label=''); self.statuslabel_uptime.set_alignment(0, 0.5)
         hb.pack_start(self.statuslabel_uptime, False, False, 3)
+        if self.credo.offline:
+            eb = Gtk.EventBox()
+            hb.pack_start(eb, False, False, 3)
+            eb.add(Gtk.Label('OFFLINE'))
+            eb.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(1.0, 0.5, 0, 1))
+        else:
+            hb.pack_start(eb, False, False, 3)
+            eb.add(Gtk.Label('ONLINE'))
+            eb.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0, 1.0, 0))
+            
+        
         
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, True, 0)
@@ -185,6 +183,7 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Data reduction', 'Data reduction', datareduction.DataReduction, 'View'),
                             Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', ['genix', 'pilatus']),
                             Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', ['genix', 'pilatus']),
+                            Tool(self.credo, 'Imaging', 'Imaging', imaging.Imaging, 'Scan', ['genix', 'pilatus']),
                             Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus']),
                             Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351']),
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View'),
@@ -195,6 +194,7 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose'),  # , genixneeded=True, pilatusneeded=True, motorneeded=True)
                             Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge']),
                             Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix']),
+                            Tool(self.credo, 'Find capillary position & thickness', 'Find capillary positions and thickness', capilsizer.CapilSizer, 'Utilities', [])
                             ]
         for t in self.toolbuttons:
             mi = t.createmenuitem()

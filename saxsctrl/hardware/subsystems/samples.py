@@ -4,6 +4,7 @@ from .. import sample
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import ConfigParser
+import warnings
 
 from gi.repository import GObject
 from ..sample import SAXSSample
@@ -24,8 +25,8 @@ class SubSystemSamples(SubSystem):
                    }
     motor_samplex = GObject.property(type=str, default='Sample_X', blurb='Motor name for horizontal positioning')
     motor_sampley = GObject.property(type=str, default='Sample_Y', blurb='Motor name for vertical positioning')
-    def __init__(self, credo):
-        SubSystem.__init__(self, credo)
+    def __init__(self, credo, offline=True):
+        SubSystem.__init__(self, credo, offline)
         self._list = []
         self._selected = None
         self.configfile = 'samples.conf'
@@ -52,6 +53,9 @@ class SubSystemSamples(SubSystem):
             pass
         self.emit('changed')
     def save(self, filename=None):
+        if self.offline:
+            logger.warning('Not saving samples: we are off-line.')
+            return
         if filename is None: filename = self.configfile
         cp = ConfigParser.ConfigParser()
         for i, sam in enumerate(self):
@@ -111,19 +115,16 @@ class SubSystemSamples(SubSystem):
             logger.info('Skipping moving sample: no sample selected.')
             return
         logger.info('Moving sample %s into the beam.' % sam.title)
-        try:
-            tmcm = self.credo().get_equipment('tmcm351')
-        except SubSystemError as se:
-            raise SubSystemError('Cannot move motors!')
-        if not tmcm.is_idle():
+        ssmot = self.credo().subsystems['Motors']
+        if not ssmot.is_idle():
             logger.info('Waiting for motors to settle.')
-            self.credo().subsystems['Equipments'].wait_for_idle('tmcm351')
+            ssmot.wait_for_idle()
         try:
-            motors = [tmcm.get_motor(motname) for motname in [self.motor_samplex, self.motor_sampley]]
+            motors = [ssmot.get(motname) for motname in [self.motor_samplex, self.motor_sampley]]
         except (IndexError, NotImplementedError):
             raise SubSystemError('No motor "' + motname + '" defined.')
         
-        self._tmcmconn = tmcm.connect('idle', self._tmcm_idle, sam)
+        self._ssmotconn = ssmot.connect('idle', self._ssmot_idle, sam)
         for motor, pos in zip(motors, [sam.positionx, sam.positiony]):
             if pos is None:
                 logger.debug('Sample %s has None for %s, skipping movement.' % (str(sam), motor.alias))
@@ -133,16 +134,16 @@ class SubSystemSamples(SubSystem):
         if blocking:
             logger.debug('Waiting for sample to get into beam position')
             if callable(blocking):
-                return self.credo().subsystems['Equipments'].wait_for_idle('tmcm351', blocking)
+                ssmot.wait_for_idle(blocking)
             else:
-                return self.credo().subsystems['Equipments'].wait_for_idle('tmcm351')
+                ssmot.wait_for_idle()
             logger.debug('Sample is in the beam.')
         else:
             return True
-    def _tmcm_idle(self, tmcm, sam):
-        if hasattr(self, '_tmcmconn'):
-            tmcm.disconnect(self._tmcmconn)
-            del self._tmcmconn
+    def _ssmot_idle(self, ssmot, sam):
+        if hasattr(self, '_ssmotconn'):
+            ssmot.disconnect(self._ssmotconn)
+            del self._ssmotconn
         self.emit('sample-in-beam', sam)
         return True
     def savestate(self, configparser, sectionprefix=''):

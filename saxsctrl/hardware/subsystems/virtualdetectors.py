@@ -203,9 +203,9 @@ class SubSystemVirtualDetectors(SubSystem):
                     'notify':'override',
                    }
     _oldconfigfile = None
-    def __init__(self, credo):
+    def __init__(self, credo, offline=True):
         self._list = []
-        SubSystem.__init__(self, credo)
+        SubSystem.__init__(self, credo, offline)
         self.load()
     def add(self, vd, noemit=False):
         if not [d for d in self._list if d == vd]:
@@ -242,6 +242,9 @@ class SubSystemVirtualDetectors(SubSystem):
             if self.configfile != filename:
                 self.configfile = filename
     def save(self, filename=None):
+        if self.offline:
+            logger.warning('Not saving virtual detector table: we are in offline mode.')
+            return
         if filename is None:
             filename = self.configfile
         cp = ConfigParser.ConfigParser()

@@ -94,8 +94,8 @@ class Pilatus(Instrument_TCP):
         Command('ImgMode', [CommandReplyPilatus(15, 'ImgMode is (?P<imgmode>.*)'), reply_noaccess]),
         Command('ShowPID', [CommandReplyPilatus(16, 'PID = (?P<pid>' + RE_INT + ')')], {'pid':int}),
                   ]
-    def __init__(self):
-        Instrument_TCP.__init__(self)
+    def __init__(self, offline=True):
+        Instrument_TCP.__init__(self, offline)
         self._mesgseparator = '\x18'
         self.timeout = 1
     def _process_results(self, dic):

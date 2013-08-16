@@ -8,8 +8,8 @@ import ConfigParser
 import logging
 import functools
 from gi.repository import GObject
-import multiprocessing
-from multiprocessing import Queue
+import Queue
+import threading
 import uuid
 import weakref
 from gi.repository import Gtk
@@ -18,7 +18,7 @@ from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class DataReductionError(SubSystemError):
     pass
@@ -45,8 +45,8 @@ class DataReductionStep(objwithgui.ObjWithGUI):
     def idlefunc(self):
         pass
     def message(self, exposure, mesg):
-        self.chain.emit('message', exposure['FSN'], mesg)
-        logger.info('Reducing #%d: %s' % (exposure['FSN'], mesg))
+        # self.chain._threadsafe_emit('message', exposure['FSN'], mesg)
+        logger.debug('Reducing #%d: %s' % (exposure['FSN'], mesg))
         
 class BackgroundSubtraction(DataReductionStep):
     enable = GObject.property(type=bool, default=True, blurb='Enabled')
@@ -127,7 +127,7 @@ class AbsoluteCalibration(DataReductionStep):
             self.message(exposure, 'Absolute intensity factor: %s' % scalefactor)
             exposure *= scalefactor
             exposure['NormFactor'] = float(scalefactor)
-            exposure['NormFactorRelativeError'] = float(scalefactor.err) / float(scalefactor) * 100.
+            exposure['NormFactorError'] = float(scalefactor.err)
             return True
         try:
             refheader = self.chain.beamtimeraw.find('Title', self.title,
@@ -147,10 +147,10 @@ class AbsoluteCalibration(DataReductionStep):
             self.message(exposure, 'Loading and reducing raw data for reference.')
             ref = self.chain.beamtimeraw.load_exposure(refheader)
             ref = self.chain.execute(ref, force=True, endstepclassname=self.__class__.__name__)
-        exposure *= sastool.misc.ErrorValue(ref['NormFactor'], ref['NormFactor'] * ref['NormFactorRelativeError'] / 100.)
+        exposure *= sastool.misc.ErrorValue(ref['NormFactor'], ref['NormFactorError'])
         exposure['FSNref1'] = ref['FSN']
         exposure['NormFactor'] = ref['NormFactor']
-        exposure['NormFactorRelativeError'] = ref['NormFactorRelativeError']
+        exposure['NormFactorError'] = ref['NormFactorError']
         exposure.header.add_history('Used absolute intensity reference for scaling: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % refheader)
         self.message(exposure, 'Scaled into absolute intensity units.')
         return True
@@ -199,45 +199,134 @@ class PostScaling(DataReductionStep):
             exposure.header.add_history('Divided by thickness')
         return True
 
+class Saving(DataReductionStep):
+    save2dcorr = GObject.property(type=bool, default=True, blurb='Save corrected 2d images')
+    save1d = GObject.property(type=bool, default=True, blurb='Save radial averages (I(q) curves)')
+    def execute(self, exposure, force=False):
+        if self.save2dcorr:
+            self.chain.filessubsystem.writereduced(exposure)
+            self.message(exposure, 'Saved corrected 2D image.')
+        if self.save1d:
+            self.chain.filessubsystem.writeradial(exposure)
+            self.message(exposure, 'Saved radial averaged curve.')
+
+class ReductionThread(GObject.GObject):
+    __gtype_name__ = 'SAXSCtrl_ReductionThread'
+    __gsignals__ = {'message':(GObject.SignalFlags.RUN_FIRST, None, (long, str)),
+                    'done':(GObject.SignalFlags.RUN_FIRST, None, (long, object,)),
+                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
+                    'endthread':(GObject.SignalFlags.RUN_FIRST, None, ())}
+    def __init__(self, beamtimeraw, beamtimereduced, filessubsystem):
+        GObject.GObject.__init__(self)
+        self.beamtimeraw = beamtimeraw
+        self.beamtimereduced = beamtimereduced
+        self.inqueue = Queue.Queue()
+        self.chain = []
+        self._thread = threading.Thread(target=self.run)
+        self._thread.daemon = True
+        self._thread.start()
+        self.filessubsystem = filessubsystem
+    def add_step(self, step):
+        self.chain.append(step(self))
+    def run(self):
+        while True:
+            try:
+                fsn, force = self.inqueue.get(block=True, timeout=0.5)
+            except Queue.Empty:
+                self._threadsafe_emit('idle')
+                fsn, force = self.inqueue.get()
+            if isinstance(fsn, str) and exposure == 'KILL!':
+                break
+            try:
+                exposure = self.beamtimeraw.load_exposure(fsn)
+                exposure = self.execute(exposure, force, None)
+            except Exception as ex:
+                logger.error('Error while reducing FSN #%d: ' % fsn + str(ex.message))
+            self._threadsafe_emit('done', exposure['FSN'], exposure)
+        self._threadsafe_emit('endthread')
+    def _threadsafe_emit(self, signalname, *args):
+        GObject.idle_add(lambda sn, arglist: bool(self.emit(sn, *arglist)) and False, signalname, args)
+    def execute(self, exposure, force=False, endstepclassname=None):
+        logger.debug('Starting execution of %s. Force: %d. Endstepclassname: %s' % (str(exposure.header), force, str(endstepclassname)))
+        for c in self.chain:
+            if not c.execute(exposure, force):
+                break
+            if c.__class__.__name__ == endstepclassname:
+                break
+        logger.debug('Done execution of %s.' % str(exposure.header))
+        return exposure
+    def kill(self):
+        try:
+            while True:
+                self.inqueue.get_nowait()
+        except Queue.Empty:
+            pass
+        self.inqueue.put(('KILL!', True))
+        self._thread.join()
+        self._thread = None
+    def stop(self):
+        try:
+            while True:
+                self.inqueue.get_nowait()
+        except Queue.Empty:
+            pass
+    def reduce(self, fsn, force=False):
+        self.inqueue.put_nowait((fsn, force))
+        
+        
 class SubSystemDataReduction(SubSystem):
     __gsignals__ = {'message':(GObject.SignalFlags.RUN_FIRST, None, (long, str)),
-                    'done':(GObject.SignalFlags.RUN_FIRST, None, (long, object)), }
+                    'done':(GObject.SignalFlags.RUN_FIRST, None, (long, object)),
+                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ())}
     filebegin = GObject.property(type=str, nick='IO::File_begin', blurb='Filename prefix', default='crd')
     ndigits = GObject.property(type=int, nick='IO::Number_digits', blurb='Number of digits in FSN', default=5, minimum=1)
     __propvalues__ = None
     _reduction_thread = None
-    _inqueue = None
         
-    def __init__(self, credo):
-        self._chain = []
-        self._OWG_init_lists()
-        self._OWG_parts = self._chain
-        self.add_step(PreScaling(self))
-        self.add_step(BackgroundSubtraction(self))
-        self.add_step(CorrectGeometry(self))
-        self.add_step(PostScaling(self))
-        self.add_step(AbsoluteCalibration(self))
-    
-        self._OWG_nogui_props.append('configfile')
-        self._OWG_hints['filebegin'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
-        self._OWG_hints['ndigits'] = {objwithgui.OWG_Hint_Type.OrderPriority:1}
-        
-        SubSystem.__init__(self, credo)
-        
+    def __init__(self, credo, offline=True):
+        SubSystem.__init__(self, credo, offline)
         ssf = self.credo().subsystems['Files']
         self.beamtimeraw = sastool.classes.SASBeamTime(ssf.rawloadpath, ssf.get_exposureformat(self.filebegin, self.ndigits),
                                                        ssf.get_headerformat(self.filebegin, self.ndigits))
         self.beamtimereduced = sastool.classes.SASBeamTime(ssf.reducedloadpath, ssf.get_eval2dformat(self.filebegin, self.ndigits),
                                                            ssf.get_evalheaderformat(self.filebegin, self.ndigits))
-
+        self._reduction_thread = ReductionThread(self.beamtimeraw, self.beamtimereduced, ssf)
+        self._OWG_init_lists()
+        self._OWG_parts = self._reduction_thread.chain
+        self.add_step(PreScaling)
+        self.add_step(BackgroundSubtraction)
+        self.add_step(CorrectGeometry)
+        self.add_step(PostScaling)
+        self.add_step(AbsoluteCalibration)
+        self.add_step(Saving)
+    
+        self._OWG_nogui_props.append('configfile')
+        self._OWG_hints['filebegin'] = {objwithgui.OWG_Hint_Type.OrderPriority:0}
+        self._OWG_hints['ndigits'] = {objwithgui.OWG_Hint_Type.OrderPriority:1}
+        
+        self._thread_connections = [self._reduction_thread.connect('endthread', self._on_endthread),
+                                  self._reduction_thread.connect('idle', self._on_idle),
+                                  self._reduction_thread.connect('message', self._on_message),
+                                  self._reduction_thread.connect('done', self._on_done)]
     def add_step(self, step):
-        self._chain.append(step)
-    def execute(self, exposure, force=False, endstepclassname=None):
-        for c in self._chain:
-            if not c.execute(exposure, force):
-                break
-            if c.__class__.__name__ == endstepclassname:
-                break
-        self.credo().subsystems['Files'].writereduced(exposure)
-        self.credo().subsystems['Files'].writeradial(exposure)
-        return exposure
+        self._reduction_thread.add_step(step)
+    def reduce(self, fsn, force=False):
+        self._reduction_thread.reduce(fsn, force)
+    def _on_endthread(self, thread):
+        for c in self._thread_connections:
+            self._reduction_thread.disconnect(c)
+        del self._reduction_thread
+        self._reduction_thread = None
+    def _on_message(self, thread, fsn, message):
+        self.emit('message', fsn, message)
+    def _on_idle(self, thread):
+        self.emit('idle')
+    def _on_done(self, thread, fsn, exposure):
+        ssf = self.credo().subsystems['Files']
+        self.emit('done', fsn, exposure)
+    def __del__(self):
+        if self._reduction_thread is not None:
+            self._reduction_thread.kill()
+    def stop(self):
+        self._reduction_thread.stop()
+        

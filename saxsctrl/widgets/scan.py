@@ -7,7 +7,7 @@ import numpy as np
 import gc
 from ..hardware import sample, virtualpointdetector, credo
 from .spec_filechoosers import MaskChooserDialog
-from .widgets import ExposureInterface, ToolDialog
+from .widgets import ToolDialog
 import sastool
 import scangraph
 import os
@@ -71,6 +71,7 @@ class Scan(ToolDialog):
         l = Gtk.Label(label='Counting time (s):'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].countingtime, 0, 100, 0.1, 1), digits=4)
+        self.exptime_entry.set_value(self.credo.subsystems['Scan'].countingtime)
         self.entrytable.attach(self.exptime_entry, 1, 2, row, row + 1)
         row += 1
 
@@ -78,22 +79,26 @@ class Scan(ToolDialog):
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.start_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].value_begin, -1e9, 1e9, 1, 10), digits=4)
         self.entrytable.attach(self.start_entry, 1, 2, row, row + 1)
+        self.start_entry.set_value(self.credo.subsystems['Scan'].value_begin)
         self.start_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
-        row += 1
-
-        l = Gtk.Label(label='Number of steps:'); l.set_alignment(0, 0.5)
-        self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.step_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].nstep, 0, 1e9, 1, 10), digits=0)
-        self.entrytable.attach(self.step_entry, 1, 2, row, row + 1)
-        self.step_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
         row += 1
 
         l = Gtk.Label(label='End:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.end_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].value_end, -1e9, 1e9, 1, 10), digits=4)
         self.entrytable.attach(self.end_entry, 1, 2, row, row + 1)
+        self.end_entry.set_value(self.credo.subsystems['Scan'].value_end)
         self.end_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
         row += 1
+
+        l = Gtk.Label(label='Number of steps:'); l.set_alignment(0, 0.5)
+        self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.step_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].nstep, 2, 1e9, 1, 10), digits=0)
+        self.entrytable.attach(self.step_entry, 1, 2, row, row + 1)
+        self.step_entry.set_value(self.credo.subsystems['Scan'].nstep)
+        self.step_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
+        row += 1
+
 
         l = Gtk.Label(label='Step size:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
@@ -104,6 +109,7 @@ class Scan(ToolDialog):
         l = Gtk.Label(label='Delay between exposures (s):'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].waittime, 0.003, 10000, 1, 10), digits=4)
+        self.dwelltime_entry.set_value(self.credo.subsystems['Scan'].waittime)
         self.entrytable.attach(self.dwelltime_entry, 1, 2, row, row + 1)
         row += 1
         
@@ -122,6 +128,7 @@ class Scan(ToolDialog):
         l = Gtk.Label(label='Iterations:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self.repetitions_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 100000, 1, 10), digits=0)
+        self.repetitions_entry.set_value(1)
         self.entrytable.attach(self.repetitions_entry, 1, 2, row, row + 1)
         row += 1
         
@@ -151,6 +158,7 @@ class Scan(ToolDialog):
         self.credo.subsystems['Scan'].nstep = self.step_entry.get_value_as_int()
         self.credo.subsystems['Scan'].devicename = self.scandevice_selector.get()
         self.credo.subsystems['Scan'].comment = self.samplename_entry.get_text()
+        self.credo.subsystems['Scan'].autoreturn = self.autoreturn_checkbutton.get_active()
         self._scanconnections = [self.credo.subsystems['Scan'].connect('scan-end', self._scan_end),
                                  self.credo.subsystems['Scan'].connect('scan-report', self._scan_report),
                                  self.credo.subsystems['Scan'].connect('scan-fail', self._scan_fail)]

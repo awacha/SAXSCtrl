@@ -1,3 +1,5 @@
+# encoding: utf-8
+
 from gi.repository import Gtk
 from gi.repository import GObject
 from .widgets import ToolDialog
@@ -19,17 +21,28 @@ class DataReduction(ToolDialog):
         f.add(tab)
         row = 0
         
-        self._raw_radio = Gtk.RadioButton(label='Load raw data')
-        tab.attach(self._raw_radio, 0, 2, row, row + 1)
+        self._startfsn_check = Gtk.CheckButton(label='Starting FSN:')
+        self._startfsn_check.set_alignment(0, 0.5)
+        tab.attach(self._startfsn_check, 0, 1, row, row + 1)
+        self._startfsn_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e6, 1, 10), digits=0)
+        tab.attach(self._startfsn_spin, 1, 2, row, row + 1)
+        self._startfsn_check.connect('toggled', lambda sb, spin: spin.set_sensitive(sb.get_active()), self._startfsn_spin)
+        self._startfsn_check.set_active(False)
+        self._startfsn_spin.set_sensitive(False)
         row += 1
-        self._reduced_radio = Gtk.RadioButton(label='Load reduced data')
-        self._reduced_radio.join_group(self._raw_radio)
-        self._raw_radio.set_active(True)
-        tab.attach(self._reduced_radio, 0, 2, row, row + 1)
+        
+        self._endfsn_check = Gtk.CheckButton(label='Ending FSN:')
+        self._endfsn_check.set_alignment(0, 0.5)
+        tab.attach(self._endfsn_check, 0, 1, row, row + 1)
+        self._endfsn_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e6, 1, 10), digits=0)
+        tab.attach(self._endfsn_spin, 1, 2, row, row + 1)
+        self._endfsn_check.connect('toggled', lambda sb, spin: spin.set_sensitive(sb.get_active()), self._endfsn_spin)
+        self._endfsn_check.set_active(False)
+        self._endfsn_spin.set_sensitive(False)
         row += 1
 
         self._headerlist = Gtk.ListStore(GObject.TYPE_PYOBJECT,  # the header instance 
-                                         GObject.TYPE_BOOLEAN,  # selector
+                                         GObject.TYPE_BOOLEAN,  # spinner active
                                          GObject.TYPE_INT,  # FSN
                                          GObject.TYPE_STRING,  # title
                                          GObject.TYPE_STRING,  # meastime
@@ -39,6 +52,7 @@ class DataReduction(ToolDialog):
                                          GObject.TYPE_STRING,  # beam position y
                                          GObject.TYPE_STRING,  # transmission
                                          GObject.TYPE_STRING,  # thickness 
+                                         GObject.TYPE_UINT,  # spinner pulse
                                          )
         self._overlay = Gtk.Overlay()
         vb.pack_start(self._overlay, True, True, 0)
@@ -50,11 +64,8 @@ class DataReduction(ToolDialog):
         self._headerview.set_rules_hint(True)
         self._headerview.set_headers_visible(True)
         self._headerview.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
-#         cr = Gtk.CellRendererToggle()
-#         cr.set_radio(False)
-#         cr.connect('toggled', lambda renderer, path: self._set_line_active(path))
-#         cr.set_property('activatable', True)
-#         self._headerview.append_column(Gtk.TreeViewColumn('', cr, active=1))
+        cr = Gtk.CellRendererSpinner()
+        self._headerview.append_column(Gtk.TreeViewColumn('', cr, active=1, pulse=11))
         self._headerview.append_column(Gtk.TreeViewColumn('FSN', Gtk.CellRendererText(), text=2))
         self._headerview.append_column(Gtk.TreeViewColumn('Title', Gtk.CellRendererText(), text=3))
         cr = Gtk.CellRendererText()
@@ -63,8 +74,8 @@ class DataReduction(ToolDialog):
         self._headerview.append_column(Gtk.TreeViewColumn('Counting time (sec)', cr, text=4))
         cr = Gtk.CellRendererText()
         cr.set_property('editable', True)
-        cr.connect('edited', lambda renderer, path, newtext, colnum, fieldname: self._cell_edited(path, newtext, colnum, fieldname), 5, 'EnergyCalibrated')
-        self._headerview.append_column(Gtk.TreeViewColumn('Energy (eV)', cr, text=5))
+        cr.connect('edited', lambda renderer, path, newtext, colnum, fieldname: self._cell_edited(path, newtext, colnum, fieldname), 5, 'Temperature')
+        self._headerview.append_column(Gtk.TreeViewColumn(u'Temperature (°C)', cr, text=5))
         cr = Gtk.CellRendererText()
         cr.set_property('editable', True)
         cr.connect('edited', lambda renderer, path, newtext, colnum, fieldname: self._cell_edited(path, newtext, colnum, fieldname), 6, 'DistCalibrated')
@@ -156,12 +167,20 @@ class DataReduction(ToolDialog):
         self._headerlist[path][1] ^= 1
     def reload_list(self):
         self._headerlist.clear()
-        if self._raw_radio.get_active():
-            bt = self.credo.subsystems['DataReduction'].beamtimeraw
-        else:
-            bt = self.credo.subsystems['DataReduction'].beamtimereduced
-        for h in bt:
-            self._headerlist.append([h, False, 0, '', '', '', '', '', '', '', ''])
+        for h in self.credo.subsystems['DataReduction'].beamtimeraw:
+            if self._startfsn_check.get_active():
+                try:
+                    if h['FSN'] < self._startfsn_spin.get_value_as_int():
+                        continue
+                except KeyError:
+                    logger.warning('No FSN in header!')
+            if self._endfsn_check.get_active():
+                try:
+                    if h['FSN'] > self._endfsn_spin.get_value_as_int():
+                        continue
+                except KeyError:
+                    logger.warning('No FSN in header!')
+            self._headerlist.append([h, False, 0, '', '', '', '', '', '', '', '', 0])
         
         self.refresh_view()
     def refresh_view(self, row=None):
@@ -170,7 +189,7 @@ class DataReduction(ToolDialog):
         else:
             rows = [row]
         for row in rows:
-            for i, field, formatstring in [(2, 'FSN', None), (3, 'Title', '%s'), (4, 'MeasTime', '%.2f'), (5, 'EnergyCalibrated', '%.2f'),
+            for i, field, formatstring in [(2, 'FSN', None), (3, 'Title', '%s'), (4, 'MeasTime', '%.2f'), (5, 'Temperature', '%.2f'),
                                            (6, 'DistCalibrated', '%.3f'), (7, 'BeamPosX', '%.3f'), (8, 'BeamPosY', '%.3f'),
                                            (9, 'Transm', '%.4f'), (10, 'Thickness', '%.4f')]:
                 try:
@@ -183,37 +202,61 @@ class DataReduction(ToolDialog):
     def _on_message(self, datareduction, fsn, text):
         self._currfsn_label.set_text(str(fsn))
         self._currmessage_label.set_text(text)
-        for i in range(100):
-            if not Gtk.events_pending():
-                break
-            Gtk.main_iteration()
         return True
     def do_response(self, response):
         if response == Gtk.ResponseType.ACCEPT:
             self._reload_beamtimes()
             return
         elif response == Gtk.ResponseType.APPLY:
-            selected = [self._headerlist[path][0] for path in self._headerview.get_selection().get_selected_rows()[1]]
+            if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_label() == Gtk.STOCK_STOP:
+                self.credo.subsystems['DataReduction'].stop()
+                return True
+            selected = [self._headerlist[path][0]['FSN'] for path in self._headerview.get_selection().get_selected_rows()[1]]
             if not selected:
                 md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'No measurement selected for data reduction!')
                 md.run()
                 md.destroy()
                 del md
-                return False
+                return True
             try:
-                _conn = self.credo.subsystems['DataReduction'].connect('message', self._on_message)
+                self._pulser_handle = GObject.timeout_add(100, self._pulser)
+                self._headerview.set_sensitive(False)
                 self._resultsfrm.show_all()
                 self._resultsfrm.show_now()
+                self._reducer_conn = [self.credo.subsystems['DataReduction'].connect('message', self._on_message),
+                                      self.credo.subsystems['DataReduction'].connect('idle', self._on_idle),
+                                      self.credo.subsystems['DataReduction'].connect('done', self._on_done)]
                 for sel in selected:
-                    self.credo.subsystems['DataReduction'].execute(self.credo.subsystems['DataReduction'].beamtimeraw.load_exposure(sel))
+                    self.credo.subsystems['DataReduction'].reduce(sel)
+                    for row in [self._headerview.get_selection().get_selected_rows()]:
+                        self._headerlist[row[1]][1] = True
+                self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_STOP)
+                logger.debug('Started data reduction sequence.')
             except DataReductionError as dre:
                 md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error during data reduction!')
                 md.format_secondary_text(dre.message)
                 md.run()
                 md.destroy()
                 del md
-            finally:
-                self.credo.subsystems['DataReduction'].disconnect(_conn)
-                self._resultsfrm.hide()
         else:
-            ToolDialog.do_response(self, response)
+            return ToolDialog.do_response(self, response)
+        return True
+    def _on_done(self, datareduction, fsn, exposure):
+        logger.info('Data reduction of FSN #%d (%s) done.' % (fsn, str(exposure.header)))
+        for row in [x for x in self._headerlist if x[0]['FSN'] == fsn]:
+            row[1] = False
+    def _pulser(self):
+        for row in [x for x in self._headerlist if x[1]]:
+            x[11] += 1
+        return True
+    def _on_idle(self, datareduction):
+        for c in self._reducer_conn:
+            self.credo.subsystems['DataReduction'].disconnect(c)
+        self._resultsfrm.hide()
+        self._reducer_conn = []
+        GObject.source_remove(self._pulser_handle)
+        self._pulser_handle = None
+        self._headerview.set_sensitive(True)
+        self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_EXECUTE)
+        logger.info('Data reduction sequence finished.')
+    

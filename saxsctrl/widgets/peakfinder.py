@@ -103,12 +103,14 @@ class PeakFinder(Gtk.Dialog):
         l = Gtk.Label(label='Periodicity:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.d_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(58.402, 0, 1e5, 0.1, 1), digits=4)
+        self.d_entry.set_value(58.402)
         tab.attach(self.d_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
         l = Gtk.Label(label='Order:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.n_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 100, 1, 10), digits=0)
+        self.n_entry.set_value(1.0)
         tab.attach(self.n_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
