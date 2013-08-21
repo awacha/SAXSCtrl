@@ -1,3 +1,6 @@
+
+import matplotlib
+matplotlib.use('Gtk3Agg')
 import logging
 import logging.handlers
 import sys

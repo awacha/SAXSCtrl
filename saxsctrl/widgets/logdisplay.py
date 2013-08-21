@@ -36,9 +36,9 @@ class LogDisplay(Gtk.VBox):
             tag = self.tags['WARNING']
         else:
             tag = self.tags['__DEFAULT__']
-        enditer = self.textview.get_buffer().get_end_iter()
-        self.textview.get_buffer().insert_with_tags(enditer, message + '\n', tag)
-        self.textview.scroll_mark_onscreen(self.textview.get_buffer().get_insert())
+        enditer = self.textbuffer.get_end_iter()
+        self.textbuffer.insert_with_tags(enditer, message + '\n', tag)
+        self.textview.scroll_mark_onscreen(self.textbuffer.get_insert())
         if record.levelno >= logging.INFO:
             self.label.set_label(record.message)
         if record.levelno >= logging.CRITICAL:

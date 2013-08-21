@@ -49,11 +49,11 @@ class ELOG_Handler(logging.Handler):
         # print "Command line:", cmdline
         # print "Results: ", results
         
-handler = ELOG_Handler()
-handler.setLevel(logging.INFO)
-logger.addHandler(handler)
-formatter = logging.Formatter('%(message)s\n\nTime: %(asctime)s\nFacility: %(name)s\nLevel: %(levelname)s\nSource :%(pathname)s (line %(lineno)d)')
-handler.setFormatter(formatter)    
+# handler = ELOG_Handler()
+# handler.setLevel(logging.WARNING)
+# logger.addHandler(handler)
+# formatter = logging.Formatter('%(message)s\n\nTime: %(asctime)s\nFacility: %(name)s\nLevel: %(levelname)s\nSource :%(pathname)s (line %(lineno)d)')
+# handler.setFormatter(formatter)    
 
 logger.info('SAXSCtrl started')
 

@@ -18,7 +18,7 @@ from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class DataReductionError(SubSystemError):
     pass
@@ -242,7 +242,7 @@ class ReductionThread(GObject.GObject):
                 exposure = self.execute(exposure, force, None)
             except Exception as ex:
                 logger.error('Error while reducing FSN #%d: ' % fsn + str(ex.message))
-            self._threadsafe_emit('done', exposure['FSN'], exposure)
+            self._threadsafe_emit('done', exposure['FSN'], exposure.header)
         self._threadsafe_emit('endthread')
     def _threadsafe_emit(self, signalname, *args):
         GObject.idle_add(lambda sn, arglist: bool(self.emit(sn, *arglist)) and False, signalname, args)

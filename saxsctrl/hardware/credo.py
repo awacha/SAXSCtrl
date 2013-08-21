@@ -1,4 +1,7 @@
 # coding: utf-8
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 import sastool
 import re
 import os
@@ -9,7 +12,6 @@ import dateutil.parser
 import threading
 import uuid
 import time
-import logging
 import cPickle as pickle
 from gi.repository import Gio
 from gi.repository import GObject
@@ -21,8 +23,6 @@ from . import subsystems
 from . import sample
 from . import virtualpointdetector
 from ..utils import objwithgui
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 RCFILE = os.path.expanduser('~/.config/credo/credo3rc')
@@ -88,6 +88,7 @@ class Credo(objwithgui.ObjWithGUI):
         self._OWG_hints['bs-in'] = {objwithgui.OWG_Hint_Type.OrderPriority:7, objwithgui.OWG_Hint_Type.Digits:3}
         self._OWG_hints['bs-out'] = {objwithgui.OWG_Hint_Type.OrderPriority:8, objwithgui.OWG_Hint_Type.Digits:3}
         # initialize subsystems
+        logger.debug('Initializing subsystems of Credo')
         self.subsystems = {}
         self.subsystems['Files'] = subsystems.SubSystemFiles(self, offline=self.offline)
         self.subsystems['Samples'] = subsystems.SubSystemSamples(self, offline=self.offline)
@@ -99,7 +100,7 @@ class Credo(objwithgui.ObjWithGUI):
         self.subsystems['Imaging'] = subsystems.SubSystemImaging(self, offline=self.offline)
         self.subsystems['Transmission'] = subsystems.SubSystemTransmission(self, offline=self.offline)
         self.subsystems['DataReduction'] = subsystems.SubSystemDataReduction(self, offline=self.offline)
-        
+        logger.debug('All Credo subsystems initialized.')
         self._OWG_parts = self.subsystems.values()
         
         # load state: this will load the state information of all the subsystems as well.
@@ -115,12 +116,14 @@ class Credo(objwithgui.ObjWithGUI):
     def get_equipment(self, equipment):
         return self.subsystems['Equipments'].get(equipment)
     def loadstate(self, configparser=None, sectionprefix=''):
+        logger.debug('Loading Credo state...')
         if configparser is None:
             configparser = ConfigParser.ConfigParser()
             configparser.read(RCFILE)
         objwithgui.ObjWithGUI.loadstate(self, configparser, sectionprefix)
 #         for ss in self.subsystems.values():
 #             ss.loadstate(cp)
+        logger.debug('Credo state loaded.')
         del configparser
     def savestate(self):
         if self.offline:

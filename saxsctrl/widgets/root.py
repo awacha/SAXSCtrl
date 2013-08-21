@@ -136,13 +136,12 @@ class RootWindow(Gtk.Window):
         hb.pack_start(self.statuslabel_memory, False, False, 3)
         self.statuslabel_uptime = Gtk.Label(label=''); self.statuslabel_uptime.set_alignment(0, 0.5)
         hb.pack_start(self.statuslabel_uptime, False, False, 3)
+        eb = Gtk.EventBox()
+        hb.pack_start(eb, False, False, 3)
         if self.credo.offline:
-            eb = Gtk.EventBox()
-            hb.pack_start(eb, False, False, 3)
             eb.add(Gtk.Label('OFFLINE'))
             eb.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(1.0, 0.5, 0, 1))
         else:
-            hb.pack_start(eb, False, False, 3)
             eb.add(Gtk.Label('ONLINE'))
             eb.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0, 1.0, 0))
             

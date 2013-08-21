@@ -1,3 +1,4 @@
+# encoding: utf-8
 from gi.repository import Gtk
 from gi.repository import GObject
 from .widgets import ToolDialog
@@ -5,6 +6,8 @@ from .samplesetup import SampleSelector
 from ..hardware.instruments import genix
 from ..utils import objwithgui
 from gi.repository import GtkSource
+from gi.repository import Pango
+from gi.repository import Gdk
 import ConfigParser
 import uuid
 import time
@@ -12,13 +15,14 @@ import re
 
 import logging
 
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
 RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
 RE_INT = r"[+-]?\d+"
-
+RE_FLOAT_OR_EXPRESSION = r"(" + RE_FLOAT + "|\{.*\}|§)"
 
 class ErrorSeverity(object):
     normal = 0
@@ -61,6 +65,7 @@ class SeqCommand(GObject.GObject):
     cmd_regex = ''
     signal_intervals = {'progress':1, 'pulse':0.5}
     _signal_lastemit = None
+    _arguments = []
     def __init__(self):
         GObject.GObject.__init__(self)
         self._kill = False
@@ -78,6 +83,14 @@ class SeqCommand(GObject.GObject):
         Should return True or raise an exception.
         """
         pass
+    def _parse_expressions(self, credo, prevval, vars):
+        for a in self._arguments:
+            value = self.__getattribute__(a)
+            if isinstance(value, basestring) and value.startswith('{') and value.endswith('}'):
+                self.__setattr__(a, eval(value[1:-1].replace('§', '(' + str(prevval) + ')'), globals(), vars))
+            elif isinstance(value, basestring) and value == '§':
+                self.__setattr__(a, prevval)
+                
     def break_execution(self):
         self._kill = True
         pass
@@ -106,6 +119,7 @@ class SeqCommandGenixPower(SeqCommand):
     command = 'xray_power'
     cmd_regex = 'xray_power\s+(?P<level>(low|full|off))'
     level = 'off'
+    _arguments = ['level']
     def execute(self, credo, prevval, vars):
         self._kill = False
         try:
@@ -114,6 +128,7 @@ class SeqCommandGenixPower(SeqCommand):
             raise SequenceError(exc.message, ErrorSeverity.critical)
         if not g.connected():
             raise SequenceError('X-ray source not connected', ErrorSeverity.fatal)
+        logger.info('Setting GeniX power to ' + self.level)
         if self.level.lower() == 'low':
             g.do_standby()
             waitstate = genix.GenixStatus.Standby
@@ -138,6 +153,7 @@ class SeqCommandGenixXrayState(SeqCommand):
     command = 'xray'
     cmd_regex = 'xray\s+(?P<level>(on|off))'
     level = 'off'
+    _arguments = ['level']
     def execute(self, credo, prevval, vars):
         self._kill = False
         try:
@@ -152,11 +168,13 @@ class SeqCommandGenixXrayState(SeqCommand):
             g.xrays_off()
         else:
             raise SequenceError('Invalid X-ray state: ' + self.level, ErrorSeverity.fatal)
+        logger.info('X-rays are ' + self.level.lower() + '.')
 
 class SeqCommandGenixShutterState(SeqCommand):
     command = 'shutter'
     cmd_regex = 'shutter\s+(?P<level>(open|close))'
     level = 'close'
+    _arguments = ['level']
     def execute(self, credo, prevval, vars):
         self._kill = False
         try:
@@ -167,8 +185,10 @@ class SeqCommandGenixShutterState(SeqCommand):
             raise SequenceError('X-ray source not connected', ErrorSeverity.fatal)
         if self.level.lower() == 'open':
             g.shutter_open()
+            logger.info('Shutter is now open.')
         elif self.level.lower() == 'close':
             g.shutter_close()
+            logger.info('Shutter is now closed.')
         else:
             raise SequenceError('Invalid shutter state: ' + self.level, ErrorSeverity.fatal)
     def simulate(self, credo, prevval, vars):
@@ -178,13 +198,16 @@ class SeqCommandChangeSample(SeqCommand):
     command = 'sample'
     cmd_regex = 'sample\s+(?P<title>.*)'
     title = ''
+    _arguments = ['title']
     def execute(self, credo, prevval, vars):
         self._kill = False
         try:
             credo.subsystems['Samples'].set(self.title)
         except Exception as exc:
             raise SequenceError(exc.message, ErrorSeverity.critical)
+        logger.info('Sample %s selected. Now moving motors.' % (self.title))
         credo.subsystems['Samples'].moveto(blocking=self._handler)
+        
     def _handler(self):
         self.limited_emit('pulse', 'Moving sample %s into the beam' % self.title)
         return self._kill
@@ -193,16 +216,19 @@ class SeqCommandChangeSample(SeqCommand):
     
 class SeqCommandMoveMotor(SeqCommand):
     command = 'moveto'
-    cmd_regex = r'moveto\s+(?P<motor>\w+)\s+(?P<to>' + RE_FLOAT + ')'
+    cmd_regex = r'moveto\s+(?P<motor>\w+)\s+(?P<to>' + RE_FLOAT_OR_EXPRESSION + ')'
     motor = ''
     to = 0
+    _arguments = ['motor', 'to']
     def execute(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         self._kill = False
         try:
             motor = credo.subsystems['Motors'].get(self.motor)
             motor.moveto(float(self.to))
         except Exception as exc:
             raise SequenceError(exc.message, ErrorSeverity.critical)
+        logger.info('Moving motor %s to %f.' % (str(motor), float(self.to)))
         credo.subsystems['Motors'].wait_for_idle(self._handler)
         if self._kill:
             raise KillException()
@@ -210,14 +236,17 @@ class SeqCommandMoveMotor(SeqCommand):
         self.limited_emit('pulse', 'Moving motor %s' % self.motor)
         return self._kill
     def simulate(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: moving motor ' + self.motor + ' to absolute position ' + str(to))
 
 class SeqCommandMoverelMotor(SeqCommand):
     command = 'moverel'
-    cmd_regex = r'moverel\s+(?P<motor>\w+)\s+(?P<to>' + RE_FLOAT + ')'
+    cmd_regex = r'moverel\s+(?P<motor>\w+)\s+(?P<to>' + RE_FLOAT_OR_EXPRESSION + ')'
     motor = ''
     to = 0
+    _arguments = ['motor', 'to']
     def execute(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         self._kill = False
         try:
             motor = credo.subsystems['Motors'].get(self.motor)
@@ -231,12 +260,14 @@ class SeqCommandMoverelMotor(SeqCommand):
         self.limited_emit('pulse', 'Moving motor %s' % self.motor)
         return self._kill
     def simulate(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: moving motor ' + self.motor + ' to relative position ' + str(to))
 
 class SeqCommandLabel(SeqCommand):
     command = 'label'
     cmd_regex = r'label\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         return 
 
@@ -244,6 +275,7 @@ class SeqCommandJump(SeqCommand):
     command = 'goto'
     cmd_regex = r'goto\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         raise JumpException(self.label, setstack=False)
 
@@ -251,6 +283,7 @@ class SeqCommandJumpSub(SeqCommand):
     command = 'gosub'
     cmd_regex = r'gosub\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         raise JumpException(self.label, setstack=True)
 
@@ -259,6 +292,7 @@ class SeqCommandJumpTrue(SeqCommand):
     command = 'goif'
     cmd_regex = r'goif\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         if prevval:
             raise JumpException(self.label, setstack=False)
@@ -269,6 +303,7 @@ class SeqCommandJumpSubTrue(SeqCommand):
     command = 'gosubif'
     cmd_regex = r'gosubif\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         if prevval:
             raise JumpException(self.label, setstack=True)
@@ -280,6 +315,7 @@ class SeqCommandJumpFalse(SeqCommand):
     command = 'goifnot'
     cmd_regex = r'goifnot\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         if not prevval:
             raise JumpException(self.label, setstack=False)
@@ -290,6 +326,7 @@ class SeqCommandJumpSubFalse(SeqCommand):
     command = 'gosubifnot'
     cmd_regex = r'gosubifnot\s+(?P<label>\w+)'
     label = ''
+    _arguments = ['label']
     def execute(self, credo, prevval, vars):
         if not prevval:
             raise JumpException(self.label, setstack=True)
@@ -305,9 +342,11 @@ class SeqCommandReturn(SeqCommand):
     
 class SeqCommandWait(SeqCommand):
     command = 'sleep'
-    cmd_regex = r'sleep\s+(?P<timeout>' + RE_FLOAT + ')'
+    cmd_regex = r'sleep\s+(?P<timeout>' + RE_FLOAT_OR_EXPRESSION + ')'
     timeout = 1
+    _arguments = ['timeout']
     def execute(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         self._kill = False
         t0 = time.time()
         while not (self._kill or (time.time() > (t0 + float(self.timeout)))):
@@ -319,13 +358,16 @@ class SeqCommandWait(SeqCommand):
         if self._kill:
             raise KillException()
     def simulate(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: waiting ' + str(self.timeout) + ' seconds')
 
 class SeqCommandExpose(SeqCommand):
     command = 'expose'
-    cmd_regex = r'expose\s+(?P<exptime>' + RE_FLOAT + ')'
+    cmd_regex = r'expose\s+(?P<exptime>' + RE_FLOAT_OR_EXPRESSION + ')'
     exptime = 1
+    _arguments = ['exptime']
     def execute(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         self._kill = None
         self.credo = credo
         sse = credo.subsystems['Exposure']
@@ -350,6 +392,7 @@ class SeqCommandExpose(SeqCommand):
         sse.disconnect(self._conn)
         self._kill = not status
     def simulate(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: exposing for ' + str(self.exptime) + ' seconds')
 
 class SeqCommandSet(SeqCommand):
@@ -357,8 +400,9 @@ class SeqCommandSet(SeqCommand):
     cmd_regex = r'set\s+(?P<varname>\w+)\s+(?P<expression>.*)'
     varname = ''
     expression = ''
+    _arguments = ['varname', 'expression']
     def execute(self, credo, prevval, vars):
-        vars[self.varname] = eval(self.expression.replace('#', '(' + str(prevval) + ')'), globals(), vars)
+        vars[self.varname] = eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), vars)
         logger.debug('Set %s to %s' % (self.varname, vars[self.varname]))
         return True
 
@@ -366,14 +410,17 @@ class SeqCommandMath(SeqCommand):
     command = 'math'
     cmd_regex = r'math\s+(?P<expression>.*)'
     expression = ''
+    _arguments = ['expression']
     def execute(self, credo, prevval, vars):
-        return eval(self.expression.replace('#', '(' + str(prevval) + ')'), globals(), vars)
+        return eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), vars)
 
 class SeqCommandVacuum(SeqCommand):
     command = 'wait_vacuum'
-    cmd_regex = r'wait_vacuum\s+(?P<pressure>' + RE_FLOAT + ')'
+    cmd_regex = r'wait_vacuum\s+(?P<pressure>' + RE_FLOAT_OR_EXPRESSION + ')'
     pressure = ''
+    _arguments = ['pressure']
     def execute(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         self._kill = False
         credo.subsystems['Equipments'].get('vacgauge').wait_for_vacuum(float(self.pressure), lambda :self._handler(credo))
         if self._kill:
@@ -383,6 +430,7 @@ class SeqCommandVacuum(SeqCommand):
         self.limited_emit('pulse', 'Waiting for vacuum <%.4f mbar. Now: %.4f mbar.' % (float(self.pressure), credo.subsystems['Equipments'].get('vacgauge').readout()))
         return self._kill
     def simulate(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: waiting until vacuum becomes better than ' + str(self.pressure) + ' mbar')
         
 class SeqCommandBreakpoint(SeqCommand):
@@ -399,29 +447,32 @@ class SeqCommandEnd(SeqCommand):
 
 class SeqCommandSetTemp(SeqCommand):
     command = 'set_temp'
-    cmd_regex = r'set_temp\s+(?P<setpoint>(' + RE_FLOAT + '|_))'
+    cmd_regex = r'set_temp\s+(?P<setpoint>' + RE_FLOAT_OR_EXPRESSION + ')'
     setpoint = ''
+    _arguments = ['setpoint']
     def execute(self, credo, prevval, vars):
-        if self.setpoint == '_':
-            self.setpoint = float(prevval)
+        self._parse_expressions(credo, prevval, vars)
+        logger.info('Setting temperature to ' + str(self.setpoint) + ' C')
         credo.get_equipment('haakephoenix').set_setpoint(float(self.setpoint), verify=True)
     def simulate(self, credo, prevval, vars):
-        if self.setpoint == '_':
-            self.setpoint = float(prevval)
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: setting temperature to ' + str(self.setpoint) + ' C')
 
 class SeqCommandWaitTemp(SeqCommand):
     command = 'wait_temp'
-    cmd_regex = r'wait_temp\s+(?P<time>' + RE_FLOAT + ')\s+(?P<delta>' + RE_FLOAT + ')'
+    cmd_regex = r'wait_temp\s+(?P<time>' + RE_FLOAT_OR_EXPRESSION + ')\s+(?P<delta>' + RE_FLOAT_OR_EXPRESSION + ')'
     time = ''
     delta = ''
+    _arguments = ['time', 'delta']
     def execute(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         self._kill = False
         self._is_in_delta = False
         self._in_delta_since = 0
         self.phoenix = credo.get_equipment('haakephoenix')
         self.setpoint = self.phoenix.get_setpoint()
         self.phoenix.wait_for_temperature(float(self.time), float(self.delta), alternative_breakfunc=self._handler)
+        logger.info('Waiting until temperature is stable at %.2f C for at least %.2f seconds.' % (self.setpoint, float(self.time)))
     def _handler(self):
         if not self._is_in_delta and (abs(self.phoenix.get_temperature() - self.setpoint) < float(self.delta)):
             self._is_in_delta = True
@@ -436,12 +487,14 @@ class SeqCommandWaitTemp(SeqCommand):
             self.limited_emit('pulse', 'Waiting for temperature stability. Temperature is at: %.2f C' % self.phoenix.get_temperature())
         return self._kill
     def simulate(self, credo, prevval, vars):
+        self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: waiting until temperature is nearer to the setpoint than ' + str(self.delta) + ' in the interval of ' + str(self.time) + ' seconds')
 
 class SeqCommandStartStopCirculator(SeqCommand):
     command = 'circulator'
     cmd_regex = r'circulator\s+(?P<state>(start|stop))'
     state = ''
+    _arguments = ['state']
     def execute(self, credo, prevval, vars):
         if self.state.lower() == 'start':
             credo.get_equipment('haakephoenix').start_circulation()
@@ -544,7 +597,8 @@ class SequenceInterpreter(GObject.GObject):
         else:
             return labels[0]
     def do_line(self, lineno):
-        logger.info('Executing line %d: %s' % (lineno, self._script[lineno]))
+        # logger.info('Executing line %d: %s' % (lineno, self._script[lineno]))
+        pass
 
 class SAXSSequence(ToolDialog):
     RESPONSE_SAVE = 1
@@ -562,10 +616,21 @@ class SAXSSequence(ToolDialog):
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._sourcebuffer = GtkSource.Buffer()
         self._sourceview = GtkSource.View(buffer=self._sourcebuffer)
+        sw.set_size_request(-1, 400)
         sw.add(self._sourceview)
         self._sourceview.set_show_line_numbers(True)
         self._sourceview.set_show_line_marks(True)
         self._sourceview.set_highlight_current_line(True)
+        self._sourceview.set_draw_spaces(GtkSource.DrawSpacesFlags.ALL)
+        self._sourceview.override_font(Pango.FontDescription('monospace 12'))
+        self._sourceview.set_size_request(-1, 400)
+        self._sourceview.set_insert_spaces_instead_of_tabs(True)
+        self._sourceview.set_indent_width(4)
+        self._sourceview.set_tab_width(4)
+        ma = GtkSource.MarkAttributes()
+        ma.set_stock_id(Gtk.STOCK_MEDIA_PLAY)
+        ma.set_background(Gdk.RGBA(1, 0, 0, 1))
+        self._sourceview.set_mark_attributes('Executing', ma, 0)
         self._progressbar = Gtk.ProgressBar()
         vb.pack_start(self._progressbar, False, False, 0)
         self._progressbar.set_no_show_all(True)
@@ -623,6 +688,8 @@ class SAXSSequence(ToolDialog):
             del md
     def _do_line(self, interp, lineno):
         it = self._sourcebuffer.get_iter_at_line(lineno)
+        self._sourcebuffer.remove_source_marks(self._sourcebuffer.get_start_iter(), self._sourcebuffer.get_end_iter(), 'Executing')
+        self._sourcebuffer.create_source_mark('Line #%d' % lineno, 'Executing', it)
         self._sourceview.scroll_to_iter(it, 0, False, 0, 0)
         self._sourcebuffer.place_cursor(it)
         self._progressbar.hide()
@@ -647,6 +714,7 @@ class SAXSSequence(ToolDialog):
                         self._interpreter.connect('cmdprogress', self._do_progress),
                         ]
                 self._sourceview.set_editable(False)
+                self._sourceview.set_cursor_visible(False)
                 try:
                     self.get_action_area().foreach(lambda b, state:b.set_sensitive(state), False)
                     self.set_response_sensitive(Gtk.ResponseType.OK, True)
@@ -670,7 +738,9 @@ class SAXSSequence(ToolDialog):
                 for c in conn:
                     self._interpreter.disconnect(c)
                 conn = []
+                self._sourcebuffer.remove_source_marks(self._sourcebuffer.get_start_iter(), self._sourcebuffer.get_end_iter(), 'Executing')
                 self._sourceview.set_editable(True)
+                self._sourceview.set_cursor_visible(True)
                 del self._interpreter
                 self._interpreter = None
             else:

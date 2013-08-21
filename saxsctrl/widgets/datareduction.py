@@ -57,7 +57,8 @@ class DataReduction(ToolDialog):
         self._overlay = Gtk.Overlay()
         vb.pack_start(self._overlay, True, True, 0)
         sw = Gtk.ScrolledWindow()
-        sw.set_size_request(300, 300)
+        sw.set_size_request(700, 300)
+        
         self._overlay.add(sw)
         self._headerview = Gtk.TreeView(self._headerlist)
         sw.add(self._headerview)
@@ -99,25 +100,13 @@ class DataReduction(ToolDialog):
         self._headerview.grab_focus()
         GObject.idle_add(lambda :self._reload_beamtimes() and False)
         
-        self._resultsfrm = Gtk.Frame(label='Data reduction messages')
+        self._resultsfrm = Gtk.Frame(label='Data reduction running...')
         self._resultsfrm.set_no_show_all(True)
         vb.pack_start(self._resultsfrm, False, False, 0)
-        tab = Gtk.Table()
-        self._resultsfrm.add(tab)
-        row = 0
-        l = Gtk.Label('FSN currently processed:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._currfsn_label = Gtk.Label('N/A'); self._currfsn_label.set_alignment(0, 0.5)
-        tab.attach(self._currfsn_label, 1, 2, row, row + 1)
-        row += 1
         
-        l = Gtk.Label('Message:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._currmessage_label = Gtk.Label('N/A'); self._currmessage_label.set_alignment(0, 0.5)
-        tab.attach(self._currmessage_label, 1, 2, row, row + 1)
-        row += 1
-        tab.show_all()
-        
+        self._resultsprogress = Gtk.ProgressBar(orientation=Gtk.Orientation.HORIZONTAL)
+        self._resultsfrm.add(self._resultsprogress)
+        self._resultsprogress.show()
     def _reload_beamtimes(self):
         logger.debug('Reloading beamtimes')
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -200,8 +189,7 @@ class DataReduction(ToolDialog):
                 except KeyError:
                     row[i] = '--not defined--'
     def _on_message(self, datareduction, fsn, text):
-        self._currfsn_label.set_text(str(fsn))
-        self._currmessage_label.set_text(text)
+        self._resultsprogress.set_text('#%d: %s' % (fsn, text))
         return True
     def do_response(self, response):
         if response == Gtk.ResponseType.ACCEPT:
@@ -211,7 +199,8 @@ class DataReduction(ToolDialog):
             if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_label() == Gtk.STOCK_STOP:
                 self.credo.subsystems['DataReduction'].stop()
                 return True
-            selected = [self._headerlist[path][0]['FSN'] for path in self._headerview.get_selection().get_selected_rows()[1]]
+            selectedpath = self._headerview.get_selection().get_selected_rows()[1]
+            selected = [self._headerlist[path][0]['FSN'] for path in selectedpath]
             if not selected:
                 md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'No measurement selected for data reduction!')
                 md.run()
@@ -219,17 +208,20 @@ class DataReduction(ToolDialog):
                 del md
                 return True
             try:
-                self._pulser_handle = GObject.timeout_add(100, self._pulser)
+                self._pulser_handle = GObject.timeout_add(400, self._pulser)
                 self._headerview.set_sensitive(False)
                 self._resultsfrm.show_all()
                 self._resultsfrm.show_now()
                 self._reducer_conn = [self.credo.subsystems['DataReduction'].connect('message', self._on_message),
                                       self.credo.subsystems['DataReduction'].connect('idle', self._on_idle),
                                       self.credo.subsystems['DataReduction'].connect('done', self._on_done)]
+                self._todo_number = len(selected)
+                self._done_number = 0
+                self._resultsprogress.set_fraction(0)
                 for sel in selected:
                     self.credo.subsystems['DataReduction'].reduce(sel)
-                    for row in [self._headerview.get_selection().get_selected_rows()]:
-                        self._headerlist[row[1]][1] = True
+                for path in self._headerview.get_selection().get_selected_rows()[1]:
+                    self._headerlist[path][1] = True
                 self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_STOP)
                 logger.debug('Started data reduction sequence.')
             except DataReductionError as dre:
@@ -241,13 +233,15 @@ class DataReduction(ToolDialog):
         else:
             return ToolDialog.do_response(self, response)
         return True
-    def _on_done(self, datareduction, fsn, exposure):
-        logger.info('Data reduction of FSN #%d (%s) done.' % (fsn, str(exposure.header)))
+    def _on_done(self, datareduction, fsn, header):
+        logger.info('Data reduction of FSN #%d (%s) done.' % (fsn, str(header)))
         for row in [x for x in self._headerlist if x[0]['FSN'] == fsn]:
             row[1] = False
+        self._done_number += 1
+        self._resultsprogress.set_fraction(self._done_number * 1.0 / self._todo_number)
     def _pulser(self):
-        for row in [x for x in self._headerlist if x[1]]:
-            x[11] += 1
+        for row in self._headerlist:
+            if row[1]:  row[11] += 1
         return True
     def _on_idle(self, datareduction):
         for c in self._reducer_conn:

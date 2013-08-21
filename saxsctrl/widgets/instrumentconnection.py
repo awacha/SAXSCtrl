@@ -42,14 +42,14 @@ class InstrumentConnections(ToolDialog):
         self.credo.subsystems['Files'].connect('notify::rootpath', lambda ssf, par:self.filepath_entry.set_text(ssf.rootpath))
         row += 1
 
-        l = Gtk.Label(label='Scan file:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.scanfile_entry = Gtk.Entry()
-        self.scanfile_entry.set_text(self.credo.subsystems['Scan'].scanfilename)
-        self.scanfile_entry.connect('changed', self.on_entry_changed, 'scanfilename', self.credo.subsystems['Scan'])
-        tab.attach(self.scanfile_entry, 1, 3, row, row + 1)
-        self.credo.subsystems['Scan'].connect('notify::scanfilename', lambda sss, par:self.scanfile_entry.set_text(sss.scanfilename))
-        row += 1
+#         l = Gtk.Label(label='Scan file:'); l.set_alignment(0, 0.5)
+#         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+#         self.scanfile_entry = Gtk.Entry()
+#         self.scanfile_entry.set_text(self.credo.subsystems['Scan'].scanfilename)
+#         self.scanfile_entry.connect('changed', self.on_entry_changed, 'scanfilename', self.credo.subsystems['Scan'])
+#         tab.attach(self.scanfile_entry, 1, 3, row, row + 1)
+#         self.credo.subsystems['Scan'].connect('notify::scanfilename', lambda sss, par:self.scanfile_entry.set_text(sss.scanfilename))
+#         row += 1
 
         self.set_button_images()
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
@@ -98,8 +98,8 @@ class InstrumentConnections(ToolDialog):
         if response in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY):
             if self.credo.subsystems['Files'].rootpath != self.filepath_entry.get_text():
                 self.credo.subsystems['Files'].rootpath = self.filepath_entry.get_text()
-            if self.credo.subsystems['Scan'].scanfilename != self.scanfile_entry.get_text():
-                self.credo.subsystems['Scan'].scanfilename = self.scanfile_entry.get_text()
+#             if self.credo.subsystems['Scan'].scanfilename != self.scanfile_entry.get_text():
+#                 self.credo.subsystems['Scan'].scanfilename = self.scanfile_entry.get_text()
             self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         if response not in (Gtk.ResponseType.APPLY,):
             self.destroy()
