@@ -24,8 +24,9 @@ import modbus_tk.defines
 import multiprocessing
 import logging
 import time
+import itertools
 from gi.repository import GObject
-from .instrument import InstrumentError, Instrument_ModbusTCP, InstrumentStatus
+from .instrument import InstrumentError, Instrument_ModbusTCP, InstrumentStatus, InstrumentProperty, InstrumentPropertyCategory
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -77,23 +78,118 @@ class Genix(Instrument_ModbusTCP):
     _shutter_timeout = 1
     _prevstate = GenixStatus.Idle
     _considered_idle = [GenixStatus.Disconnected, GenixStatus.FullPower, GenixStatus.Standby, GenixStatus.PowerDown, GenixStatus.XRaysOff, GenixStatus.Idle]
-    shutter = GObject.property(type=str, default=ShutterStatus.Disconnected, blurb='Shutter state')
+    ht = InstrumentProperty(name='ht', type=float, refreshinterval=1, timeout=1)
+    current = InstrumentProperty(name='current', type=float, refreshinterval=1, timeout=1)
+    power = InstrumentProperty(name='power', type=float, refreshinterval=1, timeout=1)
+    remote_mode = InstrumentProperty(name='remote_mode', type=bool, refreshinterval=1, timeout=1)
+    xrays = InstrumentProperty(name='xrays', type=bool, refreshinterval=1, timeout=1)
+    shutter = InstrumentProperty(name='shutter', type=bool, refreshinterval=1, timeout=1)
+    tubetime = InstrumentProperty(name='tubetime', type=int, refreshinterval=1, timeout=1)
+    conditions_auto = InstrumentProperty(name='conditions_auto', type=bool, refreshinterval=1, timeout=1)
+    faults = InstrumentProperty(name='faults', type=bool, refreshinterval=1, timeout=1)
+    xray_light_fault = InstrumentProperty(name='xray_light_fault', type=bool, refreshinterval=1, timeout=1)
+    shutter_light_fault = InstrumentProperty(name='shutter_light_fault', type=bool, refreshinterval=1, timeout=1)
+    sensor2_fault = InstrumentProperty(name='sensor2_fault', type=bool, refreshinterval=1, timeout=1)
+    tube_position_fault = InstrumentProperty(name='tube_position_fault', type=bool, refreshinterval=1, timeout=1)
+    vacuum_fault = InstrumentProperty(name='vacuum_fault', type=bool, refreshinterval=1, timeout=1)
+    waterflow_fault = InstrumentProperty(name='waterflow_fault', type=bool, refreshinterval=1, timeout=1)
+    safety_shutter_fault = InstrumentProperty(name='safety_shutter_fault', type=bool, refreshinterval=1, timeout=1)
+    temperature_fault = InstrumentProperty(name='temperature_fault', type=bool, refreshinterval=1, timeout=1)
+    sensor1_fault = InstrumentProperty(name='sensor1_fault', type=bool, refreshinterval=1, timeout=1)
+    relay_interlock_fault = InstrumentProperty(name='relay_interlock_fault', type=bool, refreshinterval=1, timeout=1)
+    door_fault = InstrumentProperty(name='door_fault', type=bool, refreshinterval=1, timeout=1)
+    filament_fault = InstrumentProperty(name='filament_fault', type=bool, refreshinterval=1, timeout=1)
+    tube_warmup_needed = InstrumentProperty(name='tube_warmup_needed', type=bool, refreshinterval=1, timeout=1)
+    interlock = InstrumentProperty(name='interlock', type=bool, refreshinterval=1, timeout=1)
+    overridden = InstrumentProperty(name='overridden', type=bool, refreshinterval=1, timeout=1)
+    faultstatus = InstrumentProperty(name='faultstatus', type=int, refreshinterval=1, timeout=1)
     def __init__(self, offline=True):
         if self._OWG_nosave_props is None:
             self._OWG_nosave_props = []
-        self._OWG_nosave_props.append('shutter')
         Instrument_ModbusTCP.__init__(self, offline)
         self._shutter_lock = multiprocessing.Lock()
+        self.logfile = 'log.genix'
+        self.logtimeout = 1
+    def _logthread_worker(self):
+        with open(self.logfile, 'at') as f:
+            f.write('%d\t%.2f\t%.2f\t%d\t%d\n' % (time.time(), self.ht, self.current, self.shutter, self.faultstatus))
+    def _update_instrumentproperties(self, propertyname=None):
+        if propertyname == 'shutter':
+            status = self.get_status()
+            if status['SHUTTER_CLOSED'] and not status['SHUTTER_OPENED']:
+                type(self).shutter._update(self, False, InstrumentPropertyCategory.NO)
+            elif status['SHUTTER_OPENED'] and not status['SHUTTER_CLOSED']:
+                type(self).shutter._update(self, True, InstrumentPropertyCategory.YES)
+            return True
+        elif propertyname == 'xrays':
+            status = self.get_status()
+            if status['XRAY_ON']:
+                type(self).xrays._update(self, True, InstrumentPropertyCategory.YES)
+            else:
+                type(self).xrays._update(self, False, InstrumentPropertyCategory.NO)
+            return True
+        try:
+            statusbits = self.get_status_bits()
+            status = self.get_status(statusbits)
+            ht = self.get_ht()
+            current = self.get_current()
+            self._check_state(ht, current, status)
+        except InstrumentError:
+            for propname in ['ht', 'current', 'power', 'remote_mode', 'xrays', 'shutter', 'tubetime', 'faultstatus',
+                             'conditions_auto', 'faults', 'xray_light_fault', 'shutter_light_fault',
+                             'sensor2_fault', 'tube_position_fault', 'vacuum_fault', 'waterflow_fault',
+                             'safety_shutter_fault', 'temperature_fault', 'sensor1_fault', 'relay_interlock_fault',
+                             'door_fault', 'filament_fault', 'tube_warmup_needed', 'interlock', 'overridden', ]:
+                getattr(type(self), propname)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+            return
+        faultint = 0
+        for faultproperty, faultkey, index in itertools.imap(lambda a, b:a + (b,), [('faults', 'FAULTS'), ('xray_light_fault', 'X-RAY_LIGHT_FAULT'),
+                                        ('shutter_light_fault', 'SHUTTER_LIGHT_FAULT'),
+                                        ('sensor2_fault', 'SENSOR2_FAULT'), ('tube_position_fault', 'TUBE_POSITION_FAULT'),
+                                        ('vacuum_fault', 'VACUUM_FAULT'), ('waterflow_fault', 'WATERFLOW_FAULT'),
+                                        ('safety_shutter_fault', 'SAFETY_SHUTTER_FAULT'),
+                                        ('temperature_fault', 'TEMPERATURE_FAULT'),
+                                        ('sensor1_fault', 'SENSOR1_FAULT'),
+                                        ('relay_interlock_fault', 'RELAY_INTERLOCK_FAULT'),
+                                        ('door_fault', 'DOOR_SENSOR_FAULT'),
+                                        ('filament_fault', 'FILAMENT_FAULT'),
+                                        ('tube_warmup_needed', 'TUBE_WARM_UP_NEEDED_FAULT')], itertools.count(0)):
+            if status[faultkey]:
+                getattr(type(self), faultproperty)._update(self, status[faultkey], InstrumentPropertyCategory.ERROR)
+            else:
+                getattr(type(self), faultproperty)._update(self, status[faultkey], InstrumentPropertyCategory.OK)
+            faultint += int(status[faultkey]) << index
+        type(self).faultstatus._update(self, faultint, InstrumentPropertyCategory.NORMAL)
+        type(self).ht._update(self, ht, InstrumentPropertyCategory.NORMAL)
+        type(self).current._update(self, current, InstrumentPropertyCategory.NORMAL)
+        type(self).power._update(self, ht * current, InstrumentPropertyCategory.NORMAL)
+        if status['SHUTTER_CLOSED'] and not status['SHUTTER_OPENED']:
+            type(self).shutter._update(self, False, InstrumentPropertyCategory.NO)
+        elif status['SHUTTER_OPENED'] and not status['SHUTTER_CLOSED']:
+            type(self).shutter._update(self, True, InstrumentPropertyCategory.YES)
+        type(self).tubetime._update(self, self.get_tube_time(), InstrumentPropertyCategory.NORMAL)
+        for propname, key in [('interlock', 'INTERLOCK_OK'), ('conditions_auto', 'CONDITIONS_AUTO_OK'), ('xrays', 'XRAY_ON'),
+                              ('remote_mode', 'DISTANT_MODE')]:
+            if status[key]:
+                getattr(type(self), propname)._update(self, True, InstrumentPropertyCategory.YES)
+            else:
+                getattr(type(self), propname)._update(self, False, InstrumentPropertyCategory.NO)
+        for propname, key in [('overridden', 'OVERRIDDEN_ON')]:
+            if status[key]:
+                getattr(type(self), propname)._update(self, True, InstrumentPropertyCategory.NO)
+            else:
+                getattr(type(self), propname)._update(self, False, InstrumentPropertyCategory.YES)
     def _post_connect(self):
         GObject.timeout_add_seconds(1, self._check_state)
     def _pre_disconnect(self, should_do_communication):
         if should_do_communication:
             self.shutter_close(False)
             self.shutter = ShutterStatus.Disconnected
-    def _check_state(self):
+    def _check_state(self, ht=None, curr=None, status=None):
         if not self.connected():
             return False
-        status = self.get_status()
+        if status is None:
+            status = self.get_status()
         if not status['XRAY_ON']:
             newstate = GenixStatus.XRaysOff
         elif status['CYCLE_RESET_ON']:
@@ -105,8 +201,10 @@ class Genix(Instrument_ModbusTCP):
         elif status['CYCLE_TUBE_WARM_UP_ON']:
             newstate = GenixStatus.WarmUp
         else:
-            ht = self.get_ht()
-            curr = self.get_current()
+            if ht is None:
+                ht = self.get_ht()
+            if curr is None:
+                curr = self.get_current()
             if ht == 0 and curr == 0:
                 newstate = GenixStatus.PowerDown
             elif ht == 30 and curr == 0.3:
@@ -124,22 +222,13 @@ class Genix(Instrument_ModbusTCP):
         tup = self._read_coils(210, 36)
         # tup[26] closed
         # tup[27] opened
-        if tup[26] and not tup[27]:
-            if self.shutter != ShutterStatus.Closed:
-                self.shutter = ShutterStatus.Closed
-        elif tup[27] and not tup[26]:
-            if self.shutter != ShutterStatus.Open:
-                self.shutter = ShutterStatus.Open
-        else:
-            if self.shutter != ShutterStatus.Moving:
-                self.shutter = ShutterStatus.Moving
         return tup
     def get_status_int(self, tup=None):
         """Read the status bits of GeniX and return an integer from it."""
         if tup is None:
             tup = self.get_status_bits()
         return int(''.join([str(x) for x in tup]), base=2)
-    def get_status(self):
+    def get_status(self, tup=None):
         """Read the status bits of GeniX and return a dict() of them.
         
         The meanings of the bits (dictionary items):
@@ -172,7 +261,8 @@ class Genix(Instrument_ModbusTCP):
             SHUTTER_OPENED: if the shutter is open
             OVERRIDDEN_ON: if the safety circuits are overridden (expert mode, set with the key at the back) 
         """
-        tup = self.get_status_bits()
+        if tup is None:
+            tup = self.get_status_bits()
         logger.debug('GeniX status: 0x' + hex(self.get_status_int(tup)))
         return dict(zip(('DISTANT_MODE', 'XRAY_ON', 'STANDBY_ON', 'CYCLE_AUTO_ON', 'CONDITIONS_AUTO_OK', 'CYCLE_RESET_ON', 'CYCLE_TUBE_WARM_UP_ON',
                      'CONFIGURATION_POWER_TUBE', 'UNKNOWN1', 'FAULTS', 'X-RAY_LIGHT_FAULT', 'SHUTTER_LIGHT_FAULT', 'SENSOR2_FAULT', 'TUBE_POSITION_FAULT',
@@ -194,7 +284,7 @@ class Genix(Instrument_ModbusTCP):
             if not wait_for_completion:
                 return
             t = time.time()
-            while (self.shutter_state() != True) and (time.time() - t) < self._shutter_timeout:
+            while (self.shutter_state(now=True) != True) and (time.time() - t) < self._shutter_timeout:
                 pass
             if self.shutter_state():
                 logger.debug('Shutter is open.')
@@ -219,14 +309,10 @@ class Genix(Instrument_ModbusTCP):
             else:
                 logger.error('Closing shutter timed out.')
                 raise GenixError('Shutter timeout!')
-    def shutter_state(self):
-        status = self.get_status()
-        if status['SHUTTER_CLOSED'] and not status['SHUTTER_OPENED']:
-            return False
-        elif status['SHUTTER_OPENED'] and not status['SHUTTER_CLOSED']:
-            return True
-        else:
-            return None
+    def shutter_state(self, now=False):
+        if now:
+            self._update_instrumentproperties('shutter')
+        return self.shutter
     def xrays_on(self):
         if not self.isremote():
             raise GenixError('Not in remote mode')
@@ -237,14 +323,17 @@ class Genix(Instrument_ModbusTCP):
             raise GenixError('Not in remote mode')
         logger.debug('Turning X-rays off.')
         self._write_coil(251, 0)
-    def xrays_state(self):
-        return self.get_status()['XRAY_ON']
+    def xrays_state(self, now=False):
+        if now:
+            self._update_instrumentproperties('xrays')
+        return self.xrays
     def reset_faults(self):
         """Acknowledge all fault conditions"""
         if not self.isremote():
             raise GenixError('Not in remote mode')
         logger.debug('Resetting faults.')
         self._write_coil(249, 1)
+        self._update_instrumentproperties()
     def get_faults(self):
         """Give a list of active fault conditions. 
         """
@@ -287,6 +376,7 @@ class Genix(Instrument_ModbusTCP):
         self._write_coil(250, 0)
         self._write_coil(246, 1)
         self._write_coil(246, 0)
+        self.do_poweroff()
     def get_ht(self):
         return self._read_integer(50) / 100.
     def get_current(self):
@@ -352,5 +442,5 @@ class Genix(Instrument_ModbusTCP):
         else:
             return self.status
     def get_current_parameters(self):
-        return {'HT':self.get_ht(), 'Current':self.get_current(), 'TubeTime':self.get_tube_time(), 'Status':self.get_status_int()}
+        return {'HT':self.ht, 'Current':self.current, 'TubeTime':self.tubetime, 'Status':self.faultstatus}
         

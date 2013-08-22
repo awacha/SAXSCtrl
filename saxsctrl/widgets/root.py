@@ -11,7 +11,7 @@ import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer
+from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, genixcontrol2
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -175,6 +175,7 @@ class RootWindow(Gtk.Window):
         
         
         self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
+                            Tool(self.credo, 'GeniX-2', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
                             Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Setup'),
                             Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup'),
@@ -216,6 +217,11 @@ class RootWindow(Gtk.Window):
         f.add(self.logdisplay)
         self.update_statuslabels()
         GObject.timeout_add_seconds(1, self.update_statuslabels)
+        GObject.idle_add(self._after_start)
+    def _after_start(self):
+        for equipment in self.credo.subsystems['Equipments']:
+            equipment.set_enable_instrumentproperty_signals(True)
+        return False
     def _run_subsystem_setup(self, ssname):
         dia = self.credo.subsystems[ssname].create_setup_dialog(title='Set-up %s subsystem' % ssname)
         while dia.run() not in [Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL, Gtk.ResponseType.DELETE_EVENT]:

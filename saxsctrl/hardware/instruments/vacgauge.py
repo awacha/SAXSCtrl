@@ -1,4 +1,4 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, ConnectionBrokenError
+from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, ConnectionBrokenError, InstrumentProperty, InstrumentPropertyCategory
 import logging
 from gi.repository import GObject
 from ...utils import objwithgui
@@ -13,10 +13,8 @@ class VacuumGaugeError(InstrumentError):
     pass
 
 class VacuumGauge(Instrument_TCP):
-    logfile = GObject.property(type=str, default='log.vac', blurb='Log file')
-    logtimeout = GObject.property(type=float, default=5, minimum=1, blurb='Logging interval (sec)')
     send_recv_retries = GObject.property(type=int, minimum=1, default=3, blurb='Number of retries on communication failure')
-    
+    pressure = InstrumentProperty(name='pressure', type=float, refreshinterval=1, timeout=1)
     def __init__(self, offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['logfile'] = objwithgui.OWG_Param_Type.File
@@ -24,8 +22,15 @@ class VacuumGauge(Instrument_TCP):
         self.timeout = 0.1
         self.timeout2 = 0.1
         self.port = 2002
-        self._logthread = None
-        self._logthread_stop = threading.Event()
+        self.logfile = 'log.vac'
+    def _update_instrumentproperties(self, propertyname=None):
+        try:
+            pressure = self.readout()
+            categ = InstrumentPropertyCategory.NORMAL
+        except (InstrumentError, ValueError):
+            pressure = 0
+            categ = InstrumentPropertyCategory.UNKNOWN
+        type(self).pressure._update(self, pressure, categ)
     def _post_connect(self):
         logger.info('Connected to vacuum gauge: ' + self.get_version())
         self._restart_logger()
@@ -38,24 +43,6 @@ class VacuumGauge(Instrument_TCP):
             self._logthread = None
         if hasattr(self, '_version'):
             del self._version
-    def do_notify(self, prop):
-        Instrument_TCP.do_notify(self, prop)
-        if prop.name == 'logfile':
-            if not os.path.isabs(self.logfile):
-                self.logfile = os.path.abspath(self.logfile)
-            else:
-                if self.connected():
-                    self._restart_logger()
-    def _restart_logger(self):
-        if self._logthread is not None:
-            self._logthread_stop.set()
-            self._logthread.join()
-            self._logthread = None
-        self._logthread = threading.Thread(target=self._logger_thread, args=(self._logthread_stop, self.logfile))
-        self._logthread.daemon = True
-        self._logthread_stop.clear()
-        self._logthread.start()
-        logger.info('(Re)started vacuum logger thread. Target: ' + self.logfile + ', timeout: %.2f sec' % self.logtimeout)
     def execute(self, code, data=''):
         mesg = '001' + code + data
         mesg = mesg + chr(sum(ord(x) for x in mesg) % 64 + 64) + '\r'
@@ -101,25 +88,15 @@ class VacuumGauge(Instrument_TCP):
         self.execute('u', '%06d' % ({'mbar':0, 'Torr':1, 'hPa':2}[units]))
     def get_current_parameters(self):
         return {'Vacuum':self.readout(), 'VacuumGauge':self.get_version()}
-    def _logger_thread(self, stopswitch, logfile):
-        try:
-            while True:
-                if not self.connected():
-                    break
-                data = self.readout()
-                t = time.time()
-                with open(logfile, 'at') as f:
-                    f.write('%.3f\t%.3f\n' % (t, data))
-                if stopswitch.wait(self.logtimeout):
-                    logger.debug('Stopping logger thread')
-                    break
-        except Exception as vge:
-            logger.error('Breaking logger thread because of an error: ' + vge.message)
+    def _logthread_worker(self):
+        data, t, category = self.get_instrument_property('pressure')
+        with open(self.logfile, 'at') as f:
+            f.write('%.3f\t%.3f\n' % (t, data))
     def wait_for_vacuum(self, pthreshold=1.0, alternative_breakfunc=lambda :False):
         """Wait until the vacuum becomes better than pthreshold or alternative_breakfunc() returns True. 
         During the wait, this calls the default GObject main loop.
         """
-        while not (self.readout() <= pthreshold or alternative_breakfunc()):
+        while not (self.pressure <= pthreshold or alternative_breakfunc()):
             for i in range(100):
                 GObject.main_context_default().iteration(False)
                 if not GObject.main_context_default().pending():

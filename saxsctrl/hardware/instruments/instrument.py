@@ -32,19 +32,90 @@ class InstrumentStatus(object):
     Idle = 'idle'
     Busy = 'busy'
 
+class InstrumentPropertyCategory(object):
+    UNKNOWN = 'Unknown'
+    ERROR = 'Error'
+    WARNING = 'Warning'
+    NORMAL = 'Normal'
+    OK = 'OK'
+    YES = 'Yes'
+    NO = 'No'
+
+class InstrumentProperty(object):
+    __gtype_name__ = 'SAXSCtrl_InstrumentProperty'
+    name = None
+    refreshinterval = None
+    timeout = None
+    type = None
+    custom_is_error = None
+    custom_is_warning = None
+    custom_categorize = None
+    def __init__(self, **kwargs):
+        for name in kwargs.keys():
+            self.__setattr__(name, kwargs[name])
+            del kwargs[name]
+    def __get__(self, obj, type=None):
+        if obj is None:
+            return self
+        if not ((self.name in obj._instrumentproperties) and (time.time() - obj._instrumentproperties[self.name][1] <= self.timeout)):
+            obj._update_instrumentproperties(self.name)
+        return obj._instrumentproperties[self.name][0]
+    def _update(self, obj, value, category):
+        try:
+            oldtuple = obj._instrumentproperties[self.name]
+            if oldtuple[0] != value:
+                raise KeyError
+            obj._instrumentproperties[self.name] = (oldtuple[0], time.time(), oldtuple[2])
+        except KeyError:
+            obj._instrumentproperties[self.name] = (value, time.time(), category)
+            obj._threadsafe_emit('instrumentproperty-notify', self.name)
+            if self.is_error(value):
+                obj._threadsafe_emit('instrumentproperty-error', self.name)
+            elif self.is_warning(value):
+                obj._threadsafe_emit('instrumentproperty-warning', self.name)
+        return True
+    def is_error(self, value):
+        if callable(self.custom_is_error):
+            return self.custom_is_error(value)
+        else:
+            return False
+    def is_warning(self, value):
+        if callable(self.custom_is_warning):
+            return self.custom_is_warning(value)
+        else:
+            return False
+    def categorize(self, value):
+        if callable(self.custom_categorize):
+            return self.custom_categorize(value)
+        else:
+            if self.is_error(value):
+                return InstrumentPropertyCategory.ERROR
+            elif self.is_warning(value):
+                return InstrumentPropertyCategory.WARNING
+            else:
+                return InstrumentPropertyCategory.NORMAL
+        
+
 class Instrument(objwithgui.ObjWithGUI):
     __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, (object,)),  # the instrument should emit this if a communication error occurs. The parameter is usually a string describing what went wrong.
                     'connect-equipment': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted when a successful connection to the instrument is done.
                     'disconnect-equipment': (GObject.SignalFlags.RUN_FIRST, None, (bool,)),  # emitted when the connection is broken either normally (bool argument is True) or because of an error (bool argument is false)
                     'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever the instrument becomes idle, i.e. the status parameter changes to something considered as idle state (checked by the class attribute _considered_idle) 
                     'notify': 'override',
+                    'instrumentproperty-error':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'instrumentproperty-warning':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'instrumentproperty-notify':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     }
+    logfile = GObject.property(type=str, default='', blurb='Log file')
+    logtimeout = GObject.property(type=float, default=5, minimum=1, blurb='Logging interval (sec)')
     offline = GObject.property(type=bool, default=True, blurb='Off-line mode')
     status = GObject.property(type=str, default=InstrumentStatus.Disconnected, blurb='Instrument status')
     _considered_idle = [InstrumentStatus.Idle, InstrumentStatus.Disconnected]
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
+    _enable_instrumentproperty_signals = None
     def __init__(self, offline=True):
+        self._instrumentproperties = {}
         self._OWG_init_lists()
         self._OWG_nosave_props.append('status')
         self._OWG_nogui_props.append('status')
@@ -52,6 +123,61 @@ class Instrument(objwithgui.ObjWithGUI):
         self.offline = offline
         if not self.configfile:
             self.configfile = os.path.expanduser('~/.config/credo/' + self._get_classname() + '.conf')
+        self._logthread = None
+        self._logthread_stop = threading.Event()
+        self._enable_instrumentproperty_signals = threading.Event()
+    def do_instrumentproperty_notify(self, propertyname):
+        logger.debug('InstrumentProperty %s changed to: %s' % (propertyname, str(self.get_property(propertyname))))
+    def do_instrumentproperty_error(self, propertyname):
+        logger.error('%s is in ERROR state (value: %s)' % (propertyname, str(self.get_property(propertyname))))
+    def do_instrumentproperty_warning(self, propertyname):
+        logger.warning('%s is in WARNING state (value: %s)' % (propertyname, str(self.get_property(propertyname))))
+    def is_instrumentproperty(self, propertyname):
+        return isinstance(getattr(type(self), propertyname), InstrumentProperty)
+    def _threadsafe_emit(self, signalname, *args):
+        if self._enable_instrumentproperty_signals.is_set():
+            GObject.idle_add(lambda signalname, args: self.emit(signalname, *args) and False, signalname, args)
+    def set_enable_instrumentproperty_signals(self, status):
+        if status:
+            self._enable_instrumentproperty_signals.set()
+        else:
+            self._enable_instrumentproperty_signals.clear()
+    def get_enable_instrumentproperty_signals(self):
+        return self._enable_instrumentproperty_signals.is_set()
+    def get_property(self, propertyname):
+        try:
+            return objwithgui.ObjWithGUI.get_property(self, propertyname)
+        except TypeError as te:
+            return getattr(self, propertyname)
+    def get_instrument_property(self, propertyname):
+        return (self.get_property(propertyname), self._instrumentproperties[propertyname][1], self._instrumentproperties[propertyname][2])
+    def _update_instrumentproperties(self, propertyname=None):
+        raise NotImplementedError
+    def _restart_logger(self):
+        self._stop_logger()
+        self._logthread = threading.Thread(target=self._logger_thread, args=(self._logthread_stop,))
+        self._logthread.daemon = True
+        self._logthread_stop.clear()
+        self._logthread.start()
+        logger.info('(Re)started instrument logger thread for instrument ' + self._get_classname() + '. Target: ' + self.logfile + ', timeout: %.2f sec' % self.logtimeout)
+    def _stop_logger(self):
+        if hasattr(self, '_logthread') and self._logthread is not None:
+            self._logthread_stop.set()
+            self._logthread.join()
+            del self._logthread
+    def _logger_thread(self, stopswitch):
+        try:
+            while True:
+                if not self.connected():
+                    break
+                self._logthread_worker()
+                if stopswitch.wait(self.logtimeout):
+                    logger.debug('Stopping logger thread')
+                    break
+        except Exception as ex:
+            logger.error('Breaking logger thread of instrument ' + self._get_classname() + ' because of an error: ' + str(type(ex)) + str(ex.message))
+    def _logthread_worker(self):
+        raise NotImplementedError
     def connect_to_controller(self):
         """Connect to the controller. The actual connection parameters (e.g. host, port etc.) 
         to be used should be implemented as GObject properties. This should work as follows:
@@ -128,6 +254,13 @@ class Instrument(objwithgui.ObjWithGUI):
         logger.debug('Instrument:notify: ' + prop.name + ' (class: ' + self._get_classname() + ') set to: ' + str(self.get_property(prop.name)))
         if prop.name == 'status' and self.is_idle():
             self.emit('idle')
+        elif prop.name == 'logfile':
+            if not os.path.isabs(self.logfile):
+                self.logfile = os.path.abspath(self.logfile)
+            else:
+                if self.connected():
+                    self._restart_logger()
+            
     def get_current_parameters(self):
         """Return a dictionary of the current status (characteristics) of the instrument. E.g. in
         case of an X-ray source, these can be the current high tension, current, shutter state etc.
@@ -221,6 +354,7 @@ class Instrument_ModbusTCP(Instrument):
                 self._modbus.open()
                 self._post_connect()
                 self.status = InstrumentStatus.Idle
+                self._restart_logger()
             except (socket.timeout, InstrumentError) as ex:
                 self._modbus = None
                 logger.error('Cannot connect to instrument at %s:%d' % (self.host, self.port))
@@ -233,6 +367,7 @@ class Instrument_ModbusTCP(Instrument):
             raise InstrumentError('Not connected')
         self._pre_disconnect(status)
         with self._communications_lock:
+            self._stop_logger()
             self._modbus.close()
             self._modbus = None
             self.status = InstrumentStatus.Disconnected
@@ -317,6 +452,7 @@ class Instrument_TCP(Instrument):
             self._post_connect()
             logger.debug('Post-connect finished successfully.')
             self.status = InstrumentStatus.Idle
+            self._restart_logger()
         except InstrumentError as ex:
             logger.debug('InstrumentError exception during post-socket-setup initialization.')
             if hasattr(self, '_collector'):
@@ -343,6 +479,7 @@ class Instrument_TCP(Instrument):
             pass
         with self._socketlock:
             logger.debug('Disconnecting.')
+            self._stop_logger()
             self._collector.kill.set()
             try:
                 self._collector.join()

@@ -1,43 +1,35 @@
 from .widgets import ToolDialog
 from gi.repository import Gtk
 from gi.repository import GObject
+from gi.repository import Gdk
+from .instrumentstatus import InstrumentStatus
+import math
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+MIN_PRESSURE = 0.01
+def colourintensity(value):
+    return 1 - max(min((math.log10(value) - math.log10(MIN_PRESSURE)) / (math.log10(1000.0) - math.log10(MIN_PRESSURE)), 1), 0)
+
 class VacuumGauge(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_Widgets_VacuumGauge'
-    __gsignals__ = {'destroy':'override'}
     def __init__(self, credo, title='Vacuum status'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         vb = self.get_content_area()
         
-        tab = Gtk.Table()
-        vb.pack_start(tab, False, True, 0)
-        row = 0
-        
-        l = Gtk.Label('Refresh interval (sec):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._interval = Gtk.SpinButton(adjustment=Gtk.Adjustment(1.0, 1, 1e6, 1, 10), digits=2)
-        tab.attach(self._interval, 1, 2, row, row + 1)
-        self._interval.connect('value-changed', lambda sb:self._on_interval_changed())
-        
-        f = Gtk.Frame(label='Current vacuum:')
+        f = Gtk.Frame(label='TPG-201 status')
         vb.pack_start(f, True, True, 0)
-        self._vaclabel = Gtk.Label('N/A')
-        f.add(self._vaclabel)
-        self._on_interval_changed()
-    def _readout(self):
-        self._vaclabel.set_label('%.4f mbar' % (self.credo.get_equipment('vacgauge').readout()))
-        return True
-    def _on_interval_changed(self):
-        if hasattr(self, '_timeouthandle') and self._timeouthandle is not None:
-            GObject.source_remove(self._timeouthandle)
-        self._timeouthandle = GObject.timeout_add(int(self._interval.get_value() * 1000), self._readout)
+        self._statusgrid = InstrumentStatus(self.credo.get_equipment('vacgauge'))
+        f.add(self._statusgrid)
+        
+        self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1, colourintensity(value), colourintensity(value), 1))
+        # self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1, 0, 0, 1))
+        self._statusgrid.refresh_statuslabels()
     def do_destroy(self):
-        if hasattr(self, '_timeouthandle') and self._timeouthandle is not None:
-            GObject.source_remove(self._timeouthandle)
-            self._timeouthandle = None
+        if hasattr(self, '_connection'):
+            self.credo.get_equipment('vacgauge').disconnect(self._connection)
+            del self._connection
     def do_response(self, respid):
         self.destroy()
