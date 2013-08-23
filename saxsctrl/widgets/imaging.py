@@ -17,6 +17,7 @@ import re
 import multiprocessing
 import sys
 from .scan import ScanDeviceSelector
+from gi.repository import GLib
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -228,7 +229,7 @@ class Imaging(ToolDialog):
         if state and (self.repetitions_entry.get_value_as_int() > 1):  # should do one more run
             self.repetitions_entry.set_value(self.repetitions_entry.get_value_as_int() - 1)
             logger.info('Re-starting imaging: %d repetitions left' % (self.repetitions_entry.get_value_as_int()))
-            GObject.idle_add(lambda: self.start_imaging() and False)
+            GLib.idle_add(lambda: self.start_imaging() and False)
         else:
             logger.info('Imaging ended, no repetitions requested.')
             self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)

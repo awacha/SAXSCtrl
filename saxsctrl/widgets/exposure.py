@@ -1,5 +1,7 @@
 from gi.repository import Gtk
 from gi.repository import GObject
+from gi.repository import GLib
+
 from .spec_filechoosers import MaskEntryWithButton
 import time
 import logging
@@ -126,7 +128,7 @@ class ExposureFrame(Gtk.Frame):
         self.exposure_progress.show()
         if self._nimages_entry.get_value_as_int() > 1:
             self.nimages_progress.show()
-        self._remtime_timeout = GObject.timeout_add(500, self._update_remtime)
+        self._remtime_timeout = GLib.timeout_add(500, self._update_remtime)
     def do_image(self, img):
         logger.debug('Exposureframe::image')
         self._images_remaining -= 1

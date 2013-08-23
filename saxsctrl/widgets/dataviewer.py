@@ -10,6 +10,7 @@ import datetime
 from .data_reduction_setup import PleaseWaitDialog
 import qrcode
 from .widgets import ToolDialog
+from gi.repository import GLib
 
 class DataViewer(ToolDialog):
     _filechooserdialogs = None
@@ -113,7 +114,7 @@ class DataViewer(ToolDialog):
         if resp == Gtk.ResponseType.OK:
             self._pwd = PleaseWaitDialog()
             def cb(msg):
-                GObject.idle_add(self.on_data_reduction_callback, msg)
+                GLib.idle_add(self.on_data_reduction_callback, msg)
             self._pwd.show_all()
             self._datared_connections = (self.datareduction.connect('message', self.on_data_reduction_callback),
                                        self.datareduction.connect('done', self.on_data_reduction_callback))

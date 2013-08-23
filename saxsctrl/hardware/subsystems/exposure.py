@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 from gi.repository import GObject
+from gi.repository import GLib
 from .subsystem import SubSystem, SubSystemError
 
 __all__ = ['SubSystemExposure']
@@ -112,7 +113,7 @@ class SubSystemExposure(SubSystem):
         if mask is not None:
             header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
-        GObject.idle_add(self._check_if_exposure_finished)
+        GLib.idle_add(self._check_if_exposure_finished)
         logger.info('Starting exposure of %s. Files will be named like: %s' % (str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
         self._stopswitch.clear()
         pilatus.prepare_exposure(self.exptime, self.nimages, self.dwelltime)

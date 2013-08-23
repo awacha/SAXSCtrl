@@ -1,4 +1,5 @@
 from gi.repository import GObject
+from gi.repository import GLib
 
 from .subsystem import SubSystem, SubSystemError
 from .scan import ScanDevice, ScanDeviceError  # import all defined scan devices 
@@ -174,7 +175,7 @@ class SubSystemImaging(SubSystem):
         except ScanDeviceError as sde:
             self.emit('imaging-fail', sde.message)
         logger.debug('Adding timeout for starting exposure')
-        GObject.timeout_add(int(self.waittime * 1000), self._start_exposure)
+        GLib.timeout_add(int(self.waittime * 1000), self._start_exposure)
     def _start_exposure(self):
         logger.debug('Starting exposure in imaging sequence.')
         if (self._current_step[0] == 0) and (self._current_step[1] == 0) and self._original_shuttermode and not self.operate_shutter:

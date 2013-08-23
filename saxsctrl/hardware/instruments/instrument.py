@@ -1,4 +1,5 @@
 from gi.repository import GObject
+from gi.repository import GLib
 import logging
 import socket
 import threading
@@ -41,6 +42,9 @@ class InstrumentPropertyCategory(object):
     YES = 'Yes'
     NO = 'No'
 
+class InstrumentPropertyUnknown(Exception):
+    pass
+
 class InstrumentProperty(object):
     __gtype_name__ = 'SAXSCtrl_InstrumentProperty'
     name = None
@@ -59,6 +63,8 @@ class InstrumentProperty(object):
             return self
         if not ((self.name in obj._instrumentproperties) and (time.time() - obj._instrumentproperties[self.name][1] <= self.timeout)):
             obj._update_instrumentproperties(self.name)
+        if obj._instrumentproperties[self.name][2] == InstrumentPropertyCategory.UNKNOWN:
+            raise InstrumentPropertyUnknown
         return obj._instrumentproperties[self.name][0]
     def _update(self, obj, value, category):
         try:
@@ -69,9 +75,9 @@ class InstrumentProperty(object):
         except KeyError:
             obj._instrumentproperties[self.name] = (value, time.time(), category)
             obj._threadsafe_emit('instrumentproperty-notify', self.name)
-            if self.is_error(value):
+            if self.is_error(value) or (category == InstrumentPropertyCategory.ERROR):
                 obj._threadsafe_emit('instrumentproperty-error', self.name)
-            elif self.is_warning(value):
+            elif self.is_warning(value) or (category == InstrumentPropertyCategory.WARNING):
                 obj._threadsafe_emit('instrumentproperty-warning', self.name)
         return True
     def is_error(self, value):
@@ -127,16 +133,27 @@ class Instrument(objwithgui.ObjWithGUI):
         self._logthread_stop = threading.Event()
         self._enable_instrumentproperty_signals = threading.Event()
     def do_instrumentproperty_notify(self, propertyname):
-        logger.debug('InstrumentProperty %s changed to: %s' % (propertyname, str(self.get_property(propertyname))))
+        try:
+            logger.debug('InstrumentProperty %s changed to: %s' % (propertyname, str(self.get_property(propertyname))))
+        except InstrumentPropertyUnknown:
+            logger.debug('InstrumentProperty %s is now unknown.' % propertyname)
     def do_instrumentproperty_error(self, propertyname):
         logger.error('%s is in ERROR state (value: %s)' % (propertyname, str(self.get_property(propertyname))))
     def do_instrumentproperty_warning(self, propertyname):
         logger.warning('%s is in WARNING state (value: %s)' % (propertyname, str(self.get_property(propertyname))))
     def is_instrumentproperty(self, propertyname):
         return isinstance(getattr(type(self), propertyname), InstrumentProperty)
+    def is_instrumentproperty_expired(self, propertyname):
+        return (propertyname not in self._instrumentproperties) or (time.time() - self._instrumentproperties[propertyname][1]) > getattr(type(self), propertyname).timeout
     def _threadsafe_emit(self, signalname, *args):
         if self._enable_instrumentproperty_signals.is_set():
-            GObject.idle_add(lambda signalname, args: self.emit(signalname, *args) and False, signalname, args)
+            GLib.idle_add(lambda signalname, args: self.emit(signalname, *args) and False, signalname, args)
+    def _threadsafe_set_property(self, propname, value):
+        def _handler(sel, pn, v):
+            if sel.get_property(pn) != v:
+                sel.set_property(pn, v)
+            return False  # because we are called
+        GLib.idle_add(_handler, self, propname, value)
     def set_enable_instrumentproperty_signals(self, status):
         if status:
             self._enable_instrumentproperty_signals.set()
@@ -153,6 +170,8 @@ class Instrument(objwithgui.ObjWithGUI):
         return (self.get_property(propertyname), self._instrumentproperties[propertyname][1], self._instrumentproperties[propertyname][2])
     def _update_instrumentproperties(self, propertyname=None):
         raise NotImplementedError
+    def _get_instrumentproperties(self):
+        return [x for x in dir(type(self)) if isinstance(getattr(type(self), x), InstrumentProperty)]
     def _restart_logger(self):
         self._stop_logger()
         self._logthread = threading.Thread(target=self._logger_thread, args=(self._logthread_stop,))
@@ -251,7 +270,7 @@ class Instrument(objwithgui.ObjWithGUI):
     def is_idle(self):
         return self.status in self._considered_idle
     def do_notify(self, prop):
-        logger.debug('Instrument:notify: ' + prop.name + ' (class: ' + self._get_classname() + ') set to: ' + str(self.get_property(prop.name)))
+        logger.debug('Instrument:notify: ' + prop.name + ' (class: ' + self._get_classname() + ') set to: ' + str(self.get_property(prop.name)) + '. (Thread: ' + threading.current_thread().name + ')')
         if prop.name == 'status' and self.is_idle():
             self.emit('idle')
         elif prop.name == 'logfile':
@@ -365,9 +384,9 @@ class Instrument_ModbusTCP(Instrument):
     def disconnect_from_controller(self, status):
         if not self.connected():
             raise InstrumentError('Not connected')
+        self._stop_logger()
         self._pre_disconnect(status)
         with self._communications_lock:
-            self._stop_logger()
             self._modbus.close()
             self._modbus = None
             self.status = InstrumentStatus.Disconnected
@@ -381,21 +400,21 @@ class Instrument_ModbusTCP(Instrument):
             try:
                 return self._modbus.execute(1, modbus_tk.defines.READ_INPUT_REGISTERS, regno, 1)[0]
             except Exception as exc:
-                GObject.idle_add(lambda :(self.emit('controller-error', None) and False))
+                GLib.idle_add(lambda :(self.emit('controller-error', None) and False))
                 raise InstrumentError('Communication error on reading integer value: ' + exc.message)
     def _write_coil(self, coilno, val):
         with self._communications_lock:
             try:
                 self._modbus.execute(1, modbus_tk.defines.WRITE_SINGLE_COIL, coilno, 1, val)
             except Exception as exc:
-                GObject.idle_add(lambda :(self.emit('controller-error', None) and False))
+                GLib.idle_add(lambda :(self.emit('controller-error', None) and False))
                 raise InstrumentError('Communication error on writing coil: ' + exc.message)
     def _read_coils(self, coilstart, coilnum):
         with self._communications_lock:
             try:
                 coils = self._modbus.execute(1, modbus_tk.defines.READ_COILS, coilstart, coilnum)
             except Exception as exc:
-                GObject.idle_add(lambda :(self.emit('controller-error', None) and False))
+                GLib.idle_add(lambda :(self.emit('controller-error', None) and False))
                 raise InstrumentError('Communication error on reading coils: ' + exc.message)
             return coils
     def _get_address(self):
@@ -444,7 +463,7 @@ class Instrument_TCP(Instrument):
             self._socket.setblocking(False)
         try:
             logger.debug('Starting up reply collector thread for socket %s:%d' % (self.host, self.port))
-            GObject.idle_add(self._check_inqueue)
+            GLib.idle_add(self._check_inqueue)
             self._collector = CommunicationCollector_TCP(self._socket, self, self._inqueue, self._socketlock, self.collector_sleep, mesgseparator=self._mesgseparator)
             self._collector.daemon = True
             self._collector.start()
@@ -477,9 +496,9 @@ class Instrument_TCP(Instrument):
             self._pre_disconnect(status)
         except:
             pass
+        logger.debug('Disconnecting.')
+        self._stop_logger()
         with self._socketlock:
-            logger.debug('Disconnecting.')
-            self._stop_logger()
             self._collector.kill.set()
             try:
                 self._collector.join()
@@ -538,7 +557,7 @@ class Instrument_TCP(Instrument):
             # this is a serious error, we tear down the connection on our side.
             # We call the disconnecting method in this funny way, since it needs locking
             # self._socket_lock, which is now locked.
-            GObject.idle_add(lambda :(self.disconnect_from_controller(False) and False))
+            GLib.idle_add(lambda :(self.disconnect_from_controller(False) and False))
             raise cbe
         except socket.error as se:
             raise InstrumentError('Communication Error: ' + se.message) 
@@ -548,12 +567,15 @@ class Instrument_TCP(Instrument):
     
     def send_and_receive(self, command, blocking=True):
         with self._socketlock:
-            self._socket.sendall(command)
-            if not blocking: return None
-            if isinstance(blocking, float):
-                message = self._read_from_socket(blocking)
-            else:
-                message = self._read_from_socket(None)
+            try:
+                self._socket.sendall(command)
+                if not blocking: return None
+                if isinstance(blocking, float):
+                    message = self._read_from_socket(blocking)
+                else:
+                    message = self._read_from_socket(None)
+            except socket.error as err:
+                raise InstrumentError('TCP socket I/O error: ' + err.message)
             if (self._mesgseparator is not None) and message.endswith(self._mesgseparator):
                 message = message[:-len(self._mesgseparator)]
             if (self._mesgseparator is not None) and self._mesgseparator in message:

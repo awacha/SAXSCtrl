@@ -2,6 +2,7 @@
 
 from gi.repository import Gtk
 from gi.repository import GObject
+from gi.repository import GLib
 from .widgets import ToolDialog
 from .spec_filechoosers import FileEntryWithButton
 from ..hardware.subsystems.datareduction import DataReductionError
@@ -98,7 +99,7 @@ class DataReduction(ToolDialog):
         cr.connect('edited', lambda renderer, path, newtext, colnum, fieldname: self._cell_edited(path, newtext, colnum, fieldname), 10, 'Thickness')
         self._headerview.append_column(Gtk.TreeViewColumn('Thickness (cm)', Gtk.CellRendererText(), text=10))
         self._headerview.grab_focus()
-        GObject.idle_add(lambda :self._reload_beamtimes() and False)
+        GLib.idle_add(lambda :self._reload_beamtimes() and False)
         
         self._resultsfrm = Gtk.Frame(label='Data reduction running...')
         self._resultsfrm.set_no_show_all(True)
@@ -208,7 +209,7 @@ class DataReduction(ToolDialog):
                 del md
                 return True
             try:
-                self._pulser_handle = GObject.timeout_add(400, self._pulser)
+                self._pulser_handle = GLib.timeout_add(400, self._pulser)
                 self._headerview.set_sensitive(False)
                 self._resultsfrm.show_all()
                 self._resultsfrm.show_now()

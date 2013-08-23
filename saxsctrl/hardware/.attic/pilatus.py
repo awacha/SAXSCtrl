@@ -17,6 +17,7 @@ import logging
 import Queue
 from gi.repository import GObject
 from gi.repository import Gtk
+from gi.repository import GLib
 import multiprocessing
 
 logger = logging.getLogger(__name__)
@@ -374,7 +375,7 @@ class PilatusConnection(GObject.GObject):
                 # unregister ourselves from the idle source.
                 return False
             return True
-        self.idle_function_handle = GObject.idle_add(_handler)
+        self.idle_function_handle = GLib.idle_add(_handler)
         self.commprocess.start()
         self.status = PILATUS_STATUS_IDLE
         self.emit('connect-equipment')

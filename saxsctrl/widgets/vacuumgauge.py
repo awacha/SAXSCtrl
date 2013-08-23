@@ -24,7 +24,7 @@ class VacuumGauge(ToolDialog):
         self._statusgrid = InstrumentStatus(self.credo.get_equipment('vacgauge'))
         f.add(self._statusgrid)
         
-        self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1, colourintensity(value), colourintensity(value), 1))
+        self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1 - colourintensity(value), colourintensity(value), 0, 1))
         # self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1, 0, 0, 1))
         self._statusgrid.refresh_statuslabels()
     def do_destroy(self):

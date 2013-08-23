@@ -2,6 +2,8 @@ from ..hardware.instruments.tmcl_motor import MotorError
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import Gdk
+from gi.repository import GLib
+
 from .widgets import ToolDialog
 import multiprocessing
 import datetime
@@ -180,7 +182,7 @@ class MotorMonitor(ToolDialog):
             return
         ssm = self.credo.subsystems['Motors']
         self._movetostoredconfig_conn = ssm.connect('idle', self._movement_finished, path)
-        self._movetostoredconfig_pulser = GObject.timeout_add(100, self._movement_pulse_spinner, path)
+        self._movetostoredconfig_pulser = GLib.timeout_add(100, self._movement_pulse_spinner, path)
         row[2] = True
         for mname in cp.options(row[0]):
             position = cp.getfloat(row[0], mname)
@@ -698,7 +700,7 @@ class MotorDriver(ToolDialog):
             otherwidget.set_text('')
         return False
     def on_edited(self, widget, event, otherwidget, converter):
-        GObject.idle_add(self._on_edited_idle, widget, otherwidget, converter)
+        GLib.idle_add(self._on_edited_idle, widget, otherwidget, converter)
     def calibrate_pos(self):
         try:
             self.get_motor().calibrate_pos(int(float(self.posentry_raw.get_text())), raw=True)

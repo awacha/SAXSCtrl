@@ -1,7 +1,7 @@
 # coding: utf-8
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 import sastool
 import re
 import os
@@ -57,15 +57,11 @@ class Credo(objwithgui.ObjWithGUI):
     shuttercontrol = GObject.property(type=bool, default=True, blurb='Open/close shutter')
     motorcontrol = GObject.property(type=bool, default=True, blurb='Move motors')
     
-    bs_out = GObject.property(type=float, default=0, blurb='Beam-stop out-of-beam position')
-    bs_in = GObject.property(type=float, default=50, blurb='Beam-stop in-beam position')
-    
-    
     # changing any of the properties in this list will trigger a setup-changed event.
     setup_properties = ['username', 'projectname', 'pixelsize', 'dist', 'filter',
                         'beamposx', 'beamposy', 'wavelength', 'shuttercontrol',
                         'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile',
-                        'imagepath', 'filepath', 'bs_out', 'bs_in']
+                        'imagepath', 'filepath']
     
     # changing any of the properties in this list will trigger a path-changed event.
     path_properties = ['filepath', 'imagepath']

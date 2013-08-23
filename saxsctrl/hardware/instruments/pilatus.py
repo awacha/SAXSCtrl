@@ -1,9 +1,10 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply
+from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, InstrumentProperty, InstrumentPropertyCategory
 import dateutil.parser
 import re
 import socket
 import logging
 import datetime
+import threading
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -94,15 +95,41 @@ class Pilatus(Instrument_TCP):
         Command('ImgMode', [CommandReplyPilatus(15, 'ImgMode is (?P<imgmode>.*)'), reply_noaccess]),
         Command('ShowPID', [CommandReplyPilatus(16, 'PID = (?P<pid>' + RE_INT + ')')], {'pid':int}),
                   ]
+    gain = InstrumentProperty(name='gain', type=str, timeout=1, refreshinterval=1)
+    threshold = InstrumentProperty(name='threshold', type=float, timeout=1, refreshinterval=1)
+    vcmp = InstrumentProperty(name='vcmp', type=float, timeout=1, refreshinterval=1)
+    wpix = InstrumentProperty(name='wpix', type=int, timeout=3600, refreshinterval=3600)
+    hpix = InstrumentProperty(name='hpix', type=int, timeout=3600, refreshinterval=3600)
+    temperature = InstrumentProperty(name='temperature', type=list, timeout=30, refreshinterval=30)
+    humidity = InstrumentProperty(name='humidity', type=list, timeout=30, refreshinterval=30)
+    cameraname = InstrumentProperty(name='cameraname', type=str, timeout=3600, refreshinterval=3600)
+    camerasn = InstrumentProperty(name='camerasn', type=str, timeout=3600, refreshinterval=3600)
+    timeleft = InstrumentProperty(name='timeleft', type=float, timeout=1, refreshinterval=1)
+    exptime = InstrumentProperty(name='exptime', type=float, timeout=1, refreshinterval=1)
+    expperiod = InstrumentProperty(name='expperiod', type=float, timeout=1, refreshinterval=1)
+    nimages = InstrumentProperty(name='nimages', type=float, timeout=1, refreshinterval=1)
+    tau = InstrumentProperty(name='tau', type=float, timeout=1, refreshinterval=1)
+    cutoff = InstrumentProperty(name='cutoff', type=float, timeout=1, refreshinterval=1)
+    
     def __init__(self, offline=True):
         Instrument_TCP.__init__(self, offline)
         self._mesgseparator = '\x18'
         self.timeout = 1
+        self._status_lock = threading.RLock()
+    def _update_instrumentproperties(self, propertyname=None):
+        if propertyname is not None:
+            toupdate = [propertyname]
+        else:
+            toupdate = [x for x in self._get_instrumentproperties() if self.is_instrumentproperty_expired(x)]
+        for property in toupdate:
+            pass
+        pass
     def _process_results(self, dic):
-        if (dic['command'] == 'SetThreshold') and (self.status != PilatusStatus.Idle):
-            self.status = PilatusStatus.Idle
-        elif dic['command'] == 'Exposure' and dic['filename'] is not None:
-            self.status = PilatusStatus.Idle
+        with self._status_lock:
+            if (dic['command'] == 'SetThreshold') and (self.status != PilatusStatus.Idle):
+                self.status = PilatusStatus.Idle
+            elif dic['command'] == 'Exposure' and dic['filename'] is not None:
+                self.status = PilatusStatus.Idle
         if dic['status'] == 'ERR':
             logger.error('Command %s returned error!' % dic['command'])
     def interpret_message(self, message, command=None, putback_if_no_match=True):
@@ -186,7 +213,8 @@ class Pilatus(Instrument_TCP):
             message = self.send_and_receive('SetThreshold %d' % threshold, blocking=False)
         else:
             message = self.send_and_receive('SetThreshold %s %d' % (gain, threshold), blocking=False)
-        self.status = PilatusStatus.Trimming
+        with self._status_lock:
+            self.status = PilatusStatus.Trimming
     def get_temperature_humidity(self):
         return self._get_general('THread', None)
     def get_telemetry(self):
@@ -220,16 +248,18 @@ class Pilatus(Instrument_TCP):
     def execute_exposure(self, filename):
         nimages = self.get_nimages()
         try:
-            if nimages == 1:
-                self.status = PilatusStatus.Exposing
-            else:
-                self.status = PilatusStatus.ExposingMulti
+            with self._status_lock:
+                if nimages == 1:
+                    self.status = PilatusStatus.Exposing
+                else:
+                    self.status = PilatusStatus.ExposingMulti
             message = self.send_and_receive('Exposure ' + filename, blocking=True)
             mesg = self.interpret_message(message, 'Exposure')
             if mesg is None:
                 raise PilatusError('Invalid message for Exposure: ' + message)
         except:
-            self.status = PilatusStatus.Idle
+            with self._status_lock:
+                self.status = PilatusStatus.Idle
             raise
         days, secs = divmod(mesg['exptime'], (24 * 60 * 60))
         secs, usecs = divmod(secs, 1)
@@ -239,16 +269,17 @@ class Pilatus(Instrument_TCP):
         return self.execute_exposure(filename)
     
     def stopexposure(self):
-        if self.status == PilatusStatus.Exposing:
-            return self.resetcam()
-        elif self.status == PilatusStatus.ExposingMulti:
-            message = self.send_and_receive('K', blocking=True)
-            mesg = self.interpret_message(message, 'K')
-            if mesg is None:
-                raise PilatusError('Invalid message for K: ' + message)
-            return mesg['status'] == 'ERR'
-        else:
-            raise PilatusError('No exposure running!')
+        with self._status_lock:
+            if self.status == PilatusStatus.Exposing:
+                return self.resetcam()
+            elif self.status == PilatusStatus.ExposingMulti:
+                message = self.send_and_receive('K', blocking=True)
+                mesg = self.interpret_message(message, 'K')
+                if mesg is None:
+                    raise PilatusError('Invalid message for K: ' + message)
+                return mesg['status'] == 'ERR'
+            else:
+                raise PilatusError('No exposure running!')
     def resetcam(self):
         message = self.send_and_receive('ResetCam', blocking=True)
         mesg = self.interpret_message(message, 'ResetCam')

@@ -3,6 +3,8 @@ from ..hardware.instruments import genix
 import itertools
 from gi.repository import GObject
 from gi.repository import Gdk
+from gi.repository import GLib
+
 import logging
 import multiprocessing
 
@@ -169,7 +171,7 @@ class GenixControl(ToolDialog):
         self.status.labels['Shutter'].connect('status-changed', self.on_shutter)
         self.status.labels['Status'].connect('status-changed', self.on_warmup)
         self.update_status()
-        self._timeout_handler = GObject.timeout_add_seconds(1, self.update_status)
+        self._timeout_handler = GLib.timeout_add_seconds(1, self.update_status)
     def update_status(self):
         g = self.credo.get_equipment('genix')
         if not g.connected():

@@ -12,6 +12,7 @@ import weakref
 import ConfigParser
 import numbers
 from gi.repository import GObject
+from gi.repository import GLib
 
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, ConnectionBrokenError
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class TMCMModule(Instrument_TCP):
     def _adjust_hwtype(self):
         raise NotImplementedError('Unknown TMCM type: ' + hwtype)
     def _post_connect(self):
-        GObject.idle_add(self._check_queue)
+        GLib.idle_add(self._check_queue)
         try:
             major, minor, hwtype = self.get_version()
             if hwtype != self.hwtype:
@@ -207,7 +208,7 @@ class TMCMModule(Instrument_TCP):
     def do_motor_stop(self, mot):
         # a motor movement is finished, re-register the queue checking idle handler.
         self.status = TMCMModuleStatus.Busy
-        GObject.idle_add(self._check_queue)
+        GLib.idle_add(self._check_queue)
     def _movemotor(self, idx, pos, raw=False, relative=False, queued=True):
         logger.debug('_movemotor was called with idx=%d, pos=%d, raw=%s, relative=%s' % (idx, pos, raw, relative))
         motor = self.get_motor(idx)
@@ -395,7 +396,7 @@ class StepperMotor(GObject.GObject):
             self.emit('motor-limit', *self.limitdata)
         return True
     def do_motor_start(self):
-        GObject.idle_add(self.motor_monitor)
+        GLib.idle_add(self.motor_monitor)
         self.status = StepperStatus.Busy
     def do_motor_stop(self):
         self.status = StepperStatus.Idle

@@ -1,5 +1,6 @@
 # coding: utf-8
 from gi.repository import Gtk
+from gi.repository import GLib
 import logging
 import sastool
 from .spec_filechoosers import MaskChooserDialog
@@ -129,7 +130,7 @@ class SingleExposure(ToolDialog):
                 self.credo.datareduction.disconnect(c)
             self.datared_infobar.destroy()
             del self.datared_infobar
-        GObject.idle_add(self.plot_image, exposure)
+        GLib.idle_add(self.plot_image, exposure)
         return True
     def on_datareduction_message(self, datareduction, jobidx, message):
         if not hasattr(self, '_datareduction'):
@@ -160,7 +161,7 @@ class SingleExposure(ToolDialog):
             self._datareduction.append(self.credo.datareduction.do_reduction(exposure))
             self.datared_infobar.set_n_jobs(len(self._datareduction))
         else:
-            GObject.idle_add(self.plot_image, exposure)
+            GLib.idle_add(self.plot_image, exposure)
         
     def plot_image(self, exposure):
         logger.debug('Plotting image.')

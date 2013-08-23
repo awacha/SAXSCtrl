@@ -87,7 +87,7 @@ class VacuumGauge(Instrument_TCP):
     def set_units(self, units='mbar'):
         self.execute('u', '%06d' % ({'mbar':0, 'Torr':1, 'hPa':2}[units]))
     def get_current_parameters(self):
-        return {'Vacuum':self.readout(), 'VacuumGauge':self.get_version()}
+        return {'Vacuum':self.pressure, 'VacuumGauge':self.get_version()}
     def _logthread_worker(self):
         data, t, category = self.get_instrument_property('pressure')
         with open(self.logfile, 'at') as f:

@@ -7,7 +7,7 @@ Make exposures.
 
 from gi.repository import GObject
 from gi.repository import Gdk
-GObject.threads_init()
+from gi.repository import GLib
 import itertools
 import ConfigParser
 from gi.repository import Gtk
@@ -151,9 +151,9 @@ class PilatusStatus(Gtk.Frame):
     def start(self, pilatusconnection):
         if self.timeouthandler is None:
             self.updatemonitor(pilatusconnection)
-            self.timeouthandler = GObject.timeout_add_seconds(self._monitor_timeout, self.updatemonitor, pilatusconnection)
+            self.timeouthandler = GLib.timeout_add_seconds(self._monitor_timeout, self.updatemonitor, pilatusconnection)
         if self.timeouthandler_slow is None:
-            self.timeouthandler_slow = GObject.timeout_add_seconds(self._slowmonitor_timeout, self.updatemonitor_slow, pilatusconnection)
+            self.timeouthandler_slow = GLib.timeout_add_seconds(self._slowmonitor_timeout, self.updatemonitor_slow, pilatusconnection)
         self.updatemonitor_slow(pilatusconnection)
     def stop(self):
         if self.timeouthandler is not None:

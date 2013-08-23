@@ -13,6 +13,7 @@ import threading
 import uuid
 import weakref
 from gi.repository import Gtk
+from gi.repository import GLib
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
@@ -245,7 +246,7 @@ class ReductionThread(GObject.GObject):
             self._threadsafe_emit('done', exposure['FSN'], exposure.header)
         self._threadsafe_emit('endthread')
     def _threadsafe_emit(self, signalname, *args):
-        GObject.idle_add(lambda sn, arglist: bool(self.emit(sn, *arglist)) and False, signalname, args)
+        GLib.idle_add(lambda sn, arglist: bool(self.emit(sn, *arglist)) and False, signalname, args)
     def execute(self, exposure, force=False, endstepclassname=None):
         logger.debug('Starting execution of %s. Force: %d. Endstepclassname: %s' % (str(exposure.header), force, str(endstepclassname)))
         for c in self.chain:

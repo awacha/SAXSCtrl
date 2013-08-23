@@ -6,10 +6,15 @@ import subprocess
 import gc
 import multiprocessing
 import sys
+import warnings
 
+# logging.captureWarnings(True)
+warnings.filterwarnings('always')
 logger = logging.getLogger('saxsctrl')
 
 from gi.repository import Gtk
+from gi.repository import GObject
+GObject.threads_init()
 
 class LogException(Exception):
     pass

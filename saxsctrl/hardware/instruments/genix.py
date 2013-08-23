@@ -75,7 +75,7 @@ class LoggingLock(object):
         return self.release()
     
 class Genix(Instrument_ModbusTCP):
-    _shutter_timeout = 1
+    _shutter_timeout = 2
     _prevstate = GenixStatus.Idle
     _considered_idle = [GenixStatus.Disconnected, GenixStatus.FullPower, GenixStatus.Standby, GenixStatus.PowerDown, GenixStatus.XRaysOff, GenixStatus.Idle]
     ht = InstrumentProperty(name='ht', type=float, refreshinterval=1, timeout=1)
@@ -133,13 +133,28 @@ class Genix(Instrument_ModbusTCP):
             status = self.get_status(statusbits)
             ht = self.get_ht()
             current = self.get_current()
-            self._check_state(ht, current, status)
+            if not status['XRAY_ON']:
+                newstate = GenixStatus.XRaysOff
+            elif status['CYCLE_RESET_ON']:
+                newstate = GenixStatus.GoPowerDown
+            elif status['CYCLE_AUTO_ON']:
+                newstate = GenixStatus.GoFullPower
+            elif status['STANDBY_ON']:
+                newstate = GenixStatus.GoStandby
+            elif status['CYCLE_TUBE_WARM_UP_ON']:
+                newstate = GenixStatus.WarmUp
+            else:
+                if ht == 0 and current == 0:
+                    newstate = GenixStatus.PowerDown
+                elif ht == 30 and current == 0.3:
+                    newstate = GenixStatus.Standby
+                elif ht == 50 and current == 0.6:
+                    newstate = GenixStatus.FullPower
+                else:
+                    newstate = self.status
+            self._threadsafe_set_property('status', newstate)
         except InstrumentError:
-            for propname in ['ht', 'current', 'power', 'remote_mode', 'xrays', 'shutter', 'tubetime', 'faultstatus',
-                             'conditions_auto', 'faults', 'xray_light_fault', 'shutter_light_fault',
-                             'sensor2_fault', 'tube_position_fault', 'vacuum_fault', 'waterflow_fault',
-                             'safety_shutter_fault', 'temperature_fault', 'sensor1_fault', 'relay_interlock_fault',
-                             'door_fault', 'filament_fault', 'tube_warmup_needed', 'interlock', 'overridden', ]:
+            for propname in self._get_instrumentproperties():
                 getattr(type(self), propname)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
             return
         faultint = 0
@@ -179,43 +194,9 @@ class Genix(Instrument_ModbusTCP):
                 getattr(type(self), propname)._update(self, True, InstrumentPropertyCategory.NO)
             else:
                 getattr(type(self), propname)._update(self, False, InstrumentPropertyCategory.YES)
-    def _post_connect(self):
-        GObject.timeout_add_seconds(1, self._check_state)
     def _pre_disconnect(self, should_do_communication):
         if should_do_communication:
             self.shutter_close(False)
-            self.shutter = ShutterStatus.Disconnected
-    def _check_state(self, ht=None, curr=None, status=None):
-        if not self.connected():
-            return False
-        if status is None:
-            status = self.get_status()
-        if not status['XRAY_ON']:
-            newstate = GenixStatus.XRaysOff
-        elif status['CYCLE_RESET_ON']:
-            newstate = GenixStatus.GoPowerDown
-        elif status['CYCLE_AUTO_ON']:
-            newstate = GenixStatus.GoFullPower
-        elif status['STANDBY_ON']:
-            newstate = GenixStatus.GoStandby
-        elif status['CYCLE_TUBE_WARM_UP_ON']:
-            newstate = GenixStatus.WarmUp
-        else:
-            if ht is None:
-                ht = self.get_ht()
-            if curr is None:
-                curr = self.get_current()
-            if ht == 0 and curr == 0:
-                newstate = GenixStatus.PowerDown
-            elif ht == 30 and curr == 0.3:
-                newstate = GenixStatus.Standby
-            elif ht == 50 and curr == 0.6:
-                newstate = GenixStatus.FullPower
-            else:
-                newstate = self.status
-        if self.status != newstate:
-            self.status = newstate
-        return True
     def get_status_bits(self):
         """Read the status bits of GeniX.
         """

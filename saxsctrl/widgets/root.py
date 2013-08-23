@@ -1,6 +1,8 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import Gdk
+from gi.repository import GLib
+
 import logging
 import logging.handlers
 import time
@@ -11,9 +13,9 @@ import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, genixcontrol2
+from . import genixcontrol2, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 def my_excepthook(type_, value, traceback_):
     try:
@@ -174,8 +176,8 @@ class RootWindow(Gtk.Window):
         hb.pack_start(nextfsn_monitor.NextFSNMonitor(weakref.proxy(self.credo), 'Next exposure:'), False, True, 0)
         
         
-        self.toolbuttons = [Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
-                            Tool(self.credo, 'GeniX-2', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix']),
+        self.toolbuttons = [  # Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
+                            Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
                             Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Setup'),
                             Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup'),
@@ -216,8 +218,8 @@ class RootWindow(Gtk.Window):
         
         f.add(self.logdisplay)
         self.update_statuslabels()
-        GObject.timeout_add_seconds(1, self.update_statuslabels)
-        GObject.idle_add(self._after_start)
+        GLib.timeout_add_seconds(1, self.update_statuslabels)
+        GLib.idle_add(self._after_start)
     def _after_start(self):
         for equipment in self.credo.subsystems['Equipments']:
             equipment.set_enable_instrumentproperty_signals(True)
@@ -253,7 +255,7 @@ class RootWindow(Gtk.Window):
     def on_entry_changed(self, entry, entrytext):
         if entrytext in self._entrychanged_delayhandlers:
             GObject.source_remove(self._entrychanged_delayhandlers[entrytext])
-        self._entrychanged_delayhandlers[entrytext] = GObject.timeout_add_seconds(1, self.on_entry_changed_finalize, entry, entrytext)
+        self._entrychanged_delayhandlers[entrytext] = GLib.timeout_add_seconds(1, self.on_entry_changed_finalize, entry, entrytext)
     def on_entry_changed_finalize(self, entry, entrytext):
         self.credo.__setattr__(entrytext, entry.get_text())
         

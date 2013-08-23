@@ -1,4 +1,6 @@
 from gi.repository import Gtk
+from gi.repository import GLib
+
 import os
 import matplotlib.pyplot as plt
 import shutil
@@ -161,7 +163,7 @@ class MovieMaker(Gtk.Dialog):
         encthread = threading.Thread(name='Encoding_movie', target=_encoder_thread)
         encthread.setDaemon(True)
         encthread.start()
-        _pulser = GObject.timeout_add(100, self.pulse)
+        _pulser = GLib.timeout_add(100, self.pulse)
         while encthread.isAlive():
             while Gtk.events_pending():
                 Gtk.main_iteration()

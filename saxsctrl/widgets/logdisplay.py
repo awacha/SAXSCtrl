@@ -1,6 +1,8 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import Pango
+from gi.repository import GLib
+
 import logging
 import logging.handlers
 
@@ -59,6 +61,6 @@ class Gtk3LogHandler(logging.Handler):
         self.logdisplay = logdisplay
     def emit(self, record):
         message = self.format(record)
-        GObject.idle_add(self.logdisplay.addlogline, message, record)
+        GLib.idle_add(self.logdisplay.addlogline, message, record)
         # logdisplay.addlogline(message, record)
         

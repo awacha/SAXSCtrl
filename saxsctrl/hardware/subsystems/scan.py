@@ -1,4 +1,5 @@
 from gi.repository import GObject
+from gi.repository import GLib
 
 from .subsystem import SubSystem, SubSystemError
 from ..instruments.tmcl_motor import MotorError
