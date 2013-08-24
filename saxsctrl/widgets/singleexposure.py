@@ -23,7 +23,6 @@ class SingleExposure(ToolDialog):
     _filechooserdialogs = None
     def __init__(self, credo, title='Single exposure'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
-        self.set_default_response(Gtk.ResponseType.OK)
         vb = self.get_content_area()
         
         self.entrytab = Gtk.Table()

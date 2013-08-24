@@ -74,7 +74,7 @@ class SubSystemImaging(SubSystem):
                 (not self.scandevice2.validate_interval(self.value_begin2, self.value_end2, self.nstep2, self.countingtime, self.waittime))):
                 raise ValueError('Invalid scan interval')
         except Exception as exc:
-            raise SubSystemError('Validation of scan interval failed: ' + exc.message)
+            raise SubSystemError('Validation of scan interval failed: ' + str(exc))
         
         logger.debug('Initializing scan object.')
         # Initialize the scan object
@@ -173,7 +173,7 @@ class SubSystemImaging(SubSystem):
             self._where = [self.scandevice1.moveto(self.value_begin1 + (self.value_end1 - self.value_begin1) / (self.nstep1 - 1) * self._current_step[0]),
                            self.scandevice2.moveto(self.value_begin2 + (self.value_end2 - self.value_begin2) / (self.nstep2 - 1) * self._current_step[1])]
         except ScanDeviceError as sde:
-            self.emit('imaging-fail', sde.message)
+            self.emit('imaging-fail', str(sde))
         logger.debug('Adding timeout for starting exposure')
         GLib.timeout_add(int(self.waittime * 1000), self._start_exposure)
     def _start_exposure(self):

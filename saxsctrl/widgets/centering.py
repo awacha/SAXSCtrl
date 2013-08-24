@@ -8,7 +8,6 @@ from .widgets import ToolDialog
 class CenteringDialog(ToolDialog):
     def __init__(self, credo, title='Centering image...') :
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_SAVE, Gtk.ResponseType.YES))
-        self.set_default_response(Gtk.ResponseType.CLOSE)
         vb = self.get_content_area()
         f = Gtk.Expander(label='Exposure')
         vb.pack_start(f, False, True, 0)

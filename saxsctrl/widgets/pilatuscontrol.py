@@ -157,10 +157,10 @@ class PilatusStatus(Gtk.Frame):
         self.updatemonitor_slow(pilatusconnection)
     def stop(self):
         if self.timeouthandler is not None:
-            GObject.source_remove(self.timeouthandler)
+            GLib.source_remove(self.timeouthandler)
             self.timeouthandler = None
         if self.timeouthandler_slow is not None:
-            GObject.source_remove(self.timeouthandler_slow)
+            GLib.source_remove(self.timeouthandler_slow)
             self.timeouthandler_slow = None
     def restart(self, pilatusconnection):
         self.stop()

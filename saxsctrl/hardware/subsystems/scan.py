@@ -82,7 +82,7 @@ class ScanDeviceMotor(ScanDevice):
             self.motor.moveto(position)
             self.motor.driver().wait_for_idle()
         except MotorError as me:
-            raise ScanDeviceError('Positioning failure: ' + me.message)
+            raise ScanDeviceError('Positioning failure: ' + str(me))
         return self.where()
     def where(self):
         return self.motor.get_pos()
@@ -113,7 +113,7 @@ class ScanDevicePilatus(ScanDevice):
             self.credo().get_equipment('pilatus').set_threshold(position)
             self.credo().get_equipment('pilatus').wait_for_idle()
         except PilatusError as pe:
-            raise ScanDeviceError('Error setting threshold: ' + pe.message)
+            raise ScanDeviceError('Error setting threshold: ' + str(pe))
         return self.where()
     def where(self):
         return self.credo().get_equipment('pilatus').get_threshold()
@@ -181,7 +181,7 @@ class SubSystemScan(SubSystem):
             if not self.scandevice.validate_interval(self.value_begin, self.value_end, self.nstep, self.countingtime, self.waittime):
                 raise ValueError('Invalid scan interval')
         except Exception as exc:
-            raise SubSystemError('Validation of scan interval failed: ' + exc.message)
+            raise SubSystemError('Validation of scan interval failed: ' + str(exc))
         
         logger.debug('Initializing scan object.')
         # Initialize the scan object
@@ -281,7 +281,7 @@ class SubSystemScan(SubSystem):
             logger.info('Scan step %d/%d' % (self._current_step + 1, self.nstep))
             self._where = self.scandevice.moveto(self.value_begin + (self.value_end - self.value_begin) / (self.nstep - 1) * self._current_step)
         except ScanDeviceError as sde:
-            self.emit('scan-fail', sde.message)
+            self.emit('scan-fail', str(sde))
         logger.debug('Adding timeout for starting exposure')
         GObject.timeout_add(int(self.waittime * 1000), self._start_exposure)
     def _start_exposure(self): 

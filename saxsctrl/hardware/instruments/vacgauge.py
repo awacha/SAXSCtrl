@@ -1,6 +1,7 @@
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, ConnectionBrokenError, InstrumentProperty, InstrumentPropertyCategory
 import logging
 from gi.repository import GObject
+from gi.repository import GLib
 from ...utils import objwithgui
 import os
 import threading
@@ -54,13 +55,13 @@ class VacuumGauge(Instrument_TCP):
             except VacuumGaugeError as vge:
                 if not i:
                     raise
-                logger.warning('Communication error: ' + exc.message + '(type: ' + str(type(exc)) + '); retrying (%d retries left)' % i)
+                logger.warning('Communication error: ' + str(exc) + '(type: ' + str(type(exc)) + '); retrying (%d retries left)' % i)
             except (ConnectionBrokenError, InstrumentError) as exc:
-                logger.error('Connection of instrument %s broken: ' % self._get_classname() + exc.message)
-                raise VacuumGaugeError('Connection broken: ' + exc.message)
+                logger.error('Connection of instrument %s broken: ' % self._get_classname() + str(exc))
+                raise VacuumGaugeError('Connection broken: ' + str(exc))
             except Exception as exc:
-                logger.error('Instrument error on module %s: ' % self.hwtype + exc.message)
-                raise VacuumGaugeError('Instrument error: ' + exc.message)
+                logger.error('Instrument error on module %s: ' % self.hwtype + str(exc))
+                raise VacuumGaugeError('Instrument error: ' + str(exc))
             
         return message
     def interpret_message(self, message, command=None):
@@ -98,7 +99,7 @@ class VacuumGauge(Instrument_TCP):
         """
         while not (self.pressure <= pthreshold or alternative_breakfunc()):
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         return (not alternative_breakfunc())

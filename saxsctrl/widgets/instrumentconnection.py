@@ -70,7 +70,7 @@ class InstrumentConnections(ToolDialog):
                 self.credo.subsystems['Equipments'].connect_equipment(equipment, address=self.addressentries[equipment].get_text())
             except subsystems.SubSystemError as sse:
                 md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, message_format='Cannot connect to equipment %s!' % equipment)
-                md.format_secondary_text('Error message: ' + sse.message)
+                md.format_secondary_text('Error message: ' + str(sse))
                 md.run()
                 md.destroy()
     

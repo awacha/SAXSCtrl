@@ -1,5 +1,6 @@
 from .subsystem import SubSystem, SubSystemException, SubSystemError
 from gi.repository import GObject
+from gi.repository import GLib
 import weakref
 import logging
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class SubSystemMotors(SubSystem):
         """
         while not (self.is_idle() or alternative_breakfunc()):
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         return (not alternative_breakfunc())

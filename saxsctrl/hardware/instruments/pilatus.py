@@ -5,9 +5,18 @@ import socket
 import logging
 import datetime
 import threading
+import math
+import time
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+TEMPERATURE_WARNING_LIMITS = [(20, 35), (20, 30), (20, 35)]
+TEMPERATURE_ERROR_LIMITS = [(15, 55), (15, 35), (15, 45)]
+HUMIDITY_WARNING_LIMITS = [30, 30, 20]
+HUMIDITY_ERROR_LIMITS = [80, 80, 30]
+
+
 
 RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
 RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
@@ -37,6 +46,7 @@ class PilatusStatus(InstrumentStatus):
     Trimming = 'trimming'
 
 class Pilatus(Instrument_TCP):
+    __gtype_name__ = 'SAXSCtrl_Instrument_Pilatus300k'
     _commands = [
         Command('Tau', [CommandReplyPilatus(15, r'Rate correction is on; tau = (?P<tau>' + RE_FLOAT + r') s, cutoff = (?P<cutoff>' + RE_INT + r') counts'),
                         CommandReplyPilatus(15, r'Turn off rate correction', defaults={'tau':0, 'cutoff':1048574}),
@@ -95,41 +105,174 @@ class Pilatus(Instrument_TCP):
         Command('ImgMode', [CommandReplyPilatus(15, 'ImgMode is (?P<imgmode>.*)'), reply_noaccess]),
         Command('ShowPID', [CommandReplyPilatus(16, 'PID = (?P<pid>' + RE_INT + ')')], {'pid':int}),
                   ]
-    gain = InstrumentProperty(name='gain', type=str, timeout=1, refreshinterval=1)
-    threshold = InstrumentProperty(name='threshold', type=float, timeout=1, refreshinterval=1)
-    vcmp = InstrumentProperty(name='vcmp', type=float, timeout=1, refreshinterval=1)
+    gain = InstrumentProperty(name='gain', type=str, timeout=60, refreshinterval=60)
+    threshold = InstrumentProperty(name='threshold', type=float, timeout=60, refreshinterval=60)
+    trimfile = InstrumentProperty(name='trimfile', type=str, timeout=60, refreshinterval=60)
+    vcmp = InstrumentProperty(name='vcmp', type=float, timeout=60, refreshinterval=60)
     wpix = InstrumentProperty(name='wpix', type=int, timeout=3600, refreshinterval=3600)
     hpix = InstrumentProperty(name='hpix', type=int, timeout=3600, refreshinterval=3600)
-    temperature = InstrumentProperty(name='temperature', type=list, timeout=30, refreshinterval=30)
-    humidity = InstrumentProperty(name='humidity', type=list, timeout=30, refreshinterval=30)
+    temperature0 = InstrumentProperty(name='temperature0', type=list, timeout=30, refreshinterval=30)
+    temperature1 = InstrumentProperty(name='temperature1', type=list, timeout=30, refreshinterval=30)
+    temperature2 = InstrumentProperty(name='temperature2', type=list, timeout=30, refreshinterval=30)
+    humidity0 = InstrumentProperty(name='humidity0', type=list, timeout=30, refreshinterval=30)
+    humidity1 = InstrumentProperty(name='humidity1', type=list, timeout=30, refreshinterval=30)
+    humidity2 = InstrumentProperty(name='humidity2', type=list, timeout=30, refreshinterval=30)
     cameraname = InstrumentProperty(name='cameraname', type=str, timeout=3600, refreshinterval=3600)
     camerasn = InstrumentProperty(name='camerasn', type=str, timeout=3600, refreshinterval=3600)
     timeleft = InstrumentProperty(name='timeleft', type=float, timeout=1, refreshinterval=1)
-    exptime = InstrumentProperty(name='exptime', type=float, timeout=1, refreshinterval=1)
-    expperiod = InstrumentProperty(name='expperiod', type=float, timeout=1, refreshinterval=1)
-    nimages = InstrumentProperty(name='nimages', type=float, timeout=1, refreshinterval=1)
-    tau = InstrumentProperty(name='tau', type=float, timeout=1, refreshinterval=1)
-    cutoff = InstrumentProperty(name='cutoff', type=float, timeout=1, refreshinterval=1)
-    
+    exptime = InstrumentProperty(name='exptime', type=float, timeout=10, refreshinterval=10)
+    expperiod = InstrumentProperty(name='expperiod', type=float, timeout=10, refreshinterval=10)
+    nimages = InstrumentProperty(name='nimages', type=float, timeout=10, refreshinterval=10)
+    tau = InstrumentProperty(name='tau', type=float, timeout=10, refreshinterval=10)
+    cutoff = InstrumentProperty(name='cutoff', type=float, timeout=10, refreshinterval=10)
+    imagesremaining = InstrumentProperty(name='imagesremaining', type=int, timeout=10, refreshinterval=10)
     def __init__(self, offline=True):
         Instrument_TCP.__init__(self, offline)
         self._mesgseparator = '\x18'
         self.timeout = 1
         self._status_lock = threading.RLock()
+        self._exposure_starttime = None
+        self.logfile = 'log.pilatus300k'
+    def _logthread_worker(self):
+        self._update_instrumentproperties(None)
+        with self._status_lock:
+            with open(self.logfile, 'at') as f:
+                f.write('%d\t%.0f\t%s\t%s\t%.2f\t%.2f\t%.2f\t%.1f\t%.1f\t%.1f\n' % (time.time(), self.threshold, self.gain, self.status, self.temperature0, self.temperature1, self.temperature2, self.humidity0, self.humidity1, self.humidity2))
     def _update_instrumentproperties(self, propertyname=None):
-        if propertyname is not None:
-            toupdate = [propertyname]
-        else:
-            toupdate = [x for x in self._get_instrumentproperties() if self.is_instrumentproperty_expired(x)]
-        for property in toupdate:
-            pass
-        pass
+        with self._status_lock:
+            if propertyname is not None:
+                toupdate = [propertyname]
+            else:
+                toupdate = [x for x in self._get_instrumentproperties() if self.is_instrumentproperty_expired(x)]
+            if self.status == PilatusStatus.ExposingMulti:
+                if 'timeleft' in toupdate:
+                    type(self).timeleft._update(self, (self._instrumentproperties['nimages'][0] * self._instrumentproperties['expperiod'][0] - (time.time() - self._exposure_starttime)))
+                if 'imagesremaining' in toupdate:
+                    type(self).imagesremaining._update(self, self._instrumentproperties['nimages'][0] - math.floor((time.time() - self._exposure_starttime) / self._instrumentproperties['expperiod'][0]))
+                for key in [k for k in toupdate if k not in ('timeleft', 'imagesremaining')]:
+                    getattr(type(self), key)._update(self, self._instrumentproperties[key][0], self._instrumentproperties[key][2])
+                return  # cannot update anything.
+            if self.status == PilatusStatus.Trimming:
+                for key in toupdate:
+                    getattr(type(self), key)._update(self, self._instrumentproperties[key][0], self._instrumentproperties[key][2])
+                return  # cannot update anything.
+            if self.status not in [PilatusStatus.Exposing, PilatusStatus.ExposingMulti]:
+                type(self).timeleft._update(self, 0, InstrumentPropertyCategory.NORMAL)
+                type(self).imagesremaining._update(self, 0, InstrumentPropertyCategory.NORMAL)
+                if 'timeleft' in toupdate:
+                    toupdate.remove('timeleft')
+                if 'imagesremaining' in toupdate:
+                    toupdate.remove('imagesremaining')
+            if {'gain', 'threshold', 'vcmp', 'trimfile'}.intersection(toupdate):
+                try:
+                    thresholdsettings = self._get_general('SetThreshold')
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating threshold-like parameters: ' + str(ie))
+                    for key in ['gain', 'threshold', 'vcmp', 'trimfile']:
+                        getattr(type(self), key)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+                else:
+                    type(self).gain._update(self, thresholdsettings['gain'], InstrumentPropertyCategory.NORMAL)
+                    type(self).threshold._update(self, thresholdsettings['threshold'], InstrumentPropertyCategory.NORMAL)
+                    type(self).vcmp._update(self, thresholdsettings['vcmp'], InstrumentPropertyCategory.NORMAL)
+                    type(self).trimfile._update(self, thresholdsettings['trimfile'], InstrumentPropertyCategory.NORMAL)
+            if {'wpix', 'hpix' }.intersection(toupdate):
+                try:
+                    telemetry = self.get_telemetry()
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating telemetry parameters: ' + str(ie))
+                    for key in ['wpix', 'hpix'] + ['temperature%d' % i for i in range(3)] + ['humidity%d' % i for i in range(3)]:
+                        getattr(type(self), key)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+                else:
+                    type(self).wpix._update(self, telemetry['Wpix'], InstrumentPropertyCategory.NORMAL)
+                    type(self).hpix._update(self, telemetry['Hpix'], InstrumentPropertyCategory.NORMAL)
+                    for i in range(3):
+                        if (telemetry['temperature'][i] <= TEMPERATURE_ERROR_LIMITS[i][0]) or (telemetry['temperature'][i] >= TEMPERATURE_ERROR_LIMITS[i][1]):
+                            getattr(type(self), 'temperature%d' % i)._update(self, telemetry['temperature'][i], InstrumentPropertyCategory.ERROR)
+                        elif (telemetry['temperature'][i] <= TEMPERATURE_WARNING_LIMITS[i][0]) or (telemetry['temperature'][i] >= TEMPERATURE_WARNING_LIMITS[i][1]):
+                            getattr(type(self), 'temperature%d' % i)._update(self, telemetry['temperature'][i], InstrumentPropertyCategory.WARNING)
+                        else:
+                            getattr(type(self), 'temperature%d' % i)._update(self, telemetry['temperature'][i], InstrumentPropertyCategory.OK)
+                        if (telemetry['humidity'][i] >= HUMIDITY_ERROR_LIMITS[i]):
+                            getattr(type(self), 'humidity%d' % i)._update(self, telemetry['humidity'][i], InstrumentPropertyCategory.ERROR)
+                        elif (telemetry['humidity'][i] >= HUMIDITY_WARNING_LIMITS[i]):
+                            getattr(type(self), 'humidity%d' % i)._update(self, telemetry['humidity'][i], InstrumentPropertyCategory.WARNING)
+                        else:
+                            getattr(type(self), 'humidity%d' % i)._update(self, telemetry['humidity'][i], InstrumentPropertyCategory.OK)
+                    for key in [key for key in toupdate if key.startswith('humidity') or key.startswith('temperature')]:
+                        toupdate.remove(key)
+            if [key for key in toupdate if key.startswith('humidity') or key.startswith('temperature')]:
+                try:
+                    temphum = self.get_temperature_humidity()
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating temperature-humidity parameters: ' + str(ie))
+                    for key in ['temperature%d' % i for i in range(3)] + ['humidity%d' % i for i in range(3)]:
+                        getattr(type(self), key)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+                else:
+                    for i in range(3):
+                        if (temphum['temperature'][i] <= TEMPERATURE_ERROR_LIMITS[i][0]) or (temphum['temperature'][i] >= TEMPERATURE_ERROR_LIMITS[i][1]):
+                            getattr(type(self), 'temperature%d' % i)._update(self, temphum['temperature'][i], InstrumentPropertyCategory.ERROR)
+                        elif (temphum['temperature'][i] <= TEMPERATURE_WARNING_LIMITS[i][0]) or (temphum['temperature'][i] >= TEMPERATURE_WARNING_LIMITS[i][1]):
+                            getattr(type(self), 'temperature%d' % i)._update(self, temphum['temperature'][i], InstrumentPropertyCategory.WARNING)
+                        else:
+                            getattr(type(self), 'temperature%d' % i)._update(self, temphum['temperature'][i], InstrumentPropertyCategory.OK)
+                        if (temphum['humidity'][i] >= HUMIDITY_ERROR_LIMITS[i]):
+                            getattr(type(self), 'humidity%d' % i)._update(self, temphum['humidity'][i], InstrumentPropertyCategory.ERROR)
+                        elif (temphum['humidity'][i] >= HUMIDITY_WARNING_LIMITS[i]):
+                            getattr(type(self), 'humidity%d' % i)._update(self, temphum['humidity'][i], InstrumentPropertyCategory.WARNING)
+                        else:
+                            getattr(type(self), 'humidity%d' % i)._update(self, temphum['humidity'][i], InstrumentPropertyCategory.OK)
+                    for key in [key for key in toupdate if key.startswith('humidity') or key.startswith('temperature')]:
+                        toupdate.remove(key)
+            if 'nimages' in toupdate:
+                try:
+                    type(self).nimages._update(self, self.get_nimages(), InstrumentPropertyCategory.NORMAL)
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating nimages: ' + str(ie))
+                    type(self).nimages._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+            if {'cameraname', 'camerasn', 'timeleft', 'exptime'}.intersection(toupdate):
+                try:
+                    camsetup = self.camsetup()
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating camsetup parameters: ' + str(ie))
+                    for key in ['cameraname', 'camerasn', 'timeleft', 'exptime']:
+                        getattr(type(self), key)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+                else:
+                    type(self).cameraname._update(self, camsetup['cameraname'], InstrumentPropertyCategory.NORMAL)
+                    type(self).camerasn._update(self, camsetup['cameraSN'], InstrumentPropertyCategory.NORMAL)
+                    type(self).timeleft._update(self, camsetup['timeleft'], InstrumentPropertyCategory.NORMAL)
+                    type(self).exptime._update(self, camsetup['exptime'], InstrumentPropertyCategory.NORMAL)
+            if 'expperiod' in toupdate:
+                try:
+                    type(self).expperiod._update(self, self.get_expperiod(), InstrumentPropertyCategory.NORMAL)
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating expperiod: ' + str(ie))
+                    type(self).expperiod._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+            if {'tau', 'cutoff'}.intersection(toupdate):
+                try:
+                    taudata = self._get_general('Tau', None)
+                except InstrumentError as ie:
+                    logger.warn('InstrumentError on updating tau-like parameters: ' + str(ie))
+                    for key in ['tau', 'cutoff']:
+                        getattr(type(self), key)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+                else:
+                    type(self).tau._update(self, taudata['tau'], InstrumentPropertyCategory.NORMAL)
+                    type(self).cutoff._update(self, taudata['cutoff'], InstrumentPropertyCategory.NORMAL)
+            if 'imagesremaining' in toupdate:
+                if self.status == PilatusStatus.Exposing:
+                    type(self).imagesremaining._update(self, 1, InstrumentPropertyCategory.NORMAL)
+                elif self.status != PilatusStatus.Disconnected:
+                    type(self).imagesremaining._update(self, 0, InstrumentPropertyCategory.NORMAL)
+                else:
+                    type(self).imagesremaining._update(self, None, InstrumentPropertyCategory.UNKNOWN)
+                    
     def _process_results(self, dic):
         with self._status_lock:
-            if (dic['command'] == 'SetThreshold') and (self.status != PilatusStatus.Idle):
+            if (dic['command'] == 'SetThreshold') and (self.status == PilatusStatus.Trimming):
                 self.status = PilatusStatus.Idle
+                self._update_instrumentproperties('threshold')
             elif dic['command'] == 'Exposure' and dic['filename'] is not None:
                 self.status = PilatusStatus.Idle
+                self._update_instrumentproperties()
         if dic['status'] == 'ERR':
             logger.error('Command %s returned error!' % dic['command'])
     def interpret_message(self, message, command=None, putback_if_no_match=True):
@@ -159,6 +302,7 @@ class Pilatus(Instrument_TCP):
     def _post_connect(self):
         if self.camsetup()['controllingPID'] != self.get_pid():
             raise PilatusError('Cannot establish read-write connection!')
+        self._update_instrumentproperties()
         self.set_threshold(4024)
     def camsetup(self):
         message = self.send_and_receive('CamSetup', blocking=True)
@@ -173,15 +317,21 @@ class Pilatus(Instrument_TCP):
     def get_pid(self):
         return self._get_general('ShowPID', 'pid')
     def set_nimages(self, nimages):
-        return self._set_general('NImages', 'nimages', '%d', nimages)
+        mesg = self._set_general('NImages', 'nimages', '%d', nimages)
+        self._update_instrumentproperties('nimages')
+        return mesg
     def get_nimages(self):
         return self._get_general('NImages', 'nimages')
     def set_exptime(self, exptime):
-        return self._set_general('ExpTime', 'exptime', '%f', exptime)
+        mesg = self._set_general('ExpTime', 'exptime', '%f', exptime)
+        self._update_instrumentproperties('exptime')
+        return mesg
     def get_exptime(self):
         return self._get_general('ExpTime', 'exptime')
     def set_expperiod(self, expperiod):
-        return self._set_general('ExpPeriod', 'expperiod', '%f', expperiod)
+        mesg = self._set_general('ExpPeriod', 'expperiod', '%f', expperiod)
+        self._update_instrumentproperties('expperiod')
+        return mesg
     def get_expperiod(self):
         return self._get_general('ExpPeriod', 'expperiod')
     def set_imgpath(self, imgpath):
@@ -189,7 +339,9 @@ class Pilatus(Instrument_TCP):
     def get_imgpath(self):
         return self._get_general('ImgPath', 'imgpath')
     def set_tau(self, tau):
-        return self._set_general('Tau', 'tau', '%f', tau)
+        mesg = self._set_general('Tau', 'tau', '%f', tau)
+        self._update_instrumentproperties('tau')
+        return mesg
     def get_tau(self):
         return self._get_general('Tau', 'tau')
     def get_cutoff(self):
@@ -228,7 +380,7 @@ class Pilatus(Instrument_TCP):
             return mesg
         else:
             return mesg[key]
-    def _get_general(self, command, key):
+    def _get_general(self, command, key=None):
         message = self.send_and_receive(command, blocking=True)
         mesg = self.interpret_message(message, command)
         if mesg is None:
@@ -255,6 +407,8 @@ class Pilatus(Instrument_TCP):
                     self.status = PilatusStatus.ExposingMulti
             message = self.send_and_receive('Exposure ' + filename, blocking=True)
             mesg = self.interpret_message(message, 'Exposure')
+            self._update_instrumentproperties('timeleft')
+            self._update_instrumentproperties('imagesremaining')
             if mesg is None:
                 raise PilatusError('Invalid message for Exposure: ' + message)
         except:
@@ -263,6 +417,7 @@ class Pilatus(Instrument_TCP):
             raise
         days, secs = divmod(mesg['exptime'], (24 * 60 * 60))
         secs, usecs = divmod(secs, 1)
+        self._exposure_starttime = int(mesg['starttime'].strftime('%s'))
         return mesg['starttime'], mesg['exptime'], mesg['starttime'] + datetime.timedelta(days, secs, 1e6 * usecs)
     def expose(self, exptime, filename, nimages=1, dwelltime=0.003):
         self.prepare_exposure(exptime, nimages, dwelltime)
@@ -287,18 +442,7 @@ class Pilatus(Instrument_TCP):
             raise PilatusError('Invalid message for ResetCam: ' + message)
         return mesg['status'] == 'OK'
     def get_current_parameters(self):
-        if not self.is_idle():
-            dic = {}
-        else:
-            dic = self.get_telemetry()
-            dic.update(self.camsetup())
-            dic['imgmode'] = self.get_imgmode()
-            dic['imgpath'] = self.get_imgpath()
-            dic['PID'] = self.get_pid()
-            dic['diskfree'] = self.get_df()
-            del dic['status']
-            del dic['context']
-        return dic
+        return {ip:self._instrumentproperties[ip] for ip in self._instrumentproperties}
     def get_timeleft(self):
         return self.camsetup()['timeleft']
 

@@ -10,7 +10,7 @@ from ..instruments.instrument import InstrumentError
 from ..instruments.haakephoenix import HaakePhoenix
 from gi.repository import Gtk
 from gi.repository import GObject
-
+from gi.repository import GLib
 __all__ = ['SubSystemEquipments']
 
 logger = logging.getLogger(__name__)
@@ -55,8 +55,8 @@ class SubSystemEquipments(SubSystem):
     def wait_for_all_idle(self, alternative_breakfunction=lambda :False):
         while not (self.is_idle() or alternative_breakfunction()):
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         return (not alternative_breakfunction())
     def has_equipment(self, equipment):
@@ -100,8 +100,8 @@ class SubSystemEquipments(SubSystem):
             eq.connect_to_controller()
         except InstrumentError as exc:
             if not eq.connected():
-                logger.error('Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + exc.message)
-                raise SubSystemError('Cannot connect to equipment: ' + exc.message)
+                logger.error('Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + str(exc))
+                raise SubSystemError('Cannot connect to equipment: ' + str(exc))
     def _equipment_connect(self, equipmentinstance):
         try:
             equipment = [e for e in self._list.values() if e is equipmentinstance][0]

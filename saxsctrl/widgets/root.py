@@ -13,7 +13,7 @@ import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol2, pilatuscontrol, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer
+from . import genixcontrol2, pilatuscontrol, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -22,7 +22,6 @@ def my_excepthook(type_, value, traceback_):
         logger.critical('Unhandled exception', exc_info=(type_, value, traceback_))
     except:
         pass
-        # print traceback.format_exception(type_, value, traceback_)
     
 sys.excepthook = my_excepthook
 
@@ -179,6 +178,7 @@ class RootWindow(Gtk.Window):
         self.toolbuttons = [  # Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
+                            Tool(self.credo, 'Pilatus-300k #2', 'Pilatus-300k controller', pilatuscontrol2.PilatusControl, 'Hardware', ['pilatus']),
                             Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Setup'),
                             Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup'),
                             Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Setup'),
@@ -254,7 +254,7 @@ class RootWindow(Gtk.Window):
         logger.debug('Destructing root window.')
     def on_entry_changed(self, entry, entrytext):
         if entrytext in self._entrychanged_delayhandlers:
-            GObject.source_remove(self._entrychanged_delayhandlers[entrytext])
+            GLib.source_remove(self._entrychanged_delayhandlers[entrytext])
         self._entrychanged_delayhandlers[entrytext] = GLib.timeout_add_seconds(1, self.on_entry_changed_finalize, entry, entrytext)
     def on_entry_changed_finalize(self, entry, entrytext):
         self.credo.__setattr__(entrytext, entry.get_text())

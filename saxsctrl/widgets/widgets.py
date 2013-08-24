@@ -75,8 +75,6 @@ class ToolDialog(Gtk.Window):
         self._responsewidgets[respid].set_sensitive(sensitive)
     def get_widget_for_response(self, respid):
         return self._responsewidgets[respid]
-    def set_default_response(self, respid):
-        warnings.warn('set_default_response() of ToolDialog is not supported', DeprecationWarning)
     def do_response(self, respid):
         logger.debug('Destroying a ToolDialog.')
         self.destroy()

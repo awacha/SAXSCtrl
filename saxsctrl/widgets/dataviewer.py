@@ -18,7 +18,6 @@ class DataViewer(ToolDialog):
     _datared_connections = None
     def __init__(self, credo, title='Data display'):
         ToolDialog.__init__(self, credo, title)
-        self.set_default_response(Gtk.ResponseType.OK)
         self.datareduction = None
         vb = self.get_content_area()
         
@@ -137,7 +136,7 @@ class DataViewer(ToolDialog):
         try:
             rad = ex.radial_average()
         except sastool.classes.SASExposureException as see:
-            self.plot1d.gca().text(0.5, 0.5, 'Cannot do radial average:\n' + see.message, ha='center', va='center', transform=self.plot1d.gca().transAxes)
+            self.plot1d.gca().text(0.5, 0.5, 'Cannot do radial average:\n' + str(see), ha='center', va='center', transform=self.plot1d.gca().transAxes)
         else:
             self.plot1d.cla()
             self.plot1d.loglog(ex.radial_average())

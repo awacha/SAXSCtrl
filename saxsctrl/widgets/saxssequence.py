@@ -8,6 +8,7 @@ from ..utils import objwithgui
 from gi.repository import GtkSource
 from gi.repository import Pango
 from gi.repository import Gdk
+from gi.repository import GLib
 import ConfigParser
 import uuid
 import time
@@ -125,7 +126,7 @@ class SeqCommandGenixPower(SeqCommand):
         try:
             g = credo.get_equipment('genix')
         except Exception as exc:
-            raise SequenceError(exc.message, ErrorSeverity.critical)
+            raise SequenceError(str(exc), ErrorSeverity.critical)
         if not g.connected():
             raise SequenceError('X-ray source not connected', ErrorSeverity.fatal)
         logger.info('Setting GeniX power to ' + self.level)
@@ -159,7 +160,7 @@ class SeqCommandGenixXrayState(SeqCommand):
         try:
             g = credo.get_equipment('genix')
         except Exception as exc:
-            raise SequenceError(exc.message, ErrorSeverity.critical)
+            raise SequenceError(str(exc), ErrorSeverity.critical)
         if not g.connected():
             raise SequenceError('X-ray source not connected', ErrorSeverity.fatal)
         if self.level.lower() == 'on':
@@ -180,7 +181,7 @@ class SeqCommandGenixShutterState(SeqCommand):
         try:
             g = credo.get_equipment('genix')
         except Exception as exc:
-            raise SequenceError(exc.message, ErrorSeverity.critical)
+            raise SequenceError(str(exc), ErrorSeverity.critical)
         if not g.connected():
             raise SequenceError('X-ray source not connected', ErrorSeverity.fatal)
         if self.level.lower() == 'open':
@@ -204,7 +205,7 @@ class SeqCommandChangeSample(SeqCommand):
         try:
             credo.subsystems['Samples'].set(self.title)
         except Exception as exc:
-            raise SequenceError(exc.message, ErrorSeverity.critical)
+            raise SequenceError(str(exc), ErrorSeverity.critical)
         logger.info('Sample %s selected. Now moving motors.' % (self.title))
         credo.subsystems['Samples'].moveto(blocking=self._handler)
         
@@ -227,7 +228,7 @@ class SeqCommandMoveMotor(SeqCommand):
             motor = credo.subsystems['Motors'].get(self.motor)
             motor.moveto(float(self.to))
         except Exception as exc:
-            raise SequenceError(exc.message, ErrorSeverity.critical)
+            raise SequenceError(str(exc), ErrorSeverity.critical)
         logger.info('Moving motor %s to %f.' % (str(motor), float(self.to)))
         credo.subsystems['Motors'].wait_for_idle(self._handler)
         if self._kill:
@@ -252,7 +253,7 @@ class SeqCommandMoverelMotor(SeqCommand):
             motor = credo.subsystems['Motors'].get(self.motor)
             motor.moverel(float(self.to))
         except Exception as exc:
-            raise SequenceError(exc.message, ErrorSeverity.critical)
+            raise SequenceError(str(exc), ErrorSeverity.critical)
         credo.subsystems['Motors'].wait_for_idle(self._handler)
         if self._kill:
             raise KillException()
@@ -352,8 +353,8 @@ class SeqCommandWait(SeqCommand):
         while not (self._kill or (time.time() > (t0 + float(self.timeout)))):
             self.limited_emit('progress', 'Waiting. Time left: %.2f sec.' % (float(self.timeout) - (time.time() - t0)), (time.time() - t0) / float(self.timeout))
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         if self._kill:
             raise KillException()
@@ -380,8 +381,8 @@ class SeqCommandExpose(SeqCommand):
         while self._kill is None:
             self.limited_emit('progress', 'Exposing. Time left: %.2f sec.' % (float(self.exptime) - (time.time() - t0)), (time.time() - t0) / float(self.exptime))
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         if self._kill:
             raise KillException()
@@ -547,8 +548,8 @@ class SequenceInterpreter(GObject.GObject):
                 self._currentcommand = clis[0]
                 try:
                     for i in range(100):
-                        GObject.main_context_default().iteration(False)
-                        if not GObject.main_context_default().pending():
+                        GLib.main_context_default().iteration(False)
+                        if not GLib.main_context_default().pending():
                             break
                     try:
                         self._cmdconn = [self._currentcommand.connect('pulse', lambda cmd, text: self.emit('cmdpulse', text)),
@@ -570,9 +571,9 @@ class SequenceInterpreter(GObject.GObject):
                     logger.debug('Variables: ' + str(self._vars))
                     self._idx += 1
                 except JumpException as je:
-                    logger.debug('Jump requested to label: ' + str(je.message))
+                    logger.debug('Jump requested to label: ' + str(je))
                     logger.debug('Call stack before jump is: ' + str(self._callstack))
-                    if je.message is None:
+                    if not str(je):
                         try:
                             # return to the previous point.
                             self._idx = self._callstack.pop() + 1
@@ -582,7 +583,7 @@ class SequenceInterpreter(GObject.GObject):
                     else:
                         if je.setstack:
                             self._callstack.append(self._idx)
-                        self._idx = self._findlabel(je.message)
+                        self._idx = self._findlabel(str(je))
                         logger.debug('Label is at line: ' + str(self._idx))
                     logger.debug('Call stack after jump is: ' + str(self._callstack))
                     self._prevval = None
@@ -672,7 +673,7 @@ class SAXSSequence(ToolDialog):
                 f.write(self.get_script())
         except IOError as ioe:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Could not save program to file ' + filename + '.')
-            md.format_secondary_text('Reason: ' + ioe.message)
+            md.format_secondary_text('Reason: ' + str(ioe))
             md.run()
             md.destroy()
             del md
@@ -682,7 +683,7 @@ class SAXSSequence(ToolDialog):
                 self._sourcebuffer.set_text(f.read())
         except (IOError, ValueError) as err:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Could not load program from file ' + filename + '.')
-            md.format_secondary_text('Reason: ' + err.message)
+            md.format_secondary_text('Reason: ' + str(err))
             md.run()
             md.destroy()
             del md
@@ -728,7 +729,7 @@ class SAXSSequence(ToolDialog):
                     del md
                 except Exception as exc:
                     md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error while running program.')
-                    md.format_secondary_text('Reason: ' + exc.message)
+                    md.format_secondary_text('Reason: ' + str(exc))
                     md.run()
                     md.destroy()
                     del md

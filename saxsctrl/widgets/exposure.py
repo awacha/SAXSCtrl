@@ -117,7 +117,7 @@ class ExposureFrame(Gtk.Frame):
             self._starttime = time.time()
         except Exception as exc:
             md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error starting exposure')
-            md.format_secondary_text(exc.message)
+            md.format_secondary_text(str(exc))
             md.run()
             md.destroy()
             del md
@@ -150,7 +150,7 @@ class ExposureFrame(Gtk.Frame):
         for c in self._conns:
             self.credo.subsystems['Exposure'].disconnect(c)
         self._conns = []
-        GObject.source_remove(self._remtime_timeout)
+        GLib.source_remove(self._remtime_timeout)
         self._remtime_timeout = None
         self.exposure_progress.hide()
         self.nimages_progress.hide()

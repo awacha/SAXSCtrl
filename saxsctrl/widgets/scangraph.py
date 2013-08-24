@@ -185,12 +185,20 @@ class ScanGraph(ToolDialog):
         signalname = model[iter_][0]
         curve = sastool.GeneralCurve(self.scan[self.xname], self.scan[signalname])
         curve = curve.trim(*(self.gca().axis()))
+        if not len(curve):
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Fitting error')
+            md.set_title('Please make sure you selected the correct signal for fitting.')
+            md.run()
+            md.destroy()
+            del md
+            
         pos, hwhm, baseline, amplitude = sastool.misc.findpeak_single(curve.x, curve.y, curve='Lorentz')
-        fitted = sastool.GeneralCurve(curve.x, amplitude * hwhm ** 2 / (hwhm ** 2 + (pos - curve.x) ** 2) + baseline)
+        xfitted = np.linspace(curve.x.min(), curve.x.max(), 5 * len(curve.x))
+        fitted = sastool.GeneralCurve(xfitted, amplitude * hwhm ** 2 / (hwhm ** 2 + (pos - xfitted) ** 2) + baseline)
         fitted.plot('r-', axes=self.gca(), label='Peak of %s at: ' % signalname + str(pos))
         self.text(float(pos), curve.interpolate(float(pos)), 'Peak at: ' + str(pos), ha='left', va='top')
         self.fig.canvas.draw()
-        print "Fitted: ", pos, hwhm, baseline, amplitude
+        
 class ImagingGraph(ToolDialog):
     def __init__(self, scan, title='Imaging results', extent=None):
         self._axes = []

@@ -227,7 +227,7 @@ class DataReduction(ToolDialog):
                 logger.debug('Started data reduction sequence.')
             except DataReductionError as dre:
                 md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error during data reduction!')
-                md.format_secondary_text(dre.message)
+                md.format_secondary_text(str(dre))
                 md.run()
                 md.destroy()
                 del md
@@ -249,7 +249,7 @@ class DataReduction(ToolDialog):
             self.credo.subsystems['DataReduction'].disconnect(c)
         self._resultsfrm.hide()
         self._reducer_conn = []
-        GObject.source_remove(self._pulser_handle)
+        GLib.source_remove(self._pulser_handle)
         self._pulser_handle = None
         self._headerview.set_sensitive(True)
         self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_EXECUTE)

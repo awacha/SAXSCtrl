@@ -19,10 +19,8 @@ class VacuumGauge(ToolDialog):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         vb = self.get_content_area()
         
-        f = Gtk.Frame(label='TPG-201 status')
-        vb.pack_start(f, True, True, 0)
         self._statusgrid = InstrumentStatus(self.credo.get_equipment('vacgauge'))
-        f.add(self._statusgrid)
+        vb.pack_start(self._statusgrid, True, True, 0)
         
         self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1 - colourintensity(value), colourintensity(value), 0, 1))
         # self._statusgrid.add_label('pressure', 'Vacuum pressure', '%.04f mbar', lambda value, category:Gdk.RGBA(1, 0, 0, 1))

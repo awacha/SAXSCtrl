@@ -130,7 +130,6 @@ class SampleListDialog(ToolDialog):
     __gsignals__ = {'response':'override'}
     def __init__(self, credo, title='Sample configuration'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY))
-        self.set_default_response(Gtk.ResponseType.CLOSE)
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         vb = self.get_content_area()
         

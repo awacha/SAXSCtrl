@@ -21,7 +21,6 @@ class BeamAlignment(ToolDialog):
     _images_pending = []
     def __init__(self, credo, title='Beam alignment'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
-        self.set_default_response(Gtk.ResponseType.OK)
 
         vb = self.get_content_area()
         tab = Gtk.Table()
@@ -168,7 +167,7 @@ class BeamAlignment(ToolDialog):
                 else:
                     beampos.append(ex.barycenter())
             except Exception, err:
-                logger.error('Beam finding error: ' + err.message)
+                logger.error('Beam finding error: ' + str(err))
         bcx = [b[0] for b in beampos]
         bcy = [b[1] for b in beampos]
         Imax = [ex.max() for ex in self._images_pending]

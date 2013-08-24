@@ -48,11 +48,7 @@ class ELOG_Handler(logging.Handler):
         results = p.communicate(message)
         if not results[0].startswith('Message successfully'):
             print "Error transmitting message: " + results[0]
-            # raise LogException('Error transmitting message: ' + results[0])
         del p
-        # print "Emitted message: ", message
-        # print "Command line:", cmdline
-        # print "Results: ", results
         
 # handler = ELOG_Handler()
 # handler.setLevel(logging.WARNING)

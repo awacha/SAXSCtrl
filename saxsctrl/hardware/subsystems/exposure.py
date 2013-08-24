@@ -246,7 +246,7 @@ class SubSystemExposure(SubSystem):
                     return
         except Exception, exc:
             # catch all exceptions and put an error state in the output queue, then re-raise.
-            outqueue.put((ExposureMessageType.Failure, exc.message))
+            outqueue.put((ExposureMessageType.Failure, str(exc)))
             outqueue.put((ExposureMessageType.End, False))
             raise
         outqueue.put((ExposureMessageType.End, True))

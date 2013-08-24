@@ -75,6 +75,7 @@ class LoggingLock(object):
         return self.release()
     
 class Genix(Instrument_ModbusTCP):
+    __gtype_name__ = 'SAXSCtrl_Instrument_GeniX'
     _shutter_timeout = 2
     _prevstate = GenixStatus.Idle
     _considered_idle = [GenixStatus.Disconnected, GenixStatus.FullPower, GenixStatus.Standby, GenixStatus.PowerDown, GenixStatus.XRaysOff, GenixStatus.Idle]

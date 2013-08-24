@@ -167,7 +167,7 @@ class MovieMaker(Gtk.Dialog):
         while encthread.isAlive():
             while Gtk.events_pending():
                 Gtk.main_iteration()
-        GObject.source_remove(_pulser)
+        GLib.source_remove(_pulser)
         shutil.rmtree(os.path.join(self.credo.moviepath, scanname))
         self.get_widget_for_response(Gtk.ResponseType.OK).set_sensitive(True)
         self.pri_frame.set_sensitive(True)
@@ -184,7 +184,6 @@ class MovieMaker(Gtk.Dialog):
         else:
             self.progress.set_text('Making .png files...')
             self.progress.set_fraction(frac)
-        # print "PULSE"
         while Gtk.events_pending():
             Gtk.main_iteration()
         return True

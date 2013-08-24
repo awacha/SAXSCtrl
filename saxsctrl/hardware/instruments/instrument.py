@@ -64,7 +64,7 @@ class InstrumentProperty(object):
         if not ((self.name in obj._instrumentproperties) and (time.time() - obj._instrumentproperties[self.name][1] <= self.timeout)):
             obj._update_instrumentproperties(self.name)
         if obj._instrumentproperties[self.name][2] == InstrumentPropertyCategory.UNKNOWN:
-            raise InstrumentPropertyUnknown
+            raise InstrumentPropertyUnknown(self.name)
         return obj._instrumentproperties[self.name][0]
     def _update(self, obj, value, category):
         try:
@@ -167,11 +167,18 @@ class Instrument(objwithgui.ObjWithGUI):
         except TypeError as te:
             return getattr(self, propertyname)
     def get_instrument_property(self, propertyname):
-        return (self.get_property(propertyname), self._instrumentproperties[propertyname][1], self._instrumentproperties[propertyname][2])
+        try:
+            value = self.get_property(propertyname)
+        except InstrumentPropertyUnknown:
+            value = None
+        return (value, self._instrumentproperties[propertyname][1], self._instrumentproperties[propertyname][2])
     def _update_instrumentproperties(self, propertyname=None):
         raise NotImplementedError
     def _get_instrumentproperties(self):
         return [x for x in dir(type(self)) if isinstance(getattr(type(self), x), InstrumentProperty)]
+    def _invalidate_instrumentproperties(self):
+        for ip in self._get_instrumentproperties():
+            self._instrumentproperties[ip] = (None, time.time(), InstrumentPropertyCategory.UNKNOWN)
     def _restart_logger(self):
         self._stop_logger()
         self._logthread = threading.Thread(target=self._logger_thread, args=(self._logthread_stop,))
@@ -186,6 +193,7 @@ class Instrument(objwithgui.ObjWithGUI):
             del self._logthread
     def _logger_thread(self, stopswitch):
         try:
+            self._update_instrumentproperties(None)
             while True:
                 if not self.connected():
                     break
@@ -194,7 +202,7 @@ class Instrument(objwithgui.ObjWithGUI):
                     logger.debug('Stopping logger thread')
                     break
         except Exception as ex:
-            logger.error('Breaking logger thread of instrument ' + self._get_classname() + ' because of an error: ' + str(type(ex)) + str(ex.message))
+            logger.error('Breaking logger thread of instrument ' + self._get_classname() + ' because of an error: ' + str(type(ex)) + str(str(ex)))
     def _logthread_worker(self):
         raise NotImplementedError
     def connect_to_controller(self):
@@ -294,8 +302,8 @@ class Instrument(objwithgui.ObjWithGUI):
         """
         while not (self.is_idle() or alternative_breakfunc()):
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         return (not alternative_breakfunc())
     def wait_for_status(self, desiredstatus, alternative_breakfunc=lambda :False):
@@ -304,8 +312,8 @@ class Instrument(objwithgui.ObjWithGUI):
         """
         while not (self.status == desiredstatus or alternative_breakfunc()):
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
         return (not alternative_breakfunc())
     def _get_address(self):
@@ -377,7 +385,7 @@ class Instrument_ModbusTCP(Instrument):
             except (socket.timeout, InstrumentError) as ex:
                 self._modbus = None
                 logger.error('Cannot connect to instrument at %s:%d' % (self.host, self.port))
-                raise InstrumentError('Cannot connect to instrument at %s:%d. Reason: %s' % (self.host, self.port, ex.message))
+                raise InstrumentError('Cannot connect to instrument at %s:%d. Reason: %s' % (self.host, self.port, str(ex)))
         logger.info('Connected to instrument at %s:%d' % (self.host, self.port))
         self.emit('connect-equipment')
             
@@ -390,6 +398,7 @@ class Instrument_ModbusTCP(Instrument):
             self._modbus.close()
             self._modbus = None
             self.status = InstrumentStatus.Disconnected
+            self._invalidate_instrumentproperties()
             self.emit('disconnect-equipment', status)
             
     def do_controller_error(self, arg):
@@ -401,21 +410,21 @@ class Instrument_ModbusTCP(Instrument):
                 return self._modbus.execute(1, modbus_tk.defines.READ_INPUT_REGISTERS, regno, 1)[0]
             except Exception as exc:
                 GLib.idle_add(lambda :(self.emit('controller-error', None) and False))
-                raise InstrumentError('Communication error on reading integer value: ' + exc.message)
+                raise InstrumentError('Communication error on reading integer value: ' + str(exc))
     def _write_coil(self, coilno, val):
         with self._communications_lock:
             try:
                 self._modbus.execute(1, modbus_tk.defines.WRITE_SINGLE_COIL, coilno, 1, val)
             except Exception as exc:
                 GLib.idle_add(lambda :(self.emit('controller-error', None) and False))
-                raise InstrumentError('Communication error on writing coil: ' + exc.message)
+                raise InstrumentError('Communication error on writing coil: ' + str(exc))
     def _read_coils(self, coilstart, coilnum):
         with self._communications_lock:
             try:
                 coils = self._modbus.execute(1, modbus_tk.defines.READ_COILS, coilstart, coilnum)
             except Exception as exc:
                 GLib.idle_add(lambda :(self.emit('controller-error', None) and False))
-                raise InstrumentError('Communication error on reading coils: ' + exc.message)
+                raise InstrumentError('Communication error on reading coils: ' + str(exc))
             return coils
     def _get_address(self):
         return self.host + ':' + str(self.port)
@@ -486,7 +495,7 @@ class Instrument_TCP(Instrument):
                 if self._socket is not None:
                     self._socket.close()
                     self._socket = None
-            raise InstrumentError('Error while connecting to instrument at %s:%d: %s' % (self.host, self.port, ex.message))
+            raise InstrumentError('Error while connecting to instrument at %s:%d: %s' % (self.host, self.port, str(ex)))
         logger.info('Connected to instrument at %s:%d' % (self.host, self.port))
         self.emit('connect-equipment')
     def connected(self):
@@ -511,6 +520,7 @@ class Instrument_TCP(Instrument):
                 pass
             finally:
                 self._socket = None
+        self._invalidate_instrumentproperties()
         self.status = InstrumentStatus.Disconnected
         self.emit('disconnect-equipment', status)
     def _read_from_socket(self, timeout=None):
@@ -552,7 +562,7 @@ class Instrument_TCP(Instrument):
             # In the former case, we simply ignore this condition. In the latter, we raise
             # an exception.
             if message is None:
-                raise InstrumentError('Timeout while reading reply: ' + ite.message)
+                raise InstrumentError('Timeout while reading reply: ' + str(ite))
         except ConnectionBrokenError as cbe:
             # this is a serious error, we tear down the connection on our side.
             # We call the disconnecting method in this funny way, since it needs locking
@@ -560,7 +570,7 @@ class Instrument_TCP(Instrument):
             GLib.idle_add(lambda :(self.disconnect_from_controller(False) and False))
             raise cbe
         except socket.error as se:
-            raise InstrumentError('Communication Error: ' + se.message) 
+            raise InstrumentError('Communication Error: ' + str(se)) 
         finally:
             self._socket.settimeout(self.timeout)
         return message
@@ -575,7 +585,7 @@ class Instrument_TCP(Instrument):
                 else:
                     message = self._read_from_socket(None)
             except socket.error as err:
-                raise InstrumentError('TCP socket I/O error: ' + err.message)
+                raise InstrumentError('TCP socket I/O error: ' + str(err))
             if (self._mesgseparator is not None) and message.endswith(self._mesgseparator):
                 message = message[:-len(self._mesgseparator)]
             if (self._mesgseparator is not None) and self._mesgseparator in message:

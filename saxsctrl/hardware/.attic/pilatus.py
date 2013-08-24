@@ -277,11 +277,11 @@ class PilatusCommProcess(multiprocessing.Process):
                 self._process_sending()
                 self._process_receiving()
         except CommunicationError, commerr:
-            logger.critical('Socket exception: ' + commerr.message)
-            mesg = 'socket closed: ' + commerr.message
+            logger.critical('Socket exception: ' + str(commerr))
+            mesg = 'socket closed: ' + str(commerr)
             state = 'ERR'
         except Exception, ex:
-            mesg = 'Other exception: ' + ex.message
+            mesg = 'Other exception: ' + str(ex)
             state = 'ERR' 
         else:
             logger.debug('Socket closed normally.')
@@ -385,7 +385,7 @@ class PilatusConnection(GObject.GObject):
     def disconnect_from_camserver(self):
         if not self.connected():
             raise PilatusError('Not connected')
-        GObject.source_remove(self.idle_function_handle)
+        GLib.source_remove(self.idle_function_handle)
         self.commprocess.disconnect_from_camserver()
         self.commprocess.join()
         self.commprocess = None
@@ -465,7 +465,7 @@ class PilatusConnection(GObject.GObject):
             logger.debug('Reset done.')
         def __exit__(self, exc_type, exc_value, traceback):
             if exc_type is not None:
-                logger.error('An exception occurred before waiting for results: ' + exc_value.message)
+                logger.error('An exception occurred before waiting for results: ' + str(exc_value))
                 return False
             logger.debug('Starting waiting loop for command(s): ' + str(self.commandnames))
             self.pconnection.poll_commqueue()  # empty the queue if there are pending events

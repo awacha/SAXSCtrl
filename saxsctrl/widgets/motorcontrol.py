@@ -199,7 +199,7 @@ class MotorMonitor(ToolDialog):
         ssm.disconnect(self._movetostoredconfig_conn)
         del self._movetostoredconfig_conn
         self._savedmotorstates_view.set_sensitive(True)
-        GObject.source_remove(self._movetostoredconfig_pulser)
+        GLib.source_remove(self._movetostoredconfig_pulser)
         del self._movetostoredconfig_pulser
         self._motorstates_list[it][2] = False
     def _movement_pulse_spinner(self, it):
@@ -515,7 +515,7 @@ class MotorDriver(ToolDialog):
                 self.mixeddecayentry_raw.set_text(str(mdt))
                 self.mixeddecayentry_phys.set_text(str(self.conv_speed_phys(mdt)))
             except MotorError as me:
-                md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
+                md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, str(me))
                 md.set_title('TMCM controller error')
                 md.run()
                 md.destroy()
@@ -533,7 +533,7 @@ class MotorDriver(ToolDialog):
                 self.fullstepentry_raw.set_text(str(fst))
                 self.fullstepentry_phys.set_text(str(self.conv_speed_phys(fst)))
             except MotorError as me:
-                md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
+                md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, str(me))
                 md.set_title('TMCM controller error')
                 md.run()
                 md.destroy()
@@ -574,7 +574,7 @@ class MotorDriver(ToolDialog):
             self.freewheelingdelayentry.set_value(motor.get_freewheeling_delay())
             # self.stallguardthresholdentry.set_value(motor.get_stallguard_threshold())
         except MotorError as me:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, str(me))
             md.set_title('TMCM controller error')
             md.run()
             md.destroy()
@@ -651,7 +651,7 @@ class MotorDriver(ToolDialog):
                         else:
                             raise NotImplementedError('Unknown parameter: ' + n)
                 except MotorError as me:
-                    md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
+                    md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, str(me))
                     md.set_title('TMCM controller error')
                     md.run()
                     md.destroy()
@@ -679,7 +679,7 @@ class MotorDriver(ToolDialog):
             self._motion_spinner.show_now()
             self.posentry.set_sensitive(False)
         except MotorError as me:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, str(me))
             md.set_title('TMCM controller error')
             md.run()
             md.destroy()
@@ -705,7 +705,7 @@ class MotorDriver(ToolDialog):
         try:
             self.get_motor().calibrate_pos(int(float(self.posentry_raw.get_text())), raw=True)
         except MotorError as me:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, me.message)
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, str(me))
             md.set_title('TMCM controller error')
             md.run()
             md.destroy()

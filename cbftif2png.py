@@ -12,7 +12,7 @@ for f in os.listdir(inputfolder):
     try:
         ex = sastool.classes.SASExposure(f, noheader=True, dirs=[inputfolder])
     except IOError as ioe:
-        print "ERROR: ", f, ioe.message
+        print "ERROR: ", f, str(ioe)
         continue
     ex.plot2d(qrange_on_axis=False)
     plt.title(f)

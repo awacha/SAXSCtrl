@@ -242,7 +242,7 @@ class ReductionThread(GObject.GObject):
                 exposure = self.beamtimeraw.load_exposure(fsn)
                 exposure = self.execute(exposure, force, None)
             except Exception as ex:
-                logger.error('Error while reducing FSN #%d: ' % fsn + str(ex.message))
+                logger.error('Error while reducing FSN #%d: ' % fsn + str(str(ex)))
             self._threadsafe_emit('done', exposure['FSN'], exposure.header)
         self._threadsafe_emit('endthread')
     def _threadsafe_emit(self, signalname, *args):

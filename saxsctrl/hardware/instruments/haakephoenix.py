@@ -1,6 +1,7 @@
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, InstrumentProperty, InstrumentPropertyCategory
 import logging
 from gi.repository import GObject
+from gi.repository import GLib
 from ...utils import objwithgui
 import os
 import threading
@@ -14,6 +15,7 @@ class HaakePhoenixError(InstrumentError):
     pass
 
 class HaakePhoenix(Instrument_TCP):
+    __gtype_name__ = 'SAXSCtrl_Instrument_HaakePhoenix'
     setpoint = InstrumentProperty(name='setpoint', type=float, timeout=1, refreshinterval=1)
     temperature = InstrumentProperty(name='temperature', type=float, timeout=1, refreshinterval=1)
     difftemp = InstrumentProperty(name='difftemp', type=float, timeout=1, refreshinterval=1)
@@ -129,9 +131,9 @@ class HaakePhoenix(Instrument_TCP):
                 return postprocessor(message)
             except InstrumentError as ie:
                 if i > 1:
-                    logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (command, i + 1, retries, ie.message))
+                    logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (command, i + 1, retries, str(ie)))
                 if i >= retries - 1:
-                    raise HaakePhoenixError('Communication error on command %s. %d retries exhausted. Error: %s' % (command, retries, ie.message))
+                    raise HaakePhoenixError('Communication error on command %s. %d retries exhausted. Error: %s' % (command, retries, str(ie)))
     def interpret_message(self, message, command=None):
         if command is None:
             logger.warning('Asynchronous commands not supported for vacuum gauge!')
@@ -175,7 +177,7 @@ class HaakePhoenix(Instrument_TCP):
                     else:
                         return True
                 except HaakePhoenixError as hpe:
-                    logger.warning(hpe.message)
+                    logger.warning(str(hpe))
             raise HaakePhoenixError('Could not set setpoint on Haake Phoenix!')
         else:
             return True
@@ -199,8 +201,8 @@ class HaakePhoenix(Instrument_TCP):
         lastwrong = time.time()
         while not ((time.time() - lastwrong) > interval or alternative_breakfunc()):
             for i in range(100):
-                GObject.main_context_default().iteration(False)
-                if not GObject.main_context_default().pending():
+                GLib.main_context_default().iteration(False)
+                if not GLib.main_context_default().pending():
                     break
             if abs(setpoint - self.get_temperature()) > delta:
                 lastwrong = time.time()

@@ -10,7 +10,6 @@ class ExposureBrowserDialog(Gtk.Dialog):
     
     def __init__(self, credo, fileprefix, ndigits, title='Open exposure...', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_REFRESH, Gtk.ResponseType.APPLY, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
-        self.set_default_response(Gtk.ResponseType.OK)
         self.credo = credo
         self.fileprefix = fileprefix
         self.ndigits = ndigits
@@ -225,7 +224,7 @@ class ExposureSelector(Gtk.Frame):
                                                  self._fsn_entry.get_value_as_int(), dirs=self.credo.subsystems['Files'].exposureloadpath)
             self.emit('open', ex)
         except IOError as ioe:
-            md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error reading file: ' + ioe.message)
+            md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error reading file: ' + str(ioe))
             md.run()
             md.destroy()
             del md

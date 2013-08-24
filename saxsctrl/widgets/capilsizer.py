@@ -124,7 +124,7 @@ class CapilSizer(ToolDialog):
             self._scan = self.credo.subsystems['Files'].scanfile.get_scan(spinbutton.get_value_as_int())
         except ValueError as exc:
             md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'No such scan: %d' % spinbutton.get_value_as_int())
-            md.format_secondary_text(exc.message)
+            md.format_secondary_text(str(exc))
             md.run()
             md.destroy()
             del md
@@ -145,7 +145,6 @@ class CapilSizer(ToolDialog):
             x = self._scan[0]
             y = self._scan[self._signalname_combo.get_active_text()]
         except (KeyError, AttributeError, TypeError) as exc:
-            print exc.message
             return
         self.fig.clf()
         ax = self.fig.gca()
@@ -212,11 +211,12 @@ class CapilSizer(ToolDialog):
         idx = (self._x >= limits[0]) & (self._x <= limits[1]) & (self._y >= limits[2]) & (self._y <= limits[3])
         self._poi[name], hwhm, baseline, amplitude = sastool.findpeak_single(self._x[idx], self._y[idx], curve=self._peakfunction_combo.get_active_text())
         targetentry.set_value(self._poi[name])
+        xfit = np.linspace(self._x[idx].min(), self._x[idx].max(), 10 * len(self._x[idx]))
         if self._peakfunction_combo.get_active_text().upper().startswith('GAUSS'):
-            yfit = amplitude * np.exp(0.5 * (self._x[idx] - self._poi[name]) ** 2 / hwhm ** 2) + baseline
+            yfit = amplitude * np.exp(0.5 * (xfit - self._poi[name]) ** 2 / hwhm ** 2) + baseline
         else:
-            yfit = amplitude * hwhm ** 2 / (hwhm ** 2 + (self._poi[name] - self._x[idx]) ** 2) + baseline
-        self.fig.gca().plot(self._x[idx], yfit)
+            yfit = amplitude * hwhm ** 2 / (hwhm ** 2 + (self._poi[name] - xfit) ** 2) + baseline
+        self.fig.gca().plot(xfit, yfit, 'r-')
         self.fig.gca().text(float(self._poi[name]), float(amplitude + baseline), 'Peak at ' + str(self._poi[name]), ha='left', va='bottom')
         self.figcanvas.draw()
         self.recalculate()

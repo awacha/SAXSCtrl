@@ -188,10 +188,10 @@ class GenixControl(ToolDialog):
         return True
     def do_destroy(self):
         if hasattr(self, '_timeout_handler') and self._timeout_handler is not None:
-            GObject.source_remove(self._timeout_handler)
+            GLib.source_remove(self._timeout_handler)
             self._timeout_handler = None
         if hasattr(self, '_aux_timeout_handler') and self._aux_timeout_handler is not None:
-            GObject.source_remove(self._aux_timeout_handler)
+            GLib.source_remove(self._aux_timeout_handler)
             self._aux_timeout_handler = None
         
     def on_warmup(self, widget, status=None, statstr=None, color=None):
