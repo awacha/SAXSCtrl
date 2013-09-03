@@ -6,45 +6,10 @@ import warnings
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+import calendar
+import datetime
+import dateutil.parser
 
-class StatusLabel(Gtk.VBox):
-    __gsignals__ = {'status-changed':(GObject.SignalFlags.RUN_FIRST, None, (str, str, object)), }
-    def __init__(self, name, names={'OK':'OK', 'WARNING':'WARNING', 'ERROR':'ERROR', 'UNKNOWN':'UNKNOWN'},
-                 colors={'OK':Gdk.color_parse('green'),
-                         'WARNING':Gdk.color_parse('orange'),
-                         'ERROR':Gdk.color_parse('red'),
-                         'UNKNOWN':Gdk.color_parse('lightgray'), },
-                 state='UNKNOWN'):
-        Gtk.VBox.__init__(self, homogeneous=True, spacing=2)
-        self.namelabel = Gtk.Label(label=name)
-        self.pack_start(self.namelabel, True, True, 0)
-        self.statuslabel = Gtk.Label()
-        self.statusevtbox = Gtk.EventBox()
-        self.statusevtbox.add(self.statuslabel)
-        self.pack_start(self.statusevtbox, True, True, 0)
-        self.statusnames = names
-        self.statuscolors = colors
-        self.currentstatus = state
-        self.labelname = name
-    def set_status(self, status, name=None, color=None):
-        if name is not None:
-            statstr = name
-        else:
-            statstr = self.statusnames[status]
-        self.statuslabel.set_text(statstr)
-        if color is None:
-            color = self.statuscolors[status]
-        self.statusevtbox.modify_bg(Gtk.StateType.NORMAL, color)
-        oldstatus = self.currentstatus
-        self.currentstatus = status
-        if status != oldstatus:
-            self.emit('status-changed', status, statstr, color)
-
-class ToolDialog(Gtk.Dialog):
-    def __init__(self, credo, title, parent=None, flags=0, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
-        Gtk.Dialog.__init__(self, title, parent, flags, buttons)
-        self.credo = credo
-        # self.set_resizable(False)
 
 class ToolDialog(Gtk.Window):
     __gsignals__ = {'response':(GObject.SignalFlags.RUN_FIRST, None, (int,))}
@@ -80,4 +45,119 @@ class ToolDialog(Gtk.Window):
         self.destroy()
         logger.debug('End of destroying a ToolDialog.')
      
-
+class DateEntry(Gtk.Box):
+    __gtype_name__ = 'SAXSCtrl_DateEntry'
+    __gsignals__ = {'changed':(GObject.SignalFlags.RUN_LAST, None, ())}
+    def __init__(self, **kwargs):
+        Gtk.Box.__init__(self, **kwargs)
+        boxdate = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.pack_start(boxdate, True, True, 0)
+        boxtime = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.pack_start(boxtime, True, True, 0)
+        self._yearspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -9999, 9999, 1, 10), digits=0)
+        self._yearspin.connect('changed', self._year_changed)
+        self._monthspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 12, 1, 10), digits=0)
+        self._monthspin.connect('changed', self._month_changed)
+        self._monthspin.connect('wrapped', self._month_wrapped)
+        self._monthspin.set_wrap(True)
+        self._dayspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 31, 1, 10), digits=0)
+        self._dayspin.connect('changed', self._day_changed)
+        self._dayspin.connect('wrapped', self._day_wrapped)
+        self._dayspin.set_wrap(True)
+        self._hourspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 23, 1, 10), digits=0)
+        self._hourspin.connect('changed', self._hour_changed)
+        self._hourspin.connect('wrapped', self._hour_wrapped)
+        self._hourspin.set_wrap(True)
+        self._minutespin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 59, 1, 10), digits=0)
+        self._minutespin.connect('changed', self._minute_changed)
+        self._minutespin.connect('wrapped', self._minute_wrapped)
+        self._minutespin.set_wrap(True)
+        self._secondspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 59, 1, 10), digits=0)
+        self._secondspin.connect('changed', self._second_changed)
+        self._secondspin.connect('wrapped', self._second_wrapped)
+        self._secondspin.set_wrap(True)
+        boxdate.pack_start(self._yearspin, True, True, 0)
+        boxdate.pack_start(self._monthspin, True, True, 0)
+        boxdate.pack_start(self._dayspin, True, True, 0)
+        boxtime.pack_start(self._hourspin, True, True, 0)
+        boxtime.pack_start(self._minutespin, True, True, 0)
+        boxtime.pack_start(self._secondspin, True, True, 0)
+        self.show_all()
+    def _second_wrapped(self, sb):
+        if sb.get_value_as_int() == 0:
+            self._minutespin.spin(Gtk.SpinType.STEP_FORWARD, 1)
+        else:
+            self._minutespin.spin(Gtk.SpinType.STEP_BACKWARD, 1)
+    def _minute_wrapped(self, sb):
+        if sb.get_value_as_int() == 0:
+            self._hourspin.spin(Gtk.SpinType.STEP_FORWARD, 1)
+        else:
+            self._hourspin.spin(Gtk.SpinType.STEP_BACKWARD, 1)
+    def _hour_wrapped(self, sb):
+        if sb.get_value_as_int() == 0:
+            self._dayspin.spin(Gtk.SpinType.STEP_FORWARD, 1)
+        else:
+            self._dayspin.spin(Gtk.SpinType.STEP_BACKWARD, 1)
+    def _day_wrapped(self, sb):
+        if sb.get_value_as_int() == 0:
+            self._monthspin.spin(Gtk.SpinType.STEP_FORWARD, 1)
+        else:
+            self._monthspin.spin(Gtk.SpinType.STEP_BACKWARD, 1)
+    def _month_wrapped(self, sb):
+        if sb.get_value_as_int() == 0:
+            self._yearspin.spin(Gtk.SpinType.STEP_FORWARD, 1)
+        else:
+            self._yearspin.spin(Gtk.SpinType.STEP_BACKWARD, 1)
+    def _year_changed(self, sb):
+        self._set_limits()
+        self.emit('changed')
+    def _month_changed(self, sb):
+        self._set_limits()
+        self.emit('changed')
+    def _day_changed(self, sb):
+        self._set_limits()
+        self.emit('changed')
+    def _hour_changed(self, sb):
+        self._set_limits()
+        self.emit('changed')
+    def _minute_changed(self, sb):
+        self._set_limits()
+        self.emit('changed')
+    def _second_changed(self, sb):
+        self._set_limits()
+        self.emit('changed')
+    def _set_limits(self):
+        if (self._monthspin.get_value_as_int() == 2):
+            if calendar.isleap(self._yearspin.get_value_as_int()):
+                self._dayspin.set_range(1, 29)
+            else:
+                self._dayspin.set_range(1, 28)
+        elif self._monthspin.get_value_as_int() in [1, 3, 5, 7, 8, 10, 12]:
+            self._dayspin.set_range(1, 31)
+        else:
+            self._dayspin.set_range(1, 30) 
+    def get_datetime(self):
+        return datetime.datetime(self._yearspin.get_value_as_int(),
+                                 self._monthspin.get_value_as_int(),
+                                 self._dayspin.get_value_as_int(),
+                                 self._hourspin.get_value_as_int(),
+                                 self._minutespin.get_value_as_int(),
+                                 self._secondspin.get_value_as_int())
+    def get_epoch(self):
+        return float(self.get_datetime().strftime('%s.%f'))
+    def set_datetime(self, dt):
+        if isinstance(dt, basestring):
+            dt = dateutil.parser.parse(dt)
+        elif isinstance(dt, float) or isinstance(dt, int):
+            dt = datetime.datetime.fromtimestamp(dt)
+        elif isinstance(dt, datetime.datetime):
+            pass
+        else:
+            raise ValueError('Cannot parse date: invalid type ' + str(type(dt)))
+        self._yearspin.set_value(dt.year)
+        self._monthspin.set_value(dt.month)
+        self._dayspin.set_value(dt.day)
+        self._hourspin.set_value(dt.hour)
+        self._minutespin.set_value(dt.minute)
+        self._secondspin.set_value(dt.second)
+        

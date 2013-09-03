@@ -1,5 +1,6 @@
 from gi.repository import Gtk
 from gi.repository import GObject
+from gi.repository import Pango
 import os
 import re
 import dateutil.parser
@@ -9,8 +10,9 @@ import matplotlib.pyplot as plt
 from .moviemaker import MovieMaker
 from . import scangraph
 from ..fileformats.scan import Scan
-from .spec_filechoosers import FileEntryWithButton
+from sasgui.fileentry import FileEntryWithButton
 from .widgets import ToolDialog
+import datetime
 
 class ScanViewer(ToolDialog):
     def __init__(self, credo, title='Scan viewer'):
@@ -36,23 +38,45 @@ class ScanViewer(ToolDialog):
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         f.add(sw)
         # the liststore containing the information of the scans.
-        # Columns are: Scan number, Scan type, Sample name, Exit status, Number of points
-        self.scan_liststore = Gtk.ListStore(GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT)
+        # Columns are: Scan number, Scan type, Sample name, Exit status, Number of points, date
+        self.scan_liststore = Gtk.ListStore(GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING)
         self.scan_treeview = Gtk.TreeView(self.scan_liststore)
         sw.add(self.scan_treeview)
         self.scan_treeview.set_headers_visible(True)
         self.scan_treeview.set_rules_hint(True)
         self.scan_treeview.get_selection().set_mode(Gtk.SelectionMode.BROWSE)
         cellrenderer = Gtk.CellRendererText()
-        self.scan_treeview.append_column(Gtk.TreeViewColumn('FSN', cellrenderer, text=0))
+        tvc = Gtk.TreeViewColumn('FSN', cellrenderer, text=0)
+        tvc.set_resizable(True)
+        tvc.set_expand(False)
+        self.scan_treeview.append_column(tvc)
+        tvc = Gtk.TreeViewColumn('Date', cellrenderer, text=5)
+        tvc.set_resizable(True)
+        tvc.set_expand(False)
+        self.scan_treeview.append_column(tvc)
         cellrenderer = Gtk.CellRendererText()
-        self.scan_treeview.append_column(Gtk.TreeViewColumn('Device', cellrenderer, text=1))
+        cellrenderer.set_property('ellipsize', Pango.EllipsizeMode.END)
+        tvc = Gtk.TreeViewColumn('Device', cellrenderer, text=1)
+        tvc.set_resizable(True)
+        tvc.set_expand(False)
+        self.scan_treeview.append_column(tvc)
         cellrenderer = Gtk.CellRendererText()
-        self.scan_treeview.append_column(Gtk.TreeViewColumn('Sample', cellrenderer, text=2))
+        cellrenderer.set_property('ellipsize', Pango.EllipsizeMode.END)
+        tvc = Gtk.TreeViewColumn('Sample', cellrenderer, text=2)
+        tvc.set_resizable(True)
+        tvc.set_expand(False)
+        self.scan_treeview.append_column(tvc)
         cellrenderer = Gtk.CellRendererText()
-        self.scan_treeview.append_column(Gtk.TreeViewColumn('Command', cellrenderer, text=3))
+        tvc = Gtk.TreeViewColumn('Command', cellrenderer, text=3)
+        tvc.set_resizable(True)
+        tvc.set_expand(True)
+        cellrenderer.set_property('ellipsize', Pango.EllipsizeMode.END)
+        self.scan_treeview.append_column(tvc)
         cellrenderer = Gtk.CellRendererText()
-        self.scan_treeview.append_column(Gtk.TreeViewColumn('# of points', cellrenderer, text=4))
+        tvc = Gtk.TreeViewColumn('# of points', cellrenderer, text=4)
+        tvc.set_expand(False)
+        tvc.set_resizable(True)
+        self.scan_treeview.append_column(tvc)
         self.scan_treeview.set_grid_lines(Gtk.TreeViewGridLines.BOTH)
         self.scan_treeview.connect('row-activated', lambda tv, path, column: self._plot())
         sw.set_size_request(-1, 300)
@@ -90,7 +114,7 @@ class ScanViewer(ToolDialog):
         self.scan_liststore.clear()
         self.spec = sastool.classes.SASScanStore(self.scanfile_entry.get_filename())
         for scan in [s for s in self.spec if len(s)]:
-            self.scan_liststore.append((scan.fsn, scan.columns()[0], scan.comment, scan.command, len(scan)))
+            self.scan_liststore.append((scan.fsn, scan.columns()[0], scan.comment, scan.command, len(scan), datetime.datetime.fromtimestamp(scan.timestamp).strftime('%F %R')))
             
     def _plot(self):
         model, paths = self.scan_treeview.get_selection().get_selected_rows()

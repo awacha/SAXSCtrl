@@ -87,6 +87,7 @@ class MovieMaker(Gtk.Dialog):
         l = Gtk.Label(label='Movie fps:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.fps_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(25, 0, 100, 1, 10), digits=0)
+        self.fps_entry.set_value(25)
         self.entrytable.attach(self.fps_entry, 1, 2, row, row + 1)
         vb.show_all()
         
@@ -125,8 +126,8 @@ class MovieMaker(Gtk.Dialog):
             axis = (self.prileft_entry.get_value(), self.priright_entry.get_value(), self.pribottom_entry.get_value(), self.pritop_entry.get_value())
         else:
             axis = None
-        for i in [int[fsn] for fsn in self.scan['FSN']]:
-            ex = sastool.classes.SASExposure(fileformat % i, dirs=self.credo.get_exploaddirs())
+        for i in [int(fsn) for fsn in self.scan['FSN']]:
+            ex = sastool.classes.SASExposure(fileformat % i, dirs=self.credo.subsystems['Files'].rawloadpath)
             fig.clf()
             ex.plot2d(**kwargs_for_plot2d)
             if axis is not None:

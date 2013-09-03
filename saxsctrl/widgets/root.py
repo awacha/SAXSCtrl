@@ -13,7 +13,7 @@ import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol2, pilatuscontrol, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer
+from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -26,13 +26,14 @@ def my_excepthook(type_, value, traceback_):
 sys.excepthook = my_excepthook
 
 class Tool(object):
-    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', equip_needed=[]):
+    def __init__(self, credo, buttonname, windowname, windowclass, toolsection='General', equip_needed=[], online_needed=True):
         self.credo = weakref.proxy(credo)
         self.buttonname = buttonname
         self.windowname = windowname
         self.windowclass = windowclass
         self.equip_needed = equip_needed
         self.toolsection = toolsection
+        self.online_needed = online_needed
         self.window = None
         self.button = None
         self.menuitem = None
@@ -90,7 +91,8 @@ class RootWindow(Gtk.Window):
     _memusage = None
     _uptime = None
     _entrychanged_delayhandlers = None
-    __gsignals__ = {'destroy':'override'}
+    __gsignals__ = {'destroy':'override',
+                    }
     def __init__(self):
         Gtk.Window.__init__(self, Gtk.WindowType.TOPLEVEL)
         self._connections = []
@@ -119,8 +121,38 @@ class RootWindow(Gtk.Window):
         hb.pack_start(menubar, True, True, 0)
 
         menus = {}     
+
+        self.toolbuttons = [  # Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
+                            Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix'], True),
+                            # Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
+                            Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol2.PilatusControl, 'Hardware', ['pilatus'], True),
+                            Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Setup', [], True),
+                            Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup', [], False),
+                            Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Setup', [], False),
+                            Tool(self.credo, 'Data reduction', 'Data reduction', datareduction.DataReduction, 'View', [], False),
+                            Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', ['genix', 'pilatus'], True),
+                            Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', ['genix', 'pilatus'], True),
+                            Tool(self.credo, 'Imaging', 'Imaging', imaging.Imaging, 'Scan', ['genix', 'pilatus'], True),
+                            Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus'], True),
+                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351'], True),
+                            Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View', [], False),
+                            Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View', [], False),
+                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),
+                            Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration', [], False),
+                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', ['tmcm351'], True),
+                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose', [], True),
+                            Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge'], True),
+                            Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix'], True),
+                            Tool(self.credo, 'Find capillary position & thickness', 'Find capillary positions and thickness', capilsizer.CapilSizer, 'Utilities', [], False),
+                            Tool(self.credo, 'Hardware logs', 'Hardware log viewer', hwlogviewer.HWLogViewer, 'Utilities', [], False),
+                            ]
+        
+        if self.credo.offline:
+            self.toolbuttons = [t for t in self.toolbuttons if not t.online_needed]
         
         for mname in ['File', 'Setup', 'Calibration', 'Hardware', 'Scan', 'Expose', 'View', 'Utilities']:
+            if (not [t for t in self.toolbuttons if t.toolsection == mname]) and mname != 'File':
+                continue
             mi = Gtk.MenuItem(label='_' + mname, use_underline=True)
             menubar.append(mi)
             menus[mname] = Gtk.Menu()
@@ -175,29 +207,6 @@ class RootWindow(Gtk.Window):
         hb.pack_start(nextfsn_monitor.NextFSNMonitor(weakref.proxy(self.credo), 'Next exposure:'), False, True, 0)
         
         
-        self.toolbuttons = [  # Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
-                            Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix']),
-                            Tool(self.credo, 'Pilatus-300k', 'Pilatus-300k controller', pilatuscontrol.PilatusControl, 'Hardware', ['pilatus']),
-                            Tool(self.credo, 'Pilatus-300k #2', 'Pilatus-300k controller', pilatuscontrol2.PilatusControl, 'Hardware', ['pilatus']),
-                            Tool(self.credo, 'Connections', 'Connections to equipment', instrumentconnection.InstrumentConnections, 'Setup'),
-                            Tool(self.credo, 'Set-up sample', 'Set-up samples', samplesetup.SampleListDialog, 'Setup'),
-                            Tool(self.credo, 'Set-up instrument', 'Instrument parameters', instrumentsetup.InstrumentSetup, 'Setup'),
-                            Tool(self.credo, 'Data reduction', 'Data reduction', datareduction.DataReduction, 'View'),
-                            Tool(self.credo, 'Beam alignment', 'Beam alignment', beamalignment.BeamAlignment, 'Expose', ['genix', 'pilatus']),
-                            Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', ['genix', 'pilatus']),
-                            Tool(self.credo, 'Imaging', 'Imaging', imaging.Imaging, 'Scan', ['genix', 'pilatus']),
-                            Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus']),
-                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351']),
-                            Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View'),
-                            Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View'),
-                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration'),
-                            Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration'),
-                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', ['tmcm351']),
-                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose'),  # , genixneeded=True, pilatusneeded=True, motorneeded=True)
-                            Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge']),
-                            Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix']),
-                            Tool(self.credo, 'Find capillary position & thickness', 'Find capillary positions and thickness', capilsizer.CapilSizer, 'Utilities', [])
-                            ]
         for t in self.toolbuttons:
             mi = t.createmenuitem()
             menus[t.toolsection].append(mi)
@@ -220,6 +229,16 @@ class RootWindow(Gtk.Window):
         self.update_statuslabels()
         GLib.timeout_add_seconds(1, self.update_statuslabels)
         GLib.idle_add(self._after_start)
+        self.connect('delete-event', self._on_delete_event)
+    def _on_delete_event(self, self_, event):
+        md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.YES_NO, 'Do you really want to quit SAXSCtrl?')
+        md.set_default_response(Gtk.ResponseType.NO)
+        result = md.run()
+        md.destroy()
+        del md
+        if result == Gtk.ResponseType.YES:
+            Gtk.main_quit()
+        return result != Gtk.ResponseType.YES
     def _after_start(self):
         for equipment in self.credo.subsystems['Equipments']:
             equipment.set_enable_instrumentproperty_signals(True)

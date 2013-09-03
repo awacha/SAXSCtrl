@@ -44,10 +44,6 @@ class SingleExposure(ToolDialog):
                      ]
         row += 1
         
-        self.datareduction_cb = Gtk.CheckButton('Carry out data reduction'); self.datareduction_cb.set_alignment(0, 0.5)
-        self.entrytab.attach(self.datareduction_cb, 0, 2, row, row + 1)
-        row += 1
-        
         f = Gtk.Frame(label='2D plot')
         vb.pack_start(f, False, True, 0)
         
@@ -91,7 +87,6 @@ class SingleExposure(ToolDialog):
         
         vb.pack_start(NextFSNMonitor(self.credo, 'Next exposure'), True, True, 0)
         
-        self._datareduction = []
         self._expsleft = 0
     def do_destroy(self):
         if hasattr(self, '_conns'):
@@ -115,29 +110,6 @@ class SingleExposure(ToolDialog):
             logger.debug('Destroying a SingleExposure Window.')
             self.destroy()
             logger.debug('Destroying of a SingleExposure window ended.')
-    def on_datareduction_done(self, datareduction, jobidx, exposure):
-        if not hasattr(self, '_datared_connection'):
-            return False
-        if jobidx not in self._datareduction:
-            return False
-        exposure.write(os.path.join(self.credo.eval2dpath, 'crd_%05d.h5' % exposure['FSN']))
-        exposure.radial_average().save(os.path.join(self.credo.eval1dpath, 'crd_%05d.txt' % exposure['FSN']))
-        self._datareduction.remove(jobidx)
-        self.datared_infobar.set_n_jobs(len(self._datareduction))
-        if not self._datareduction:  # no more running jobs
-            for c in self._datared_connection:
-                self.credo.datareduction.disconnect(c)
-            self.datared_infobar.destroy()
-            del self.datared_infobar
-        GLib.idle_add(self.plot_image, exposure)
-        return True
-    def on_datareduction_message(self, datareduction, jobidx, message):
-        if not hasattr(self, '_datareduction'):
-            return False
-        if jobidx not in self._datareduction:
-            return False
-        self.datared_infobar.set_label_text(message)
-        return True
     def _on_start(self, expframe):
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
         for w in [self.entrytab]:
@@ -149,18 +121,7 @@ class SingleExposure(ToolDialog):
             w.set_sensitive(True)
     def _on_image(self, expframe, exposure):
         logger.debug('Image received.')
-        if self.datareduction_cb.get_active():
-            if not hasattr(self, 'datared_infobar'):
-                self.datared_infobar = PleaseWaitInfoBar()
-                self.get_content_area().pack_start(self.datared_infobar, False, False, 0)
-                self.get_content_area().reorder_child(self.datared_infobar, 0)
-                self.datared_infobar.show_all()
-                self._datared_connection = [self.credo.datareduction.connect('done', self.on_datareduction_done),
-                                            self.credo.datareduction.connect('message', self.on_datareduction_message)]
-            self._datareduction.append(self.credo.datareduction.do_reduction(exposure))
-            self.datared_infobar.set_n_jobs(len(self._datareduction))
-        else:
-            GLib.idle_add(self.plot_image, exposure)
+        GLib.idle_add(self.plot_image, exposure)
         
     def plot_image(self, exposure):
         logger.debug('Plotting image.')

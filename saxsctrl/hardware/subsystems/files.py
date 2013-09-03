@@ -22,27 +22,19 @@ class SubSystemFiles(SubSystem):
                   }
     filebegin = GObject.property(type=str, default='crd', blurb='First part of exposure names')
     ndigits = GObject.property(type=int, default=5, minimum=1, blurb='Number of digits in exposure names')
-    rootpath = GObject.property(type=str, default='~/credo_data/current', blurb='Data root path')
+    rootpath = ''
     scanfilename = GObject.property(type=str, default='credoscan.spec', blurb='Scan file')
-    def __init__(self, credo, offline=True, rootpath=None, filebegin=None, ndigits=None):
+    def __init__(self, credo, offline=True):
+        self.rootpath = os.getcwd()
         SubSystem.__init__(self, credo, offline)
         self.monitors = []
-        if filebegin is not None: self.filebegin = filebegin
-        if ndigits is not None: self.ndigits = ndigits
-        if rootpath is not None: self.rootpath = rootpath
+        self.create_subdirs()
         self._setup(self.rootpath)
         self.scanfile = None
         self.scanfilename = 'credoscan.spec'
         self._lastevents = []
     def do_notify(self, prop):
-        if prop.name in ['rootpath']:
-            if os.path.expanduser(self.rootpath) != self.rootpath:
-                self.rootpath = os.path.expanduser(self.rootpath)
-            elif os.path.realpath(self.rootpath) != self.rootpath:
-                self.rootpath = os.path.realpath(self.rootpath)
-            else:
-                self._setup(self.rootpath)
-        if prop.name in ['filebegin', 'ndigits', 'rootpath']:
+        if prop.name in ['filebegin', 'ndigits']:
             self.emit('changed')
         if prop.name in ['scanfilename']:
             if not os.path.isabs(self.scanfilename):
@@ -245,4 +237,17 @@ class SubSystemFiles(SubSystem):
         exposure.header.write(os.path.join(self.eval2dpath, self.get_evalheaderformat() % exposure['FSN']))
     def writeradial(self, exposure):
         exposure.radial_average().save(os.path.join(self.eval1dpath, 'crd_%d.txt' % exposure['FSN']))
-        
+    def create_subdirs(self):
+        for subdir in ['config', 'eval1d', 'eval2d', 'mask', 'movie', 'param', 'png', 'processing', 'scan', 'sequences', 'user', 'log']:
+            if os.path.exists(subdir) and os.path.isdir(subdir):
+                continue  # nothing to do
+            elif os.path.islink(subdir):
+                if os.path.exists(subdir) and os.path.isdir(os.path.realpath(subdir)):
+                    # valid symlink points to a directory
+                    continue
+                else:
+                    # invalid symlink or points to a non-directory
+                    raise SubSystemError('Subfolder %s is not valid (broken symlink or symlink to a non-directory).' % subdir)
+            else:
+                # subdir does not exist: we must create it
+                os.mkdir(subdir)

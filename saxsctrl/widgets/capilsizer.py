@@ -25,6 +25,7 @@ class CapilSizer(ToolDialog):
         figvbox.pack_start(self.figcanvas, True, True, 0)
         figvbox.pack_start(self.figtoolbar, False, False, 0)
         self.figcanvas.set_size_request(640, 480)
+        self.figcanvas.set_hexpand(True)
         
         tab = Gtk.Table()
         vbox.pack_start(tab, False, False, 0)
@@ -108,16 +109,19 @@ class CapilSizer(ToolDialog):
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._thickness_label = Gtk.Label('--')
         tab.attach(self._thickness_label, 1, 2, row, row + 1)
+        b = Gtk.Button(stock=Gtk.STOCK_SAVE)
+        tab.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
+        b.connect('clicked', lambda button:self.save_thickness())
         row += 1
+        
         l = Gtk.Label('Position (mm):')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._position_label = Gtk.Label('--')
         tab.attach(self._position_label, 1, 2, row, row + 1)
-        row += 1
         b = Gtk.Button(stock=Gtk.STOCK_SAVE)
-        tab.attach(b, 2, 3, row - 2, row, Gtk.AttachOptions.FILL)
-        b.connect('clicked', lambda button: self.save())
+        tab.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
+        b.connect('clicked', lambda button: self.save_position())
         
     def _on_scannumber_changed(self, spinbutton):
         try:
@@ -166,8 +170,22 @@ class CapilSizer(ToolDialog):
         self._thickness_label.set_label(str(0.1 * np.abs(self._poi['right'] - self._poi['left'])))
         self._position_label.set_label(str(0.5 * (self._poi['left'] + self._poi['right'])))
         return True
-    def save(self):
+
+    def save_thickness(self):
         self._sampleselector.get_sample().thickness = 0.1 * np.abs(self._poi['right'] - self._poi['left'])
+        self.credo.subsystems['Samples'].save()
+        md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
+                               Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
+                               'Thickness updated in sample ' + str(self._sampleselector.get_sample()) + '.')
+        if not self.credo.offline:
+            md.format_secondary_text('Sample information was also saved to %s' % self.credo.subsystems['Samples'].configfile)
+        else:
+            md.format_secondary_markup('However, this information <b>WAS NOT SAVED</b> to %s, since we are in offline mode.' % self.credo.subsystems['Samples'].configfile)
+        md.run()
+        md.destroy()
+        del md
+
+    def save_position(self):
         if self._scan.columns()[0] == self.credo.subsystems['Samples'].motor_samplex:
             x_or_y = True
         elif self._scan.columns()[0] == self.credo.subsystems['Samples'].motor_sampley:
@@ -190,14 +208,14 @@ class CapilSizer(ToolDialog):
             mesg = ''
         elif x_or_y:
             self._sampleselector.get_sample().positionx = 0.5 * (self._poi['left'] + self._poi['right'])
-            mesg = 'and X position'
+            mesg = 'X position'
         else:
             self._sampleselector.get_sample().positiony = 0.5 * (self._poi['left'] + self._poi['right'])
-            mesg = 'and Y position'
+            mesg = 'Y position'
         self.credo.subsystems['Samples'].save()
         md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
                                Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
-                               'Thickness ' + mesg + ' updated in sample ' + str(self._sampleselector.get_sample()) + '.')
+                               mesg + ' updated in sample ' + str(self._sampleselector.get_sample()) + '.')
         if not self.credo.offline:
             md.format_secondary_text('Sample information was also saved to %s' % self.credo.subsystems['Samples'].configfile)
         else:
@@ -213,7 +231,7 @@ class CapilSizer(ToolDialog):
         targetentry.set_value(self._poi[name])
         xfit = np.linspace(self._x[idx].min(), self._x[idx].max(), 10 * len(self._x[idx]))
         if self._peakfunction_combo.get_active_text().upper().startswith('GAUSS'):
-            yfit = amplitude * np.exp(0.5 * (xfit - self._poi[name]) ** 2 / hwhm ** 2) + baseline
+            yfit = amplitude * np.exp(-0.5 * (xfit - self._poi[name]) ** 2 / hwhm ** 2) + baseline
         else:
             yfit = amplitude * hwhm ** 2 / (hwhm ** 2 + (self._poi[name] - xfit) ** 2) + baseline
         self.fig.gca().plot(xfit, yfit, 'r-')

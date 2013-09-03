@@ -7,7 +7,6 @@ class InstrumentSetup(ToolDialog):
     __gsignals__ = {'response':'override'}
     def __init__(self, credo, title='Instrument parameters'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_REFRESH, Gtk.ResponseType.REJECT))
-        self.set_default_response(Gtk.ResponseType.OK)
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
 
         vb = self.get_content_area()

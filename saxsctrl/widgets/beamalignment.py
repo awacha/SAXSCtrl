@@ -8,7 +8,7 @@ import gc
 from ..hardware import sample
 import logging
 import sastool
-from .spec_filechoosers import FileEntryWithButton
+from sasgui.fileentry import FileEntryWithButton
 from .widgets import ToolDialog
 import multiprocessing
 from .exposure import ExposureFrame

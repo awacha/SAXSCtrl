@@ -13,11 +13,12 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import sastool
 import os
+import pkg_resources
 
 iconfactory = Gtk.IconFactory()
 for f, n in [('fitpeak.png', 'Fit peak')]:
     basename = os.path.splitext(f)[0]
-    iconset = Gtk.IconSet(GdkPixbuf.Pixbuf.new_from_file(os.path.join(os.path.dirname(__file__), f)))
+    iconset = Gtk.IconSet(GdkPixbuf.Pixbuf.new_from_file(pkg_resources.resource_filename('saxsctrl', 'resource/%s' % f)))
     iconfactory.add('saxsctrl_%s' % basename, iconset)
 iconfactory.add_default()
 

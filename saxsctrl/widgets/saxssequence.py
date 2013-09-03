@@ -24,6 +24,15 @@ RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
 RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
 RE_INT = r"[+-]?\d+"
 RE_FLOAT_OR_EXPRESSION = r"(" + RE_FLOAT + "|\{.*\}|§)"
+RE_BOOL = '(0|1|True|False|Yes|No|y|n)'
+
+def _parse_bool(mesg):
+    if mesg.upper().strip() in ['1', 'TRUE', 'YES', 'Y']:
+        return True
+    elif mesg.upper().strip() in ['0', 'FALSE', 'NO', 'N', '']:
+        return False
+    else:
+        return ValueError('Cannot decide if %s is to be considered true or false.' % mesg)
 
 class ErrorSeverity(object):
     normal = 0
@@ -364,16 +373,19 @@ class SeqCommandWait(SeqCommand):
 
 class SeqCommandExpose(SeqCommand):
     command = 'expose'
-    cmd_regex = r'expose\s+(?P<exptime>' + RE_FLOAT_OR_EXPRESSION + ')'
+    cmd_regex = r'expose\s+(?P<exptime>' + RE_FLOAT_OR_EXPRESSION + ')\s+(?P<do_datareduction>' + RE_BOOL + '?)'
     exptime = 1
-    _arguments = ['exptime']
+    do_datareduction = False
+    _arguments = ['exptime', 'do_datareduction']
     def execute(self, credo, prevval, vars):
         self._parse_expressions(credo, prevval, vars)
+        self.do_datareduction = _parse_bool(self.do_datareduction)
         self._kill = None
         self.credo = credo
         sse = credo.subsystems['Exposure']
         credo.subsystems['Files'].filebegin = 'crd'
         self._conn = sse.connect('exposure-end', self._on_end)
+        self._imgrecvconn = sse.connect('exposure-image', self._on_image, credo.subsystems['DataReduction'])
         sse.exptime = float(self.exptime)
         sse.nimages = 1
         sse.start()
@@ -391,7 +403,12 @@ class SeqCommandExpose(SeqCommand):
         self.credo.subsystems['Exposure'].kill()
     def _on_end(self, sse, status):
         sse.disconnect(self._conn)
+        sse.disconnect(self._imgrecvconn)
         self._kill = not status
+    def _on_image(self, sse, exposure, ssdr):
+        if self.do_datareduction:
+            logger.info('Running data reduction on ' + str(exposure.header))
+            ssdr.reduce(exposure['FSN'])
     def simulate(self, credo, prevval, vars):
         self._parse_expressions(credo, prevval, vars)
         logger.info('Simulating: exposing for ' + str(self.exptime) + ' seconds')

@@ -133,11 +133,13 @@ class Pilatus(Instrument_TCP):
         self._status_lock = threading.RLock()
         self._exposure_starttime = None
         self.logfile = 'log.pilatus300k'
+        self._logging_parameters = [('threshold', 'f4', '%.0d'), ('gain', 'S5', '%s'), ('status', 'S20', '%s'),
+                                    ('temperature0', 'f4', '%.2f'), ('temperature1', 'f4', '%.2f'), ('temperature2', 'f4', '%.2f'),
+                                    ('humidity0', 'f4', '%.1f'), ('humidity1', 'f4', '%.1f'), ('humidity2', 'f4', '%.1f'), ]
     def _logthread_worker(self):
         self._update_instrumentproperties(None)
         with self._status_lock:
-            with open(self.logfile, 'at') as f:
-                f.write('%d\t%.0f\t%s\t%s\t%.2f\t%.2f\t%.2f\t%.1f\t%.1f\t%.1f\n' % (time.time(), self.threshold, self.gain, self.status, self.temperature0, self.temperature1, self.temperature2, self.humidity0, self.humidity1, self.humidity2))
+            Instrument_TCP._logthread_worker(self)
     def _update_instrumentproperties(self, propertyname=None):
         with self._status_lock:
             if propertyname is not None:
@@ -146,9 +148,9 @@ class Pilatus(Instrument_TCP):
                 toupdate = [x for x in self._get_instrumentproperties() if self.is_instrumentproperty_expired(x)]
             if self.status == PilatusStatus.ExposingMulti:
                 if 'timeleft' in toupdate:
-                    type(self).timeleft._update(self, (self._instrumentproperties['nimages'][0] * self._instrumentproperties['expperiod'][0] - (time.time() - self._exposure_starttime)))
+                    type(self).timeleft._update(self, (self._instrumentproperties['nimages'][0] * self._instrumentproperties['expperiod'][0] - (time.time() - self._exposure_starttime)), InstrumentPropertyCategory.NORMAL)
                 if 'imagesremaining' in toupdate:
-                    type(self).imagesremaining._update(self, self._instrumentproperties['nimages'][0] - math.floor((time.time() - self._exposure_starttime) / self._instrumentproperties['expperiod'][0]))
+                    type(self).imagesremaining._update(self, self._instrumentproperties['nimages'][0] - math.floor((time.time() - self._exposure_starttime) / self._instrumentproperties['expperiod'][0]), InstrumentPropertyCategory.NORMAL)
                 for key in [k for k in toupdate if k not in ('timeleft', 'imagesremaining')]:
                     getattr(type(self), key)._update(self, self._instrumentproperties[key][0], self._instrumentproperties[key][2])
                 return  # cannot update anything.
@@ -268,11 +270,14 @@ class Pilatus(Instrument_TCP):
     def _process_results(self, dic):
         with self._status_lock:
             if (dic['command'] == 'SetThreshold') and (self.status == PilatusStatus.Trimming):
-                self.status = PilatusStatus.Idle
-                self._update_instrumentproperties('threshold')
+                with self.freeze_notify():
+                    self.status = PilatusStatus.Idle
+                    self._update_instrumentproperties('threshold')
             elif dic['command'] == 'Exposure' and dic['filename'] is not None:
-                self.status = PilatusStatus.Idle
-                self._update_instrumentproperties()
+                with self.freeze_notify():
+                    self.status = PilatusStatus.Idle
+                    self._update_instrumentproperties()
+                    
         if dic['status'] == 'ERR':
             logger.error('Command %s returned error!' % dic['command'])
     def interpret_message(self, message, command=None, putback_if_no_match=True):
@@ -364,6 +369,8 @@ class Pilatus(Instrument_TCP):
         if gain is None:
             message = self.send_and_receive('SetThreshold %d' % threshold, blocking=False)
         else:
+            if not gain.upper().endswith('G'):
+                gain = gain + 'G'
             message = self.send_and_receive('SetThreshold %s %d' % (gain, threshold), blocking=False)
         with self._status_lock:
             self.status = PilatusStatus.Trimming
@@ -405,6 +412,7 @@ class Pilatus(Instrument_TCP):
                     self.status = PilatusStatus.Exposing
                 else:
                     self.status = PilatusStatus.ExposingMulti
+            self._exposure_starttime = time.time()
             message = self.send_and_receive('Exposure ' + filename, blocking=True)
             mesg = self.interpret_message(message, 'Exposure')
             self._update_instrumentproperties('timeleft')
@@ -417,7 +425,6 @@ class Pilatus(Instrument_TCP):
             raise
         days, secs = divmod(mesg['exptime'], (24 * 60 * 60))
         secs, usecs = divmod(secs, 1)
-        self._exposure_starttime = int(mesg['starttime'].strftime('%s'))
         return mesg['starttime'], mesg['exptime'], mesg['starttime'] + datetime.timedelta(days, secs, 1e6 * usecs)
     def expose(self, exptime, filename, nimages=1, dwelltime=0.003):
         self.prepare_exposure(exptime, nimages, dwelltime)
@@ -442,7 +449,7 @@ class Pilatus(Instrument_TCP):
             raise PilatusError('Invalid message for ResetCam: ' + message)
         return mesg['status'] == 'OK'
     def get_current_parameters(self):
-        return {ip:self._instrumentproperties[ip] for ip in self._instrumentproperties}
+        return {ip:self._instrumentproperties[ip][0] for ip in self._instrumentproperties}
     def get_timeleft(self):
         return self.camsetup()['timeleft']
 

@@ -1,6 +1,6 @@
 from gi.repository import GObject
 from gi.repository import Gtk
-from .fileentry import FileEntryWithButton
+from sasgui.fileentry import FileEntryWithButton
 import logging
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ class ObjSetupTable(Gtk.Table):
                     self._entries[p.name]._connection = self._entries[p.name].connect('changed', lambda ent, n: self.emit('changed', n), p.name)
                 elif self.objwithgui._OWG_entrytypes[p.name] in (OWG_Param_Type.Integer, OWG_Param_Type.Float):
                     self._entries[p.name] = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.objwithgui.get_property(p.name), p.minimum, p.maximum))
+                    self._entries[p.name].set_value(self.objwithgui.get_property(p.name))
                     self._entries[p.name].set_width_chars(20)
                     if self.objwithgui._OWG_entrytypes[p.name] == OWG_Param_Type.Integer:
                         self._entries[p.name].set_digits(0)

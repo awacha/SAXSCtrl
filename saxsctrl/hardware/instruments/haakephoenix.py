@@ -52,9 +52,7 @@ class HaakePhoenix(Instrument_TCP):
         self.timeout2 = 0.1
         self.port = 2003
         self.logfile = 'log.temp'
-    def _logthread_worker(self):
-        with open(self.logfile, 'at') as f:
-            f.write('%d\t%.3f\t%.3f\t%d\n' % (time.time(), self.temperature, self.setpoint, self.pumppower))
+        self._logging_parameters = [('temperature', 'f4', '%.3f'), ('setpoint', 'f4', '%.3f'), ('pumppower', 'i', '%d')]
     def _update_instrumentproperties(self, propertyname=None):
         if (propertyname is not None) and (propertyname in self._instrumentproperties):
             oldtuple = self._instrumentproperties[propertyname]
@@ -113,14 +111,7 @@ class HaakePhoenix(Instrument_TCP):
                 getattr(type(self), flag)._update(self, stateflags[flag], category)
     def _post_connect(self):
         logger.info('Connected to Haake Phoenix circulator: ' + self.get_version())
-        self._restart_logger()
     def _pre_disconnect(self, should_do_communication):
-        if self._logthread is not None:
-            logger.info('Shutting down temperature logger thread before disconnecting from instrument.')
-            self._logthread_stop.set()
-            self._logthread.join()
-            self._logthread_stop.clear()
-            self._logthread = None
         if hasattr(self, '_version'):
             del self._version
     def execute(self, command, postprocessor=lambda x:x, retries=3):

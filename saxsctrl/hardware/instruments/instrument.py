@@ -13,6 +13,7 @@ import modbus_tk.modbus_tcp
 import modbus_tk.defines
 import os
 import time
+import numpy as np
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,7 @@ class Instrument(objwithgui.ObjWithGUI):
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
     _enable_instrumentproperty_signals = None
+    _logging_parameters = []
     def __init__(self, offline=True):
         self._instrumentproperties = {}
         self._OWG_init_lists()
@@ -128,7 +130,7 @@ class Instrument(objwithgui.ObjWithGUI):
         objwithgui.ObjWithGUI.__init__(self)
         self.offline = offline
         if not self.configfile:
-            self.configfile = os.path.expanduser('~/.config/credo/' + self._get_classname() + '.conf')
+            self.configfile = os.path.expanduser(os.path.join('config', self._get_classname() + '.conf'))
         self._logthread = None
         self._logthread_stop = threading.Event()
         self._enable_instrumentproperty_signals = threading.Event()
@@ -192,6 +194,10 @@ class Instrument(objwithgui.ObjWithGUI):
             self._logthread.join()
             del self._logthread
     def _logger_thread(self, stopswitch):
+        if not self._logging_parameters:
+            return
+        with open(self.logfile, 'at') as f:
+            f.write('#Time\t' + '\t'.join(x[0] for x in self._logging_parameters) + '\n')
         try:
             self._update_instrumentproperties(None)
             while True:
@@ -203,8 +209,17 @@ class Instrument(objwithgui.ObjWithGUI):
                     break
         except Exception as ex:
             logger.error('Breaking logger thread of instrument ' + self._get_classname() + ' because of an error: ' + str(type(ex)) + str(str(ex)))
+    def _logformatstring(self):
+        return '%.1f\t' + ('\t'.join([x[2] for x in self._logging_parameters])) + '\n'
+    def _logdtype(self):
+        return np.dtype([('time', 'f4')] + [x[:2] for x in self._logging_parameters])
+    def _get_logline(self):
+        return self._logformatstring() % ((time.time(),) + tuple(getattr(self, x[0]) for x in self._logging_parameters))
     def _logthread_worker(self):
-        raise NotImplementedError
+        with open(self.logfile, 'at') as f:
+            f.write(self._get_logline())
+    def load_log(self):
+        return np.loadtxt(self.logfile, dtype=self._logdtype(), delimiter='\t')
     def connect_to_controller(self):
         """Connect to the controller. The actual connection parameters (e.g. host, port etc.) 
         to be used should be implemented as GObject properties. This should work as follows:
@@ -382,7 +397,7 @@ class Instrument_ModbusTCP(Instrument):
                 self._post_connect()
                 self.status = InstrumentStatus.Idle
                 self._restart_logger()
-            except (socket.timeout, InstrumentError) as ex:
+            except (socket.timeout, InstrumentError, socket.error) as ex:
                 self._modbus = None
                 logger.error('Cannot connect to instrument at %s:%d' % (self.host, self.port))
                 raise InstrumentError('Cannot connect to instrument at %s:%d. Reason: %s' % (self.host, self.port, str(ex)))

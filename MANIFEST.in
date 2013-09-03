@@ -1,0 +1,4 @@
+include *.py
+include README*
+recursive-include saxsctrl *.py *.pyx
+recursive-include saxsctrl/resource *

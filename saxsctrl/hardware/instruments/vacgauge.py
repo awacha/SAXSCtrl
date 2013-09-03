@@ -6,6 +6,7 @@ from ...utils import objwithgui
 import os
 import threading
 import time
+import numpy as np
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -24,6 +25,7 @@ class VacuumGauge(Instrument_TCP):
         self.timeout2 = 0.1
         self.port = 2002
         self.logfile = 'log.vac'
+        self._logging_parameters = [('pressure', 'f4', '%.3f')]
     def _update_instrumentproperties(self, propertyname=None):
         try:
             pressure = self.readout()
@@ -34,14 +36,7 @@ class VacuumGauge(Instrument_TCP):
         type(self).pressure._update(self, pressure, categ)
     def _post_connect(self):
         logger.info('Connected to vacuum gauge: ' + self.get_version())
-        self._restart_logger()
     def _pre_disconnect(self, should_do_communication):
-        if self._logthread is not None:
-            logger.info('Shutting down vacuum logger thread before disconnecting from instrument.')
-            self._logthread_stop.set()
-            self._logthread.join()
-            self._logthread_stop.clear()
-            self._logthread = None
         if hasattr(self, '_version'):
             del self._version
     def execute(self, code, data=''):
@@ -89,10 +84,6 @@ class VacuumGauge(Instrument_TCP):
         self.execute('u', '%06d' % ({'mbar':0, 'Torr':1, 'hPa':2}[units]))
     def get_current_parameters(self):
         return {'Vacuum':self.pressure, 'VacuumGauge':self.get_version()}
-    def _logthread_worker(self):
-        data, t, category = self.get_instrument_property('pressure')
-        with open(self.logfile, 'at') as f:
-            f.write('%.3f\t%.3f\n' % (t, data))
     def wait_for_vacuum(self, pthreshold=1.0, alternative_breakfunc=lambda :False):
         """Wait until the vacuum becomes better than pthreshold or alternative_breakfunc() returns True. 
         During the wait, this calls the default GObject main loop.

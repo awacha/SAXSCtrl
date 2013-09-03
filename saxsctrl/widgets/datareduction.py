@@ -4,13 +4,12 @@ from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import GLib
 from .widgets import ToolDialog
-from .spec_filechoosers import FileEntryWithButton
+from sasgui.fileentry import FileEntryWithButton
 from ..hardware.subsystems.datareduction import DataReductionError
 import sastool
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-DEFAULT_PREFIX = 'crd'
 
 class DataReduction(ToolDialog):
     def __init__(self, credo, title='Data reduction'):

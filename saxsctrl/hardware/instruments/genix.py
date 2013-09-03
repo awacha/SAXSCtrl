@@ -111,9 +111,7 @@ class Genix(Instrument_ModbusTCP):
         self._shutter_lock = multiprocessing.Lock()
         self.logfile = 'log.genix'
         self.logtimeout = 1
-    def _logthread_worker(self):
-        with open(self.logfile, 'at') as f:
-            f.write('%d\t%.2f\t%.2f\t%d\t%d\n' % (time.time(), self.ht, self.current, self.shutter, self.faultstatus))
+        self._logging_parameters = [('ht', 'f4', '%.2f'), ('current', 'f4', '%.2f'), ('shutter', 'i', '%d'), ('faultstatus', 'i', '%d')]
     def _update_instrumentproperties(self, propertyname=None):
         if propertyname == 'shutter':
             status = self.get_status()

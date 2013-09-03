@@ -23,9 +23,9 @@ class DataViewer(ToolDialog):
         
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, True, 0)
-        es = ExposureSelector(self.credo)
-        es.connect('open', self._exposure_open)
-        hb.pack_start(es, True, True, 0)
+        self._exposureselector = ExposureSelector(self.credo)
+        self._exposureselector.connect('open', self._exposure_open)
+        hb.pack_start(self._exposureselector, True, True, 0)
         
         
         f = Gtk.Frame(label='Currently loaded:')
@@ -35,7 +35,7 @@ class DataViewer(ToolDialog):
         
         row = 0
         self._labels = {}
-        for labeltext, labelname in [('FSN:', 'fsn'), ('Sample-detector distance:', 'dist'), ('Title:', 'title'), ('Owner:', 'owner'), ('Exposure time:', 'meastime')]:
+        for labeltext, labelname in [('FSN:', 'fsn'), ('Sample-detector distance:', 'dist'), ('Title:', 'title'), ('Owner:', 'owner'), ('Exposure time:', 'meastime'), ('Temperature', 'temperature')]:
             l = Gtk.Label(labeltext); l.set_alignment(0, 0.5)
             tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
             self._labels[labelname] = Gtk.Label('<none>')
@@ -71,58 +71,42 @@ class DataViewer(ToolDialog):
         
         
         vb.show_all()
-    def on_data_reduction_callback(self, datared, idx, message_or_exposure):
-        if idx != self._datared_jobidx:
+    def on_data_reduction_finished(self, ssdr, fsn, header, button, fsn_to_wait_for):
+        if fsn != fsn_to_wait_for:
             return False
-        if (not hasattr(self, '_pwd')) or (self._pwd is None):
-            return False
-        if isinstance(message_or_exposure, basestring):
-            self._pwd.set_label_text(message_or_exposure)
-            return False
-        for c in self._datared_connections:
-            self.datareduction.disconnect(c)
-        self._datared_connections = None
-        self._pwd.destroy()
-        del self._pwd
-        message_or_exposure.write(os.path.join(self.credo.eval2dpath, 'crd_%05d.h5' % message_or_exposure['FSN']))
-        rad = message_or_exposure.radial_average()
-        rad.save(os.path.join(self.credo.eval1dpath, 'crd_%05d.txt' % message_or_exposure['FSN']))
-        self.plot1d.cla()
-        self.plot1d.loglog(rad)
-        self.plot2d.set_exposure(message_or_exposure)
+        ssdr.disconnect(self._dr_connid)
+        self._exposureselector.set_sensitive(True)
+        button.set_sensitive(True)
+        exposure = ssdr.beamtimereduced.load_exposure(fsn)
+        self.plot1d.add_curve_with_errorbar(exposure.radial_average(), label='Reduced: ' + str(exposure.header))
+        self.plot2d.set_exposure(exposure)
         return False
     def do_data_reduction(self, button):
-        if self._datared_connections is not None:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Another data reduction procedure is running!')
-            md.run()
-            md.destroy()
-            del md
-            return
         if self.plot2d.exposure is None:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Please open a file first!')
             md.run()
             md.destroy()
             del md
             return
-        exposure = self.plot2d.exposure
-        if self.datareduction is None:
-            self.datareduction = self.credo.subsystems['DataReduction']
-            self._dataredsetup = DataRedSetup(self, 'Data reduction parameters for ' + str(exposure.header), buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
-        self._dataredsetup.present()
-        resp = self._dataredsetup.run()
-        if resp == Gtk.ResponseType.OK:
-            self._pwd = PleaseWaitDialog()
-            def cb(msg):
-                GLib.idle_add(self.on_data_reduction_callback, msg)
-            self._pwd.show_all()
-            self._datared_connections = (self.datareduction.connect('message', self.on_data_reduction_callback),
-                                       self.datareduction.connect('done', self.on_data_reduction_callback))
-            self._datared_jobidx = self.datareduction.do_reduction(self.plot2d.exposure)
-        self._dataredsetup.hide()
+        ssdr = self.credo.subsystems['DataReduction']
+        if not os.path.split(self.plot2d.exposure['FileName'])[1].startswith(ssdr.filebegin):
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot do data reduction on exposure. File must begin with %s' % ssdr.filebegin)
+            md.run()
+            md.destroy()
+            del md
+            return
+        button.set_sensitive(False)
+        self._exposureselector.set_sensitive(False)
+        self._dr_connid = ssdr.connect('done', self.on_data_reduction_finished, button, self.plot2d.exposure['FSN'])
+        ssdr.reduce(self.plot2d.exposure['FSN'])
     def _exposure_open(self, eselector, ex):
         self._labels['fsn'].set_label(str(ex['FSN']))
         self._labels['title'].set_label(ex['Title'])
         self._labels['dist'].set_label(str(ex['Dist']))
+        try:
+            self._labels['temperature'].set_label(str(ex['Temperature']))
+        except KeyError:
+            self._labels['temperature'].set_label('<none>')
         if ex['maskid'] is None:
             self._labels['maskid'].set_label('<none>')
         else:
@@ -132,15 +116,12 @@ class DataViewer(ToolDialog):
         self.plot2d.set_exposure(ex)
         self.plot2d.set_bottomrightdata(ex['Owner'] + '@CREDO ' + str(ex['Date']))
         self.plot2d.set_bottomleftdata(qrcode.make(ex['Owner'] + '@CREDO://' + str(ex.header) + ' ' + str(ex['Date']), box_size=10))
-        self.plot1d.cla()
         try:
             rad = ex.radial_average()
         except sastool.classes.SASExposureException as see:
             self.plot1d.gca().text(0.5, 0.5, 'Cannot do radial average:\n' + str(see), ha='center', va='center', transform=self.plot1d.gca().transAxes)
         else:
-            self.plot1d.cla()
-            self.plot1d.loglog(ex.radial_average())
-            self.plot1d.legend(loc='best')
+            self.plot1d.add_curve_with_errorbar(rad, label=str(ex.header))
         return False
     def _editmask(self, widget):
         maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.exposure)

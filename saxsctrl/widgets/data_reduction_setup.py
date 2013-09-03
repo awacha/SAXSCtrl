@@ -2,7 +2,7 @@ from gi.repository import Gtk
 import sastool
 import collections
 import ConfigParser
-from .spec_filechoosers import ExposureLoader, FileEntryWithButton
+# from .spec_filechoosers import ExposureLoader, FileEntryWithButton
 
 class PleaseWaitDialog(Gtk.Dialog):
     def __init__(self, title='Data reduction running, please wait...', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, buttons=(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):

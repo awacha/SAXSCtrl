@@ -1,7 +1,7 @@
 # coding: utf-8
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 import sastool
 import re
 import os
@@ -25,7 +25,7 @@ from . import virtualpointdetector
 from ..utils import objwithgui
 
 
-RCFILE = os.path.expanduser('~/.config/credo/credo3rc')
+RCFILE = os.path.expanduser('config/credorc')
 
 class CredoError(Exception):
     pass

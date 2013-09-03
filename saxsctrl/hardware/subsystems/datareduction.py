@@ -14,6 +14,7 @@ import uuid
 import weakref
 from gi.repository import Gtk
 from gi.repository import GLib
+import matplotlib.figure
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
@@ -120,8 +121,14 @@ class AbsoluteCalibration(DataReductionStep):
         if exposure['Title'] == self.title:
             self.message(exposure, 'Determining absolute scaling factor from measurement')
             # we are dealing with an absolute standard
-            refdata = sastool.classes.SASCurve(self.reference_datafile)
-            measdata = exposure.radial_average(refdata.q).sanitize().sanitize(minval=0, fieldname='Intensity')
+            try:
+                refdata = sastool.classes.SASCurve(self.reference_datafile)
+            except IOError:
+                raise DataReductionError('Cannot open reference data file: ' + self.reference_datafile)
+            try:
+                measdata = exposure.radial_average(refdata.q).sanitize().sanitize(minval=0, fieldname='Intensity')
+            except sastool.SASExposureException as see:
+                raise DataReductionError('Could not make a radial average from the reference measurement: ' + str(see))
             refdata = refdata.interpolate(measdata.q)
             self.message(exposure, 'Common q-range: %.4f to %.4f (%d points)' % (refdata.q.min(), refdata.q.max(), len(refdata.q)))
             scalefactor = measdata.scalefactor(refdata)
