@@ -142,7 +142,7 @@ class HWLogViewer(ToolDialog):
         else:
             linestyle = '.'
         if self._abscissa_dates_radio.get_active():
-            ax.plot(matplotlib.dates.epoch2num(ld['time']), ld[self._parameter_selector.get_active_text()], linestyle)
+            ax.plot([datetime.datetime.fromtimestamp(t) for t in ld['time']], ld[self._parameter_selector.get_active_text()], linestyle)
             ax.xaxis_date()
             self._fig.autofmt_xdate()
         else:

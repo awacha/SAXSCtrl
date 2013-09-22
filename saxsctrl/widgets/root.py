@@ -233,6 +233,10 @@ class RootWindow(Gtk.Window):
     def _on_delete_event(self, self_, event):
         md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.YES_NO, 'Do you really want to quit SAXSCtrl?')
         md.set_default_response(Gtk.ResponseType.NO)
+        yesbutton = md.get_widget_for_response(Gtk.ResponseType.YES)
+        nobutton = md.get_widget_for_response(Gtk.ResponseType.NO)
+        yesbutton.connect('enter-notify-event', lambda yesb, ev, nob: bool((yesb.set_label(Gtk.STOCK_NO), nob.set_label(Gtk.STOCK_YES))) and False, nobutton)
+        yesbutton.connect('leave-notify-event', lambda yesb, ev, nob: bool((yesb.set_label(Gtk.STOCK_YES), nob.set_label(Gtk.STOCK_NO))) and False, nobutton)
         result = md.run()
         md.destroy()
         del md

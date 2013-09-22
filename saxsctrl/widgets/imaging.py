@@ -195,16 +195,35 @@ class Imaging(ToolDialog):
         self._scangraph.figtext(1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
         self._scangraph.show_all()
         self._scangraph.set_scalers([(vd.name, vd.visible, 'Linear', vd.scaler) for vd in self.credo.subsystems['VirtualDetectors']])
-        self.credo.subsystems['Imaging'].start()
-        self.entrytable.set_sensitive(False)
-        self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
-        
-        self.lazystop_button.set_sensitive(True)
+        try:
+            self.credo.subsystems['Imaging'].start()
+            self.entrytable.set_sensitive(False)
+            self.set_sensitive(False)
+        except Exception as exc:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error starting imaging.')
+            md.format_secondary_markup('<b>Reason:</b>\n' + str(exc))
+            md.run()
+            md.destroy()
+            self.entrytable.set_sensitive(True)
+            self.set_sensitive(True)
+            self.lazystop_button.set_sensitive(False)
+        else:
+            self.set_sensitive(True)
+            self.entrytable.set_sensitive(False)
+            self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
+            self.lazystop_button.set_sensitive(True)
         
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
-            self.destroy()
-            return
+            if self.get_sensitive() and self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == Gtk.STOCK_EXECUTE:
+                self.destroy()
+                return True
+            else:
+                md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot close window: a scan is running.')
+                md.run()
+                md.destroy()
+                del md
+                return True
         if respid == Gtk.ResponseType.OK:
             if self.get_widget_for_response(respid).get_label() == Gtk.STOCK_STOP:
                 self.set_response_sensitive(respid, False)

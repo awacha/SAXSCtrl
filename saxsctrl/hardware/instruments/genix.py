@@ -108,7 +108,7 @@ class Genix(Instrument_ModbusTCP):
         if self._OWG_nosave_props is None:
             self._OWG_nosave_props = []
         Instrument_ModbusTCP.__init__(self, offline)
-        self._shutter_lock = multiprocessing.Lock()
+        self._shutter_lock = multiprocessing.RLock()
         self.logfile = 'log.genix'
         self.logtimeout = 1
         self._logging_parameters = [('ht', 'f4', '%.2f'), ('current', 'f4', '%.2f'), ('shutter', 'i', '%d'), ('faultstatus', 'i', '%d')]

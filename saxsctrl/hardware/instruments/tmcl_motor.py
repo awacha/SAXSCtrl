@@ -26,6 +26,8 @@ class TMCMModuleStatus(InstrumentStatus):
     Queued = 'queued'
 
 class StepperStatus(InstrumentStatus):
+    Queued = 'queued'
+    Moving = 'moving'
     pass
 
 class TMCMModule(Instrument_TCP):
@@ -38,7 +40,9 @@ class TMCMModule(Instrument_TCP):
                     }
     _considered_idle = [TMCMModuleStatus.Disconnected, TMCMModuleStatus.Idle]    
     send_recv_retries = GObject.property(type=int, minimum=1, default=3, blurb='Number of retries on communication failure')
+    savesettings_delay = GObject.property(type=float, minimum=0, default=0.5, blurb='Delay for saving settings')
     _motor_counter = 1
+    _max_motors_in_motion = 1
     def __init__(self, offline=True):
         self.motors = {}
         self.f_clk = 16000000
@@ -49,10 +53,12 @@ class TMCMModule(Instrument_TCP):
         self.recvbufsize = 8
         self.port = 2001
         self.cmdqueue = multiprocessing.queues.Queue()
+        self._motorsemaphore = multiprocessing.Semaphore(self._max_motors_in_motion)
+        
     def _adjust_hwtype(self):
-        raise NotImplementedError('Unknown TMCM type: ' + hwtype)
+        raise NotImplementedError('Cannot instantiate TMCMModule directly!')
+    
     def _post_connect(self):
-        GLib.idle_add(self._check_queue)
         try:
             major, minor, hwtype = self.get_version()
             if hwtype != self.hwtype:
@@ -63,15 +69,26 @@ class TMCMModule(Instrument_TCP):
             raise
         logger.debug('TCP and RS232 both OK.')
         self.load_settings()
-    def motorstop(self, flushqueue=True):
-        if flushqueue:
-            self._flush_queue()
+        
+    def motorstop(self, flushqueues=True):
+        if flushqueues:
+            for m in self:
+                m.flush_queue()
         for m in self.moving():
             m.stop()
+            
     def __del__(self):
         for m in self.motors.keys():
             del self.motors[m]
+
+    def save_settings_delayed(self):
+        if hasattr(self, '_savesettings_delayed_handle'):
+            return False
+        self._savesettings_delayed_handle = GLib.timeout_add(int(self.savesettings_delay * 1000), lambda : (self.save_settings() and False))
+            
     def save_settings(self, filename=None):
+        if hasattr(self, '_savesettings_delayed_handle'):
+            del self._savesettings_delayed_handle
         if hasattr(self, '_settingsfile_in_use'):
             return
         if self.offline:
@@ -93,6 +110,7 @@ class TMCMModule(Instrument_TCP):
             return True
         finally:
             del self._settingsfile_in_use
+            
     def load_settings(self, filename=None):
         if hasattr(self, '_settingsfile_in_use'):
             return
@@ -111,8 +129,10 @@ class TMCMModule(Instrument_TCP):
             self.settingsfile = filename
         finally:
             del self._settingsfile_in_use
+            
     def do_communication(self, cmd):
         raise NotImplementedError
+    
     def interpret_message(self, message, command=None):
         if command is None:
             logger.warning('Asynchronous messages not supported for TMCM modules! (got message of length ' + str(len(message)))
@@ -125,30 +145,31 @@ class TMCMModule(Instrument_TCP):
             raise MotorError('Invalid reply from TMCM module: not the same command.')
         status = ord(message[2])
         if status == 1:
-            raise MotorError('Wrong checksum of sent message')
+            raise MotorError('Wrong checksum of sent message. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         elif status == 2:
-            raise MotorError('Invalid command')
+            raise MotorError('Invalid command. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         elif status == 3:
-            raise MotorError('Wrong type')
+            raise MotorError('Wrong type. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         elif status == 4:
-            raise MotorError('Invalid value')
+            raise MotorError('Invalid value. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         elif status == 5:
             raise MotorError('Configuration EEPROM locked')
         elif status == 6:
-            raise MotorError('Command not available')
+            raise MotorError('Command not available. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         value = struct.unpack('>i', message[4:8])[0]
         if status != 100:
-            raise MotorError('Status not OK!')
+            raise MotorError('Status not OK! TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         return value
+    
     def execute(self, instruction, type_=0, mot_bank=0, value=0):
         if instruction is not None:
             cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
             cmd = cmd + (sum(cmd) % 256,)
-            # logger.debug('About to send TMCL command: ' + ''.join(('%02x' % x) for x in cmd))
+            logger.debug('About to send TMCL command: ' + ''.join(('%02x' % x) for x in cmd))
             cmd = ''.join(chr(x) for x in cmd)
         else:
             cmd = None
-        # logger.debug('Sending message to TMCM module: 0x' + ''.join('%x' % ord(x) for x in cmd))
+        logger.debug('Sending message to TMCM module: 0x' + ''.join('%x' % ord(x) for x in cmd))
         for i in reversed(range(self.send_recv_retries)):  # self.send_recv_retries-1 to 0.
             try:
                 result = self.send_and_receive(cmd, True)
@@ -169,6 +190,7 @@ class TMCMModule(Instrument_TCP):
         # logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
         # validate checksum, but only if the command is not the get version command.
         return value
+    
     def get_version(self):
         ver = self.execute(136, 1)
         if ver / 0x10000 == 0x015f:
@@ -181,6 +203,7 @@ class TMCMModule(Instrument_TCP):
         major = ver / 0x100
         minor = ver % 0x100
         return major, minor, hwtype
+    
     def add_motor(self, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf'))):
         if (mot_idx < 0) or (mot_idx >= self.n_axes):
             raise MotorError('Cannot add motor with index %d: only %d axes are supported by the controller module.' % (mot_idx, self.n_axes))
@@ -195,90 +218,48 @@ class TMCMModule(Instrument_TCP):
             self.motors[mot.name] = mot
         self.emit('motors-changed')
         return mot
+    
     def moving(self):
         """Return currently moving motors"""
-        return [m for m in self.motors if self.motors[m].is_moving()]
+        return [m for m in self if m.is_moving()]
+    
     def get_motor(self, idx):
         if isinstance(idx, numbers.Number):
-            return [self.motors[m] for m in self.motors if self.motors[m].mot_idx == idx][0]
+            return [m for m in self if m.mot_idx == idx][0]
         elif isinstance(idx, basestring):
-            return [self.motors[m] for m in self.motors if (self.motors[m].name == idx) or (self.motors[m].alias == idx) or (str(self.motors[m]) == idx) ][0]
+            return [m for m in self if (m.name == idx) or (m.alias == idx) or (str(m) == idx) ][0]
         else:
             raise NotImplementedError('Invalid type for parameter idx: ', type(idx))
-    def do_motor_stop(self, mot):
-        # a motor movement is finished, re-register the queue checking idle handler.
-        self.status = TMCMModuleStatus.Busy
-        GLib.idle_add(self._check_queue)
-    def _movemotor(self, idx, pos, raw=False, relative=False, queued=True):
-        logger.debug('_movemotor was called with idx=%d, pos=%d, raw=%s, relative=%s' % (idx, pos, raw, relative))
-        motor = self.get_motor(idx)
-        logger.debug('Motor name is: ' + motor.name)
-        if not raw:
-            physpos = pos
-            pos = motor.conv_pos_raw(pos)
-        else:
-            physpos = motor.conv_pos_phys(pos)
-        if motor.next_idle_position is None:
-            motor.next_idle_position = motor.get_pos()
-        logger.debug('physpos: %g; pos: %g; next_idle_pos: %g.' % (physpos, pos, motor.next_idle_position))
-        if self.moving() and not queued:
-            raise MotorError('Cannot move motor %s: A motor is currently moving.' % motor.name)
-        if relative:
-            absphyspos = physpos + motor.next_idle_position
-        else:
-            absphyspos = physpos
-        logger.debug('absphyspos: %g' % absphyspos)
-        if (min(motor.softlimits) > absphyspos) or (absphyspos > max(motor.softlimits)):
-            raise MotorError('Target position outside software limits')
-        # update the next idle position of the current motor.
-        motor.next_idle_position = absphyspos
-        logger.debug('Queueing movement: %d, %g, %s' % (idx, pos, relative))
-        if self.status == TMCMModuleStatus.Idle:
-            self.status = TMCMModuleStatus.Busy
-        self.cmdqueue.put((idx, pos, relative))
-    def _do_move(self, idx, rawpos, relative):
-        logger.debug('Do-move: %d, %g, %s' % (idx, rawpos, relative))
-        motor = self.get_motor(idx)
-        moving = self.moving()
-        if moving and motor.name not in moving:
-            raise MotorError('Another motor is currently moving.')
-        motor.emit('motor-start')
-        self.execute(4, int(relative), idx, rawpos)
-    def do_idle(self):
-        pass
-    def _check_queue(self):
-        if not self.connected():
-            # if the motor controller is not connected (or has been disconnected),
-            # unregister this idle handle by returning False.
-            return False
-        try:
-            idx, rawpos, relative = self.cmdqueue.get_nowait()
-        except multiprocessing.queues.Empty:
-            # the queue is empty. We return True, so our idle handler will not be
-            # unregistered.
-            if self.status != TMCMModuleStatus.Idle:
-                self.status = TMCMModuleStatus.Idle
-            return True
-        # if we reach here, we have a job to do.
+        
+    def do_motor_start(self, mot):
         self.status = TMCMModuleStatus.Moving
-        self._do_move(idx, rawpos, relative)
-        # now we unregister (!) our handle, since while the motor runs, there is
-        # no point for checking new queued commands. The motor will emit a 
-        # "motor-stop" signal at the end, we will use that occasion to re-register
-        # our idle handler.
-        return False
-    def _flush_queue():
-        """Flush the command queue."""
-        while True:
+        
+    def do_motor_stop(self, mot):
+        # a motor movement is finished. Check if the motor has more motion commands
+        # in queue. If yes, execute the next of them and return. If not, check
+        # other motors if there are queued commands, and execute the first command
+        # of the first such motor. If no queued commands are found, become Idle and
+        # return.
+        if not mot._start_move():
+            # no other motions are queued for this motor
             try:
-                self.cmdqueue.get_nowait()
-            except multiprocessing.queues.Empty:
-                break
+                mot = [m for m in self if m.status == StepperStatus.Queued][0]
+                mot._start_move()
+                return
+            except IndexError:
+                # no motions are queued
+                self.status = TMCMModuleStatus.Idle
+                pass
+        else:
+            # a motion is started already by mot._start_move().
+            pass
+        
     def get_current_parameters(self):
         dic = {}
-        for m in self.motors.values():
-            dic[m.alias] = m.get_pos()
+        for m in self:
+            dic[m.alias] = m.get_parameter('Current_position', raw=False)
         return dic
+    
     def do_notify(self, prop):
         Instrument_TCP.do_notify(self, prop)
         if prop.name == 'configfile':
@@ -286,6 +267,120 @@ class TMCMModule(Instrument_TCP):
                 self.load_settings(self.configfile)
             except Exception as exc:
                 logger.error('Error while calling TMCMModule.load_settings() from do_notify: ' + str(exc))
+
+    def __iter__(self):
+        return self.motors.itervalues()
+
+class MotorParameter(object):
+    name = ''
+    axisparameter_idx = 0
+    _tophys = None
+    _toraw = None
+    _validateraw = None
+    _validatephys = None
+    readonly = False
+    depends = None
+    raw_is_phys = False
+    datatype = None
+    rawminimum = None
+    rawmaximum = None
+    isinteger = False
+    storable = False
+    def __init__(self, name, axisparameter_idx, **kwargs):
+        self.name = name
+        self.axisparameter_idx = axisparameter_idx
+        for k in kwargs:
+            setattr(self, k, kwargs[k])
+        if self.depends is None:
+            self.depends = []
+    def to_raw(self, value, allparameters):
+        if self._toraw is None:
+            return value
+        else:
+            return self._toraw(value, allparameters)
+        return 
+    def to_phys(self, value, allparameters):
+        if self._tophys is None:
+            return value
+        else:
+            return self._tophys(value, allparameters)
+    def validate(self, value, allparameters):
+        valid = True
+        if callable(self._validateraw):
+            valid &= self._validateraw(self.to_raw(value, allparameters), allparameters)
+        if callable(self._validatephys):
+            valid &= self._validatephys(value, allparameters)
+        return valid
+    
+conv_speed_to_raw = lambda x, ap:int(x * 2 ** ap['Pulse_div'] * 2 ** ap['Ustep_resol'] * 2048 * 32 / ap['f_clk'] / ap['step_to_cal'])
+conv_speed_to_phys = lambda x, ap: ap['f_clk'] * x / (2 ** ap['Pulse_div'] * 2 ** ap['Ustep_resol'] * 2048 * 32.0) * ap['step_to_cal']
+
+conv_accel_to_raw = lambda x, ap: int(x * 2 ** (ap['Pulse_div'] + ap['Ramp_div'] + 29 + ap['Ustep_resol']) / (ap['step_to_cal'] * ap['f_clk'] ** 2))
+conv_accel_to_phys = lambda x, ap: x * ap['f_clk'] ** 2 * ap['step_to_cal'] / 2 ** (ap['Pulse_div'] + ap['Ramp_div'] + 29 + ap['Ustep_resol'])
+
+conv_current_to_raw = lambda x, ap: int(x * 255. / ap['top_rms_current'])
+conv_current_to_phys = lambda x, ap: x * ap['top_rms_current'] / 255.
+
+conv_pos_to_phys = lambda x, ap: x * ap['step_to_cal'] / 2 ** ap['Ustep_resol']
+conv_pos_to_raw = lambda x, ap: int(x * 2 ** ap['Ustep_resol'] / ap['step_to_cal'])
+
+
+COMMON_MOTOR_PARAMETERS = [
+                           MotorParameter('Pulse_div', 154, _validatephys=lambda x, ap:(0 <= x) & (x <= 13), raw_is_phys=True,
+                                          rawminimum=0, rawmaximum=13, isinteger=True, storable=True),
+                           MotorParameter('Ramp_div', 153, _validatephys=lambda x, ap:(0 <= x) & (x <= 13), raw_is_phys=True,
+                                          rawminimum=0, rawmaximum=13, isinteger=True, storable=True),
+                           MotorParameter('Max_speed', 4, _validateraw=lambda x, ap:(0 <= x) & (x <= 2047),
+                                          _tophys=conv_speed_to_phys,
+                                          _toraw=conv_speed_to_raw,
+                                          depends=['f_clk', 'Pulse_div', 'Ustep_resol', 'step_to_cal'],
+                                          rawminimum=0, rawmaximum=2047, isinteger=False, storable=True,
+                                          ),
+                             MotorParameter('Max_accel', 5, _validateraw=lambda x, ap: (0 <= x) & (x <= 2047),
+                                            _tophys=conv_accel_to_phys,
+                                            _toraw=conv_accel_to_raw,
+                                            depends=['f_clk', 'Pulse_div', 'Ustep_resol', 'step_to_cal', 'Ramp_div'],
+                                           rawminimum=0, rawmaximum=2047, isinteger=False, storable=True,
+                                            ),
+                             MotorParameter('Max_RMS_current', 6, _validateraw=lambda x, ap: (0 <= x) & (x <= 255),
+                                            _tophys=conv_current_to_phys,
+                                            _toraw=conv_current_to_raw,
+                                            depends=['top_rms_current'],
+                                            rawminimum=0, rawmaximum=255, isinteger=False, storable=True,),
+                            MotorParameter('Standby_RMS_current', 7, _validateraw=lambda x, ap: (0 <= x) & (x <= 255),
+                                            _tophys=conv_current_to_phys,
+                                            _toraw=conv_current_to_raw,
+                                            rawminimum=0, rawmaximum=255, isinteger=False,
+                                            depends=['top_rms_current'], storable=True),
+                             MotorParameter('Right_limit_disable', 12, _validateraw=lambda x, ap: isinstance(x, bool), raw_is_phys=True, rawminimum=0, rawmaximum=1, isinteger=True, storable=True),
+                             MotorParameter('Left_limit_disable', 13, _validateraw=lambda x, ap: isinstance(x, bool), raw_is_phys=True, rawminimum=0, rawmaximum=1, isinteger=True, storable=True),
+                             MotorParameter('Freewheeling_delay', 204, _validateraw=lambda x, ap: (0 <= x) & (x <= 65535), raw_is_phys=True, rawminimum=0, rawmaximum=65535, isinteger=True, storable=True),
+                             MotorParameter('Current_load', 206, readonly=True, raw_is_phys=True, isinteger=True),
+                             MotorParameter('Current_speed', 3, _validateraw=lambda x, ap: (0 <= x) & (x <= 2047),
+                                            _tophys=conv_speed_to_phys,
+                                            _toraw=conv_speed_to_raw,
+                                            depends=['f_clk', 'Pulse_div', 'Ustep_resol', 'step_to_cal'],
+                                           rawminimum=0, rawmaximum=2047, isinteger=False,
+                                            ),
+                             MotorParameter('Current_position', 1,  # _validatephys=lambda x, ap: (ap['soft_left'] <= x) & (x <= ap['soft_right']),
+                                            _tophys=conv_pos_to_phys,
+                                            _toraw=conv_pos_to_raw,
+                                            depends=['soft_left', 'soft_right', 'step_to_cal', 'Ustep_resol']),
+                             MotorParameter('Target_position', 0, _validatephys=lambda x, ap: (ap['soft_left'] <= x) & (x <= ap['soft_right']),
+                                            _tophys=conv_pos_to_phys,
+                                            _toraw=conv_pos_to_raw,
+                                            depends=['soft_left', 'soft_right', 'step_to_cal', 'Ustep_resol']),
+                             MotorParameter('Ramp_mode', 138, _validateraw=lambda x, ap: (0 <= x) & (x <= 2), raw_is_phys=True, rawminimum=0, rawmaximum=2, isinteger=True, storable=False),
+                             MotorParameter('step_to_cal', None, raw_is_phys=True),
+                             MotorParameter('f_clk', None, readonly=True, raw_is_phys=True, rawminimum=0),
+                             MotorParameter('soft_left', None, _tophys=conv_pos_to_phys, _toraw=conv_pos_to_raw),
+                             MotorParameter('soft_right', None, _tophys=conv_pos_to_phys, _toraw=conv_pos_to_raw),
+                             MotorParameter('top_rms_current', None, readonly=True),
+                             MotorParameter('Left_limit_status', 11, _validateraw=lambda x, ap: isinstance(x, bool), readonly=True, raw_is_phys=True, rawminimum=0, rawmaximum=1, isinteger=True),
+                             MotorParameter('Right_limit_status', 10, _validateraw=lambda x, ap: isinstance(x, bool), readonly=True, raw_is_phys=True, rawminimum=0, rawmaximum=1, isinteger=True),
+                              ]
+
+
 
 class TMCM351(TMCMModule):
     def _adjust_hwtype(self):
@@ -296,10 +391,26 @@ class TMCM351(TMCMModule):
         self.stallGuardversion = 1
         self.coolstepenabled = False
         self.max_ustepresol = 6
-        self.motor_params = [('Max_speed', 4), ('Max_accel', 5), ('Max_current', 6), ('Standby_current', 7),
-                  ('Right_limit_disable', 12), ('Left_limit_disable', 13), ('Ustep_resol', 140),
-                  ('Ramp_div', 153), ('Pulse_div', 154),  # ('Mixed_decay_threshold', 203),
-                  ('Freewheeling_delay', 204), ]  # ('Stallguard_threshold', 205), ('Fullstep_threshold', 211)]
+        self.motor_params = COMMON_MOTOR_PARAMETERS + [
+                                MotorParameter('Ustep_resol', 140, _validatephys=lambda x, ap:(0 <= x) & (x <= 6), raw_is_phys=True,
+                                          rawminimum=0, rawmaximum=6, isinteger=True, storable=True),
+                                MotorParameter('Mixed_decay_threshold', 203, _validateraw=lambda x, ap: (0 <= x) & (x <= 2048),
+                                               _tophys=conv_speed_to_phys,
+                                               _toraw=conv_speed_to_raw,
+                                               depends=['f_clk', 'Pulse_div', 'Ustep_resol', 'step_to_cal'],
+                                               rawminimum=0, rawmaximum=2047, isinteger=False, storable=True,
+                                              ),
+                                MotorParameter('Stallguard_threshold', 205, _validateraw=lambda x, ap: (0 <= x) & (x <= 7), storable=True,
+                                               rawminimum=0, rawmaximum=7, raw_is_phys=True, isinteger=True),
+                                MotorParameter('Fullstep_threshold', 211, _validateraw=lambda x, ap: (0 <= x) & (x <= 2047),
+                                               _tophys=conv_speed_to_phys,
+                                               _toraw=conv_speed_to_raw,
+                                               depends=['f_clk', 'Pulse_div', 'Ustep_resol', 'step_to_cal'],
+                                               rawminimum=0, rawmaximum=2047, isinteger=False, storable=True,
+                                               ),
+                                                       ]
+
+
 
 class TMCM6110(TMCMModule):
     def _adjust_hwtype(self):
@@ -310,37 +421,9 @@ class TMCM6110(TMCMModule):
         self.stallGuardversion = 2
         self.coolstepenabled = True
         self.max_ustepresol = 8
-        self.motor_params = [('Max_speed', 4), ('Max_accel', 5), ('Max_current', 6), ('Standby_current', 7),
-                  ('Right_limit_disable', 12), ('Left_limit_disable', 13), ('Ustep_resol', 140),
-                  ('Ramp_div', 153), ('Pulse_div', 154),
-                  ('Freewheeling_delay', 204)]
+        self.motor_params = [MotorParameter('Ustep_resol', 140, _validatephys=lambda x, ap:(0 <= x) & (x <= 8), raw_is_phys=True,
+                                          rawminimum=0, rawmaximum=8, isinteger=True, storable=True), ] + COMMON_MOTOR_PARAMETERS
     
-# class TMCMModule_RS232(TMCMModule):
-#     def __init__(self, serial_device, timeout=1, settingsfile=None, settingssaveinterval=10):
-#         TMCMModule.__init__(self, settingsfile, settingssaveinterval)
-#         self.rs232 = serial.Serial(serial_device)
-#         if not self.rs232.isOpen():
-#             raise MotorError('Cannot open RS-232 port ' + str(serial_device))
-#         self.rs232.timeout = timeout
-#         self.rs232.flushInput()
-#         self.load_settings()
-#         self.emit('connect-equipment')
-#     def connected(self):
-#         return self.rs232 is not None and self.rs232.isOpen()
-#     def do_communication(self, cmd):
-#         with self.comm_lock:
-#             if cmd is not None:
-#                 self.rs232.write(cmd)
-#             result = self.rs232.read(9)
-#             self.rs232.flushInput()
-#         if not result and cmd is not None:
-#             self.rs232.close()
-#             self.rs232 = None
-#             self.emit('disconnect-equipment')
-#             raise MotorError('Communication error. Controller may not be connected')
-#         return result
-
-                
 class StepperMotor(GObject.GObject):
     __gsignals__ = {'motor-start':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (float, float, float)),
@@ -352,13 +435,13 @@ class StepperMotor(GObject.GObject):
     mot_idx = GObject.property(type=int, default=0, minimum=0, maximum=100, blurb='Motor index in TMCM module')
     alias = GObject.property(type=str, default='<unknown motor>', blurb='Mnemonic name')
     name = GObject.property(type=str, default='<unknown motor>', blurb='Standardized name')
-    step_to_cal = GObject.property(type=float, default=1 / 200.0, blurb='Microstep size in calibrated units')
+    step_to_cal = GObject.property(type=float, default=1 / 200.0, blurb='Full step size in calibrated units')
     f_clk = GObject.property(type=int, default=16000000, blurb='TMCM clock frequency')
     softlimits = GObject.property(type=object, blurb='Software limits')
-    settings_timeout = GObject.property(type=float, default=60, blurb='Settings timeout')
     status = GObject.property(type=str, default=StepperStatus.Disconnected, blurb='Status')
     def __init__(self, driver, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf')), f_clk=16000000):
         GObject.GObject.__init__(self)
+        self._movequeue = []
         self.driver = weakref.ref(driver)
         if name is None:
             name = 'MOT_' + str(mot_idx + 1)
@@ -367,47 +450,141 @@ class StepperMotor(GObject.GObject):
         self.name = name
         self.alias = alias
         self.mot_idx = mot_idx
-        self.settings = {}
-        self.step_to_cal = step_to_cal
+        self._stateparams = {}
+        self._stateparams['top_rms_current'] = self.driver().max_rms_current
+        self._stateparams['f_clk'] = f_clk
         self.f_clk = f_clk
+        self._stateparams['step_to_cal'] = step_to_cal
+        self.step_to_cal = step_to_cal
+        self._stateparams['soft_left'] = min(softlimits)
+        self._stateparams['soft_right'] = max(softlimits)
         self.softlimits = softlimits
-        self.limitdata = None
+        self._limitdata = None
         self.next_idle_position = None
         self.status = StepperStatus.Idle
-        self._circumstances = {}
+        
+    def get_parameter(self, name, raw=False, force_refresh=False):
+        if (name not in self._stateparams) or force_refresh:
+            self.reload_parameters(name)
+        if raw:
+            return self._stateparams[name]
+        else:
+            motpar = [m for m in self.driver().motor_params if m.name == name][0]
+            for missing_dep in [p for p in motpar.depends if ((p not in self._stateparams) or force_refresh)]:
+                self.reload_parameters(missing_dep)
+            return motpar.to_phys(self._stateparams[name], self._stateparams)
+        
+    def set_parameter(self, name, value, raw=False):
+        motpar = [m for m in self.driver().motor_params if m.name == name][0]
+        if motpar.readonly:
+            raise MotorError('Attempted to set read-only parameter %s.' % name)
+        for missing_dep in [p for p in motpar.depends if p not in self._stateparams]:
+            self.reload_parameters(missing_dep)
+        if raw:
+            physval = motpar.to_phys(value, self._stateparams)
+            rawval = value
+        else:
+            physval = value
+            rawval = motpar.to_raw(value, self._stateparams)
+        
+        if not motpar.validate(physval, self._stateparams):
+            raise MotorError('Validation failed while setting parameter %s to %s.' % (motpar.name, str(value)))
+        if motpar.axisparameter_idx is None:
+            self._stateparams[name] = rawval
+        else:
+            self._stateparams[name] = self.driver().execute(5, motpar.axisparameter_idx, self.mot_idx, rawval)
+        if name == 'soft_left':
+            self.softlimits = (rawval, max(self.softlimits))
+        if name == 'soft_right':
+            self.softlimits = (min(self.softlimits), rawval)
+        if name == 'step_to_cal':
+            self.step_to_cal = value
+            
     def do_notify(self, prop):
+        if prop.name in ['step_to_cal', 'f_clk']:
+            self._stateparams[prop.name] = self.get_property(prop.name)
+        elif prop.name == 'softlimits':
+            logger.debug('Notify::softlimits')
+            self._stateparams['soft_left'] = min(self.softlimits)
+            self._stateparams['soft_right'] = max(self.softlimits)
         if prop.name not in ['status']:
             self.emit('settings-changed')
         else:
             logger.debug('Motor property %s changed to: %s' % (prop.name, str(self.get_property(prop.name))))
+            
     def do_settings_changed(self):
-        self.driver().save_settings()
+        self.driver().save_settings_delayed()
+    
+    def flush_queue(self):
+        self._movequeue = []
+    
+    def _start_move(self):
+        logger.debug(str(self) + ': _start_move()')
+        if self.status == StepperStatus.Moving:
+            # if we are already moving, do not start another move.
+            return False
+        if not self.driver()._motorsemaphore.acquire(False):
+            # if too many motors are in motion, do not start.
+            logger.debug('Cannot acquire semaphore.')
+            return False
+        # Warning: we now have acquired one semaphore. If for any
+        # reason we cannot start the motion, we should release it.
+        try:
+            rawpos, relative, endposition = self._movequeue.pop()
+        except IndexError:
+            # if no motion commands are queued, return.
+            self.driver()._motorsemaphore.release()
+            logger.debug('_movequeue empty!')
+            return False 
+        try:
+            # Actually start the move.
+            self.status = StepperStatus.Moving
+            self.driver().execute(4, int(relative), self.mot_idx, rawpos)
+            self.emit('motor-start')
+        except:
+            # could not start the move. This motion command is lost, we
+            # release the semaphore and re-raise the exception
+            self.driver()._motorsemaphore.release()
+            if self._movequeue:
+                self.status = StepperStatus.Queued
+            else:
+                self.status = StepperStatus.Idle
+            raise
+        return True
+    
     def __del__(self):
-        if self.limit_check is not None:
-            GLib.source_remove(self.limit_check)
-            self.limit_check = None
         driver = self.driver()
         if driver is not None:
-            del driver.motors[self.name]
+            try:
+                del driver.motors[self.name]
+            except KeyError:
+                pass
+            
     def check_limits(self):
-        newlims = (self.get_left_limit(), self.get_right_limit())
-        if self.limitdata is None or self.limitdata != newlims:
-            self.limitdata = newlims
-            self.emit('motor-limit', *self.limitdata)
+        newlims = (self.get_parameter('Left_limit_status', force_refresh=True),
+                   self.get_parameter('Right_limit_status', force_refresh=True))
+        if self._limitdata is None or self._limitdata != newlims:
+            self._limitdata = newlims
+            self.emit('motor-limit', *self._limitdata)
         return True
+    
     def do_motor_start(self):
         GLib.idle_add(self.motor_monitor)
-        self.status = StepperStatus.Busy
+        
     def do_motor_stop(self):
-        self.status = StepperStatus.Idle
-        self._circumstances = {}
+        self.driver()._motorsemaphore.release()
         self.driver().save_settings()
+        if not self._movequeue:
+            self.status = StepperStatus.Idle
+        else:
+            self.status = StepperStatus.Queued
+
     def motor_monitor(self):
         try:
-            speed = self.get_speed()
-            load = self.get_load()
-            pos = self.get_pos()
-            if (min(self.softlimits) > pos) or (max(self.softlimits) < pos):
+            speed = self.get_parameter('Current_speed', force_refresh=True)
+            load = self.get_parameter('Current_load', force_refresh=True)
+            pos = self.get_parameter('Current_position', force_refresh=True)
+            if (pos < self.get_parameter('soft_left')) or (pos > self.get_parameter('soft_right')):
                 self.stop()
             self.check_limits()
             self.emit('motor-report', pos, speed, load)
@@ -419,11 +596,14 @@ class StepperMotor(GObject.GObject):
         except Exception as exc:
             logger.critical('Exception swallowed in StepperMotor.motor_monitor(): ' + str(exc))
             return True
+        
     def save_to_configparser(self, cp):
+        if not self.driver().connected():
+            return cp
         if cp.has_section(self.name):
             cp.remove_section(self.name)
         cp.add_section(self.name)
-        pos = self.get_pos(raw=True)
+        pos = self.get_parameter('Current_position', raw=True)
         cp.set(self.name, 'Pos_raw', pos)
         cp.set(self.name, 'Alias', self.alias)
         cp.set(self.name, 'Idx', self.mot_idx)
@@ -431,8 +611,9 @@ class StepperMotor(GObject.GObject):
         cp.set(self.name, 'F_CLK', self.f_clk)
         cp.set(self.name, 'Soft_left', self.softlimits[0])
         cp.set(self.name, 'Soft_right', self.softlimits[1])
-        cp.set(self.name, 'Settings_timeout', self.settings_timeout)
+        cp.set(self.name, 'Settings_changed_timeout', self.settingschanged_timeout)
         return cp
+    
     def load_from_configparser(self, cp):
         if not cp.has_section(self.name):
             return
@@ -445,302 +626,85 @@ class StepperMotor(GObject.GObject):
         if cp.has_option(self.name, 'F_CLK'):
             self.f_clk = cp.getint(self.name, 'F_CLK')
         if cp.has_option(self.name, 'Soft_left'):
+            logger.debug('Loading softlimits.left from configparser')
             self.softlimits = (cp.getfloat(self.name, 'Soft_left'), self.softlimits[1])
         if cp.has_option(self.name, 'Soft_right'):
+            logger.debug('Loading softlimits.right from configparser')
             self.softlimits = (self.softlimits[0], cp.getfloat(self.name, 'Soft_right'))
         if cp.has_option(self.name, 'Pos_raw'):
             if self.driver().connected():
                 self.calibrate_pos(cp.getint(self.name, 'Pos_raw'), raw=True);
-        if cp.has_option(self.name, 'Settings_timeout'):
-            self.settings_timeout = cp.getfloat(self.name, 'Settings_timeout')
-    def refresh_settings(self, paramname=None):
-        logger.debug('Refresh_settings on motor ' + self.alias)
+        if cp.has_option(self.name, 'Settings_changed_timeout'):
+            self.settingschanged_timeout = cp.getfloat(self.name, 'Settings_changed_timeout')
+            
+    def reload_parameters(self, paramname=None):
         if paramname is not None:
-            params = [p for p in self.driver().motor_params if p[0] == paramname]
+            params = [p for p in self.driver().motor_params if p.name == paramname]
         else:
             params = self.driver().motor_params
         changed = False
-        for name, idx in params:
-            newval = self.driver().execute(6, idx, self.mot_idx)
-            if name not in self.settings or newval != self.settings[name]:
-                self.settings[name] = newval
+        for par in params:
+            if par.axisparameter_idx is None:
+                continue
+            newval = self.driver().execute(6, par.axisparameter_idx, self.mot_idx)
+            if (par.name not in self._stateparams) or (newval != self._stateparams[par.name]):
+                self._stateparams[par.name] = newval
                 changed = True
-        self.settings['__timestamp__'] = time.time()
-        self.emit('settings-changed') 
-    def get_load(self):
-        if (self.status == StepperStatus.Busy) or ('load' not in self._circumstances):
-            self._circumstances['load'] = self.driver().execute(6, 206, self.mot_idx)
-        return self._circumstances['load']
-    def get_accel(self, raw=False):
-        if self.status != StepperStatus.Busy:
-            return 0
-        val = self.driver().execute(6, 135, self.mot_idx)
-        if raw:
-            return val
-        else:
-            return self.conv_accel_phys(val)
-    def get_left_limit(self):
-        if (self.status == StepperStatus.Busy) or ('leftlimit' not in self._circumstances):
-            self._circumstances['leftlimit'] = bool(self.driver().execute(6, 11, self.mot_idx)) 
-        return self._circumstances['leftlimit']
-        
-    def get_right_limit(self):
-        if (self.status == StepperStatus.Busy) or ('rightlimit' not in self._circumstances):
-            self._circumstances['rightlimit'] = bool(self.driver().execute(6, 10, self.mot_idx)) 
-        return self._circumstances['rightlimit']
-    def get_target_reached(self):
-        return bool(self.driver().execute(6, 8, self.mot_idx))
-    def get_speed(self, raw=False):
-        if (self.status != StepperStatus.Busy):
-            return 0
-        val = self.driver().execute(6, 3, self.mot_idx)
-        if raw:
-            return val
-        else:
-            return self.conv_speed_phys(val)
-    def set_speed(self, speed, raw=False):
-        moving = self.driver().moving()
-        if moving and self.name not in moving:
-            raise MotorError('Another motor is currently moving.')
-        if not raw:
-            speed = self.conv_speed_raw(speed)
-        if speed == 0:
-            self.stop()
-        elif speed < 0:
-            self.emit('motor-start')
-            self.rot_left(-speed)
-        else:
-            self.emit('motor-start')
-            self.rot_right(speed)
+        if changed:
+            self.emit('settings-changed')
+
     def is_moving(self):
-        return self.get_speed(raw=True) != 0
-    def get_target_pos(self, raw=False):
-        if (self.status == StepperStatus.Busy) or ('targetpos' not in self._circumstances):
-            self._circumstances['targetpos'] = self.driver().execute(6, 0, self.mot_idx)
-        val = self._circumstances['targetpos']
-        if raw:
-            return val
-        else:
-            return self.conv_pos_phys(val)
-    def set_target_pos(self, pos, raw=False):
-        if not raw:
-            pos = self.conv_pos_raw(pos)
-        return self.driver().execute(5, 0, self.mot_idx, pos)
-    def get_pos(self, raw=False):
-        if (self.status == StepperStatus.Busy) or ('currpos' not in self._circumstances):
-            self._circumstances['currpos'] = self.driver().execute(6, 1, self.mot_idx)
-        val = self._circumstances['currpos']
-        if raw:
-            return val
-        else:
-            return self.conv_pos_phys(val)
-    def set_pos(self, pos, raw=False):
-        if not raw:
-            pos = self.conv_pos_raw(pos)
-        return self.driver().execute(5, 1, self.mot_idx, pos)
-    def get_max_speed(self, raw=False):
-        val = self.get_settings('Max_speed')
-        if raw:
-            return val
-        else:
-            return self.conv_speed_phys(val)
-    def set_max_speed(self, maxspeed, make_default=False, raw=False):
-        if not raw:
-            maxspeed = self.conv_speed_raw(maxspeed)
-        self.driver().execute(5, 4, self.mot_idx, maxspeed)
-        if make_default:
-            self.driver().execute(7, 4, self.mot_idx)
-        self.refresh_settings('Max_speed')
-    def get_max_accel(self, raw=False):
-        val = self.get_settings('Max_accel')
-        if raw:
-            return val
-        else:
-            return self.conv_accel_phys(val)
-    def set_max_accel(self, maxaccel, make_default=False, raw=False):
-        if not raw:
-            maxaccel = self.conv_accel_raw(maxaccel)
-        self.driver().execute(5, 5, self.mot_idx, maxaccel)
-        if make_default:
-            self.driver().execute(7, 5, self.mot_idx)
-        self.refresh_settings('Max_accel')
-    def get_max_peak_current(self):
-        return (self.get_settings('Max_current') * self.driver().max_peak_current) / 255
-    def set_max_peak_current(self, Ipeak, make_default=False):
-        self.driver().execute(5, 6, self.mot_idx, (Ipeak * 255) / self.driver().max_peak_current)
-        if make_default:
-            self.driver().execute(7, 6, self.mot_idx)
-        self.refresh_settings('Max_current')
-    def get_max_raw_current(self):
-        return self.get_settings('Max_current')
-    def set_max_raw_current(self, I, make_default=False):
-        self.driver().execute(5, 6, self.mot_idx, I)
-        if make_default:
-            self.driver().execute(7, 6, self.mot_idx)
-        self.refresh_settings('Max_current')
-    def get_max_rms_current(self):
-        return (self.get_settings('Max_current') * self.driver().max_rms_current) / 255
-    def set_max_rms_current(self, Irms, make_default=False):
-        self.driver().execute(5, 6, self.mot_idx, (Irms * 255) / self.driver().max_rms_current)
-        if make_default:
-            self.driver().execute(7, 6, self.mot_idx)
-        self.refresh_settings('Max_current')
-    def get_standby_peak_current(self):
-        return (self.get_settings('Standby_current') * self.driver().max_peak_current) / 255
-    def set_standby_peak_current(self, Ipeak, make_default=False):
-        self.driver().execute(5, 7, self.mot_idx, (Ipeak * 255) / self.driver().max_peak_current)
-        if make_default:
-            self.driver().execute(7, 7, self.mot_idx)
-        self.refresh_settings('Standby_current')
-    def get_standby_raw_current(self):
-        return (self.get_settings('Standby_current'))
-    def set_standby_raw_current(self, I, make_default=False):
-        self.driver().execute(5, 7, self.mot_idx, I)
-        if make_default:
-            self.driver().execute(7, 7, self.mot_idx)
-        self.refresh_settings('Standby_current')
-    def get_standby_rms_current(self):
-        return (self.get_settings('Standby_current') * self.driver().max_rms_current) / 255
-    def set_standby_rms_current(self, Irms, make_default=False):
-        self.driver().execute(5, 7, self.mot_idx, (Irms * 255) / self.driver().max_rms_current)
-        if make_default:
-            self.driver().execute(7, 7, self.mot_idx)
-        self.refresh_settings('Standby_current')
-    def get_right_limit_disable(self):
-        return self.get_settings('Right_limit_disable')
-    def set_right_limit_disable(self, disabled, make_default=False):
-        self.driver().execute(5, 12, self.mot_idx, disabled)
-        if make_default:
-            self.driver().execute(7, 12, self.mot_idx)
-        self.refresh_settings('Right_limit_disable')
-    def get_left_limit_disable(self):
-        return self.get_settings('Left_limit_disable')
-    def set_left_limit_disable(self, disabled, make_default=False):
-        self.driver().execute(5, 13, self.mot_idx, disabled)
-        if make_default:
-            self.driver().execute(7, 13, self.mot_idx)
-        self.refresh_settings('Left_limit_disable')
-    def get_ustep_resolution(self):
-        return self.get_settings('Ustep_resol')
-    def set_ustep_resolution(self, usrs, make_default=False):
-        """Set microstep resolution.
-        
-        The number of microsteps is 2**usrs.
-        
-        usrs can be 0 to 6 (inclusive).
-        """
-        self.driver().execute(5, 140, self.mot_idx, usrs)
-        if make_default:
-            self.driver().execute(7, 140, self.mot_idx)
-        self.refresh_settings('Ustep_resol')
-    def get_ramp_div(self):
-        return self.get_settings('Ramp_div')
-    def set_ramp_div(self, ramp_div, make_default=False):
-        self.driver().execute(5, 153, self.mot_idx, ramp_div)
-        if make_default:
-            self.driver().execute(7, 153, self.mot_idx)
-        self.refresh_settings('Ramp_div')
-    def get_pulse_div(self):
-        return self.get_settings('Pulse_div')
-    def set_pulse_div(self, pulse_div, make_default=False):
-        self.driver().execute(5, 154, self.mot_idx, pulse_div)
-        if make_default:
-            self.driver().execute(7, 154, self.mot_idx)
-        self.refresh_settings('Pulse_div')
-    def get_mixed_decay_threshold(self):
-        return self.get_settings('Mixed_decay_threshold')
-    def set_mixed_decay_threshold(self, mdt, make_default=False):
-        self.driver().execute(5, 203, self.mot_idx, mdt)
-        if make_default:
-            self.driver().execute(7, 203, self.mot_idx)
-        self.refresh_settings('Mixed_decay_threshold')
-    def get_freewheeling_delay(self):
-        return self.get_settings('Freewheeling_delay')
-    def set_freewheeling_delay(self, fwd, make_default=False):
-        self.driver().execute(5, 204, self.mot_idx, fwd)
-        if make_default:
-            self.driver().execute(7, 204, self.mot_idx)
-        self.refresh_settings('Freewheeling_delay')
-    def get_stallguard_threshold(self):
-        return self.get_settings('Stallguard_threshold')
-    def set_stallguard_threshold(self, sgt, make_default=False):
-        self.driver().execute(5, 205, self.mot_idx, sgt)
-        if make_default:
-            self.driver().execute(7, 205, self.mot_idx)
-        self.refresh_settings('Stallguard_threshold')
-    def get_fullstep_threshold(self):
-        return self.get_settings('Fullstep_threshold')
-    def set_fullstep_threshold(self, fst, make_default=False):
-        self.driver().execute(5, 211, self.mot_idx, fst)
-        if make_default:
-            self.driver().execute(7, 211, self.mot_idx)
-        self.refresh_settings('Fullstep_threshold')
-    def conv_speed_raw(self, speed_phys):
-        settings = self.get_settings()
-        return (speed_phys * 2 ** settings['Pulse_div'] * 2048.0 * 32 * 2 ** settings['Ustep_resol'] / (self.step_to_cal * self.f_clk))
-    def conv_speed_phys(self, speed_raw):
-        settings = self.get_settings()
-        return self.step_to_cal * speed_raw * self.f_clk / (2 ** settings['Pulse_div'] * 2048.0 * 32 * 2 ** settings['Ustep_resol'])
-    def conv_pos_raw(self, pos_phys):
-        settings = self.get_settings()
-        return (pos_phys / self.step_to_cal * 2 ** settings['Ustep_resol'])
-    def conv_pos_phys(self, pos_raw):
-        settings = self.get_settings()
-        return pos_raw * self.step_to_cal / 2 ** settings['Ustep_resol']
-    def conv_accel_raw(self, accel_phys):
-        settings = self.get_settings()
-        return (accel_phys / (self.f_clk ** 2 * self.step_to_cal) * (2 ** (settings['Pulse_div'] + settings['Ramp_div'] + 29) * 2 ** settings['Ustep_resol'])) 
-    def conv_accel_phys(self, accel_raw):
-        settings = self.get_settings()
-        return self.f_clk ** 2 * accel_raw / (2 ** (settings['Pulse_div'] + settings['Ramp_div'] + 29)) * (self.step_to_cal / 2 ** settings['Ustep_resol']) 
-    def rot_left(self, speed):
-        moving = self.driver().moving()
-        if moving and self.name not in moving:
-            raise MotorError('Another motor is currently moving.')
-        self.emit('motor-start')
-        self.driver().execute(2, 0, self.mot_idx, speed)
-    def rot_right(self, speed):
-        moving = self.driver().moving()
-        if moving and self.name not in moving:
-            raise MotorError('Another motor is currently moving.')
-        self.emit('motor-start')
-        self.driver().execute(1, 0, self.mot_idx, speed)
+        return self.status in [ StepperStatus.Busy, StepperStatus.Moving] 
+    
     def stop(self):
         self.driver().execute(3, 0, self.mot_idx, 0)
-    def moveto(self, pos, raw=False):
-        self.driver()._movemotor(self.mot_idx, pos, raw, relative=False)
-    def moverel(self, pos, raw=False):
-        self.driver()._movemotor(self.mot_idx, pos, raw, relative=True)
-    def get_settings(self, paramname=None):
-        if not self.settings or ((self.settings_timeout > 0) and (self.settings['__timestamp__'] < time.time() - self.settings_timeout)):
-            self.refresh_settings()
-        if paramname is None:
-            return self.settings
-        elif paramname in self.settings:
-            return self.settings[paramname]
-        else:
-            raise MotorError('Motor parameter %s not supported by the controller module %s. ' % (paramname, self.driver().hwtype))
-    def calibrate_pos(self, pos=0, raw=False):
-        for k in ['currpos', 'targetpos']:
-            try:
-                del self._circumstances[k]
-            except KeyError:
-                pass
+        
+    def moveto(self, pos, raw=False, relative=False):
         if not raw:
-            physpos = pos
-            pos = self.conv_pos_raw(pos)
+            pos = conv_pos_to_raw(pos, self._stateparams)
+        # below this line, pos is in raw device units (microsteps)
+        # determine the end position
+        if relative:
+            if self._movequeue:
+                endpos = self._movequeue[-1][-1]
+            else:
+                endpos = self.get_parameter('Target_position', raw=True, force_refresh=True)
+            newendpos = endpos + pos
         else:
-            physpos = self.conv_pos_phys(pos)
-        if (min(self.softlimits) > physpos) or (physpos > max(self.softlimits)):
-            raise MotorError('Cannot calibrate outside software limits')
+            newendpos = pos
+        # check if the end position of the motion is between the software limits.
+        if (self.get_parameter('soft_left', raw=True) > newendpos) or (self.get_parameter('soft_right', raw=True) < newendpos):
+            raise MotorError('Target of movement of motor %s is outside the software limits.' % str(self))
+        # enqueue the motor movement command
+        self._movequeue.insert(0, (pos, relative, newendpos))
+        logger.debug('Queued movement command for motor %s: %s' % (str(self), str((pos, relative, newendpos))))
+        if self.status == StepperStatus.Idle:
+            self.status = StepperStatus.Queued
+        # try to start the motion. If this cannot be accomplished (another motor is running),
+        # the driver will call this again for us when we are on turn.
+        self._start_move()
+        
+    def moverel(self, pos, raw=False):
+        return self.moveto(self, pos, raw, True)
+    
+    def calibrate_pos(self, pos=0, raw=False):
+        if not raw:
+            pos = conv_pos_to_raw(pos, self._stateparams)
+        if (self.get_parameter('soft_left', raw=True) > pos) or (self.get_parameter('soft_right', raw=True) < pos):
+            raise MotorError('Cannot calibrate outside software limits: %g <= %g <= %g is not true!' % (self.get_parameter('soft_left', raw=True),
+                                                                                                        pos,
+                                                                                                        self.get_parameter('soft_right', raw=True)))
         # set driver in velocity mode, since if we are in position mode, setting either the actual or the
         # target position will move the motor.
-        self.driver().execute(5, 138, self.mot_idx, 2)
-        self.set_pos(pos, raw=True)
-        self.set_target_pos(pos, raw=True)
+        self.set_parameter('Ramp_mode', 2)
+        self.set_parameter('Current_position', pos, raw=True)
+        self.set_parameter('Target_position', pos, raw=True)
         self.emit('settings-changed')
+
     def store_to_EEPROM(self):
-        for idx in [4, 5, 6, 7, 12, 13, 140, 153, 154, 203, 204, 205, 211]:
-            self.driver().execute(7, idx, self.mot_idx)
+        for motpar in [x for x in self.driver().motor_params if (x.axisparameter_idx is not None) and (x.storable)]:
+            logger.debug('Storing axis parameter %s (# %d) to EEPROM.' % (motpar.name, motpar.axisparameter_idx))
+            self.driver().execute(7, motpar.axisparameter_idx, self.mot_idx)
+            
     def __str__(self):
         return self.name + ' (' + self.alias + ')'

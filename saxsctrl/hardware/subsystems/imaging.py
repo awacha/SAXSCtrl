@@ -80,7 +80,7 @@ class SubSystemImaging(SubSystem):
         # Initialize the scan object
         self.currentscan = sastool.classes.scan.SASScan(columns, (self.nstep1, self.nstep2))
         self.currentscan.motors = [m.alias for m in self.credo().subsystems['Motors'].get_motors()]
-        self.currentscan.motorpos = [m.get_pos() for m in self.credo().subsystems['Motors'].get_motors()]
+        self.currentscan.motorpos = [m.get_parameter('Current_position') for m in self.credo().subsystems['Motors'].get_motors()]
         step1 = (self.value_end1 - self.value_begin1) / (self.nstep1 - 1)
         step2 = (self.value_end2 - self.value_begin2) / (self.nstep2 - 1)
         command = 'imaging (' + str(self.scandevice1) + ', ' + str(self.scandevice2) + ') from (' + str(self.value_begin1) + ', ' + str(self.value_begin2) + \

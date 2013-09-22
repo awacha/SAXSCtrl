@@ -85,7 +85,7 @@ class ScanDeviceMotor(ScanDevice):
             raise ScanDeviceError('Positioning failure: ' + str(me))
         return self.where()
     def where(self):
-        return self.motor.get_pos()
+        return self.motor.get_parameter('Current_position')
     @classmethod
     def match_name(cls, name):
         return name == 'Motor'
@@ -187,7 +187,7 @@ class SubSystemScan(SubSystem):
         # Initialize the scan object
         self.currentscan = sastool.classes.scan.SASScan(columns, self.nstep)
         self.currentscan.motors = [m.alias for m in self.credo().subsystems['Motors'].get_motors()]
-        self.currentscan.motorpos = [m.get_pos() for m in self.credo().subsystems['Motors'].get_motors()]
+        self.currentscan.motorpos = [m.get_parameter('Current_position') for m in self.credo().subsystems['Motors'].get_motors()]
         step = (self.value_end - self.value_begin) / (self.nstep - 1)
         command = 'scan ' + str(self.scandevice) + ' from ' + str(self.value_begin) + ' to ' + str(self.value_end) + ' by ' + str(step) + ' ct = ' + str(self.countingtime) + ' wt = ' + str(self.waittime)
         self.currentscan.countingtype = self.currentscan.COUNTING_TIME
@@ -217,6 +217,10 @@ class SubSystemScan(SubSystem):
         self._header_template['scanfsn'] = self.currentscan.fsn
         self._mask = mask
         self._firsttime = None
+        try:
+            del self._kill
+        except AttributeError:
+            pass
 
     def start(self):
         """Set-up and start a scan measurement.
@@ -283,7 +287,7 @@ class SubSystemScan(SubSystem):
         except ScanDeviceError as sde:
             self.emit('scan-fail', str(sde))
         logger.debug('Adding timeout for starting exposure')
-        GObject.timeout_add(int(self.waittime * 1000), self._start_exposure)
+        GLib.timeout_add(int(self.waittime * 1000), self._start_exposure)
     def _start_exposure(self): 
         logger.debug('Starting exposure in scan sequence.')
         if (self._current_step == 0) and self._original_shuttermode and not self.operate_shutter:

@@ -590,7 +590,7 @@ class SequenceInterpreter(GObject.GObject):
                 except JumpException as je:
                     logger.debug('Jump requested to label: ' + str(je))
                     logger.debug('Call stack before jump is: ' + str(self._callstack))
-                    if not str(je):
+                    if je.args[0] is None:
                         try:
                             # return to the previous point.
                             self._idx = self._callstack.pop() + 1
@@ -600,7 +600,7 @@ class SequenceInterpreter(GObject.GObject):
                     else:
                         if je.setstack:
                             self._callstack.append(self._idx)
-                        self._idx = self._findlabel(str(je))
+                        self._idx = self._findlabel(je.args[0])
                         logger.debug('Label is at line: ' + str(self._idx))
                     logger.debug('Call stack after jump is: ' + str(self._callstack))
                     self._prevval = None
@@ -647,7 +647,7 @@ class SAXSSequence(ToolDialog):
         self._sourceview.set_tab_width(4)
         ma = GtkSource.MarkAttributes()
         ma.set_stock_id(Gtk.STOCK_MEDIA_PLAY)
-        ma.set_background(Gdk.RGBA(1, 0, 0, 1))
+        ma.set_background(Gdk.RGBA(0, 1, 0, 1))
         self._sourceview.set_mark_attributes('Executing', ma, 0)
         self._progressbar = Gtk.ProgressBar()
         vb.pack_start(self._progressbar, False, False, 0)

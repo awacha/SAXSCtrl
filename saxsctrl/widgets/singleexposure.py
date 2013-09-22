@@ -145,10 +145,10 @@ class SingleExposure(ToolDialog):
             func(rad, label=str(exposure.header))
             win.legend(loc='best')
             if self.q_or_pixel_checkbutton.get_active():
-                win.xlabel(u'q (1/\xc5)')
+                win.set_xlabel(u'q (1/\xc5)')
             else:
-                win.xlabel(u'Radial pixel number')
-            win.ylabel('Intensity (total counts)')
+                win.set_xlabel(u'Radial pixel number')
+            win.set_ylabel('Intensity (total counts)')
             win.show_all()
             win.present()
         return False

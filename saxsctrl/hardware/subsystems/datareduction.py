@@ -15,6 +15,7 @@ import weakref
 from gi.repository import Gtk
 from gi.repository import GLib
 import matplotlib.figure
+import matplotlib.backends.backend_agg
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
@@ -136,6 +137,18 @@ class AbsoluteCalibration(DataReductionStep):
             exposure *= scalefactor
             exposure['NormFactor'] = float(scalefactor)
             exposure['NormFactorError'] = float(scalefactor.err)
+            f = matplotlib.figure.Figure()
+            canvas = matplotlib.backends.backend_agg.FigureCanvasAgg(f)
+            ax = f.add_subplot(1, 1, 1)
+            refdata.loglog('bo', axes=ax, label='Reference')
+            (measdata * scalefactor).loglog('r.', axes=ax, label='Measured, scaled (#%d)' % exposure['FSN'])
+            ax.set_title('Norming factor: ' + str(scalefactor))
+            ax.legend()
+            ax.grid()
+            canvas.draw()
+            canvas.print_figure(os.path.join(self.chain.filessubsystem.eval2dpath, 'absint_%s.png' % os.path.split(exposure['FileName'])[1]), dpi=300)
+            del canvas
+            del f
             return True
         try:
             refheader = self.chain.beamtimeraw.find('Title', self.title,

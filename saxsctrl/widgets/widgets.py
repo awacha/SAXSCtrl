@@ -5,7 +5,7 @@ import sasgui
 import warnings
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 import calendar
 import datetime
 import dateutil.parser

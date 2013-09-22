@@ -7,11 +7,13 @@ from .peakfinder import PeakFinder
 from .widgets import ToolDialog
 
 class QCalibrationDialog(sasgui.QCalibrator):
+    __gsignals__ = {'response':'override'}
+    __gtype_name__ = 'SAXSCtrl_QCalibrationDialog'
+    
     def __init__(self, credo, title='Q calibration'):
         sasgui.QCalibrator.__init__(self, title, flags=0, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE,))
         self.set_default_response(Gtk.ResponseType.CLOSE)
         self.credo = credo
-        self.connect('response', self.on_response)
         self.connect('notify::dist', lambda obj, prop:self.do_changed())
         vb = self.get_content_area()
         row = 0
@@ -68,7 +70,7 @@ class QCalibrationDialog(sasgui.QCalibrator):
         for prop in ['dist', 'pixelsize', 'wavelength']:
             if self.credo.get_property(prop) != self.get_property(prop):
                 self.credo.set_property(prop, self.get_property(prop))
-    def on_response(self, dialog, respid):
+    def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT, Gtk.ResponseType.OK):
             self.destroy()
         if respid in (Gtk.ResponseType.APPLY, Gtk.ResponseType.OK):

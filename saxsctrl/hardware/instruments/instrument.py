@@ -379,7 +379,7 @@ class Instrument_ModbusTCP(Instrument):
     host = GObject.property(type=str, default='', blurb='Host name')
     port = GObject.property(type=int, minimum=0, default=502, blurb='Port number')
     def __init__(self, offline=True):
-        self._communications_lock = multiprocessing.Lock()
+        self._communications_lock = multiprocessing.RLock()
         self._modbus = None
         Instrument.__init__(self, offline)
     def connected(self):
@@ -545,13 +545,20 @@ class Instrument_TCP(Instrument):
                 timeout = self.timeout
             # read the first character of the reply with the given timeout value.
             # if no message is waiting, this will raise an exception, which we will
-            # catch. Otherwise we try to continue with the other characters. 
+            # catch. Otherwise we try to continue with the other characters.
+            logger.debug('_read_from_socket: select.select()') 
             rlist, wlist, xlist = select.select([self._socket], [], [self._socket], timeout)
+            logger.debug('_read_from_socket: select.select() ended.')
             if xlist:
                 raise ConnectionBrokenError('socket is exceptional on starting phase of read')
             if not rlist:
                 raise InstrumentTimeoutError('socket is not readable on starting phase of read')
+            logger.debug('Receiving message.')
             message = self._socket.recv(1)
+            logger.debug('Message: ' + message + '; length: %d' % len(message) + ' hex: ' + ''.join('%x' % ord(c) for c in message))
+            if not message:
+                # socket closed.
+                raise ConnectionBrokenError('socket received empty message on reading first character => closed.')
             # read subsequent characters with zero timeout. We do this in order to
             # avoid waiting too long after the end of each message, and to use 
             # the one-recv-per-char technique, which can be dead slow. This way we
@@ -571,7 +578,10 @@ class Instrument_TCP(Instrument):
                     # if no exception is raised and an empty string has been read, it
                     # signifies that the connection has been broken.
                     raise ConnectionBrokenError('empty string read from socket: other end hung up.')
+                logger.debug('Extending original message with: ' + mesg + '; length: %d' % len(mesg) + ' hex: ' + ''.join('%x' % ord(c) for c in mesg))
                 message = message + mesg
+                if message.startswith('\0\0\0'):
+                    raise ConnectionBrokenError('reading only null bytes from socket: probably we are talking to ser2net with no device attached to the serial port.')
         except InstrumentTimeoutError as ite:
             # this signifies the end of message, or a timeout when reading the first char.
             # In the former case, we simply ignore this condition. In the latter, we raise
@@ -588,6 +598,7 @@ class Instrument_TCP(Instrument):
             raise InstrumentError('Communication Error: ' + str(se)) 
         finally:
             self._socket.settimeout(self.timeout)
+        logger.debug('Returning with message: ' + message + '; length: %d' % len(message) + ' hex: ' + ''.join('%x' % ord(c) for c in message))
         return message
     
     def send_and_receive(self, command, blocking=True):

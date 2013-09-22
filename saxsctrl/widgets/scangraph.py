@@ -134,6 +134,7 @@ class ScanGraph(ToolDialog):
                     visible = False
                 if not visible: continue
                 self.gca().plot(x, self.scan[col] * scale, '.-', label=col)
+            self.xlabel(self.xname)
         else:
             miny = np.inf
             maxy = -np.inf
@@ -192,7 +193,7 @@ class ScanGraph(ToolDialog):
             md.run()
             md.destroy()
             del md
-            
+            return
         pos, hwhm, baseline, amplitude = sastool.misc.findpeak_single(curve.x, curve.y, curve='Lorentz')
         xfitted = np.linspace(curve.x.min(), curve.x.max(), 5 * len(curve.x))
         fitted = sastool.GeneralCurve(xfitted, amplitude * hwhm ** 2 / (hwhm ** 2 + (pos - xfitted) ** 2) + baseline)
