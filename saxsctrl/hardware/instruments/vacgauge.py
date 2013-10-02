@@ -1,15 +1,11 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, ConnectionBrokenError, InstrumentProperty, InstrumentPropertyCategory
+from .instrument import Instrument_TCP, InstrumentError, ConnectionBrokenError, InstrumentProperty, InstrumentPropertyCategory
 import logging
 from gi.repository import GObject
 from gi.repository import GLib
 from ...utils import objwithgui
-import os
-import threading
-import time
-import numpy as np
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class VacuumGaugeError(InstrumentError):
     pass
@@ -50,7 +46,7 @@ class VacuumGauge(Instrument_TCP):
             except VacuumGaugeError as vge:
                 if not i:
                     raise
-                logger.warning('Communication error: ' + str(exc) + '(type: ' + str(type(exc)) + '); retrying (%d retries left)' % i)
+                logger.warning('Communication error: ' + str(vge) + '(type: ' + str(type(vge)) + '); retrying (%d retries left)' % i)
             except (ConnectionBrokenError, InstrumentError) as exc:
                 logger.error('Connection of instrument %s broken: ' % self._get_classname() + str(exc))
                 raise VacuumGaugeError('Connection broken: ' + str(exc))
@@ -64,11 +60,11 @@ class VacuumGauge(Instrument_TCP):
             logger.warning('Asynchronous commands not supported for vacuum gauge!')
             return None
         if message[-1] != '\r':
-            raise VacuumGaugeError('Invalid message: does not end with CR: ' + message)
+            raise VacuumGaugeError('Invalid message: does not end with CR: 0x' + ''.join('%02x' % ord(m) for m in message))
         if chr(sum(ord(x) for x in message[:-2]) % 64 + 64) != message[-2]:
-            raise VacuumGaugeError('Invalid message: checksum error: ' + message)
+            raise VacuumGaugeError('Invalid message: checksum error: 0x' + ''.join('%02x' % ord(m) for m in message))
         if not message.startswith('001' + command):
-            raise VacuumGaugeError('Invalid message: should start with 001' + command + ': ' + message)
+            raise VacuumGaugeError('Invalid message: should start with 001' + command + ': 0x' + ''.join('%02x' % ord(m) for m in message))
         return message[4:-2]
     def _parse_float(self, message):
         return float(message[:4]) * 10 ** (float(message[4:6]) - 23)

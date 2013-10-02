@@ -4,11 +4,10 @@ from .. import sample
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import ConfigParser
-import warnings
 
 from gi.repository import GObject
 from ..sample import SAXSSample
-from .subsystem import SubSystem, SubSystemException, SubSystemError
+from .subsystem import SubSystem, SubSystemError
 
 CONFIGPATH = os.path.expanduser('~/.config/credo/sample2rc')
 

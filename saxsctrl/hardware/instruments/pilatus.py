@@ -1,12 +1,12 @@
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, InstrumentProperty, InstrumentPropertyCategory
 import dateutil.parser
-import re
-import socket
 import logging
 import datetime
 import threading
 import math
 import time
+from gi.repository import GObject
+from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -126,7 +126,12 @@ class Pilatus(Instrument_TCP):
     tau = InstrumentProperty(name='tau', type=float, timeout=10, refreshinterval=10)
     cutoff = InstrumentProperty(name='cutoff', type=float, timeout=10, refreshinterval=10)
     imagesremaining = InstrumentProperty(name='imagesremaining', type=int, timeout=10, refreshinterval=10)
+    default_threshold=GObject.property(type=int, default=4024, minimum=3814, maximum=20202, blurb='Default threshold value (eV)')
+    default_gain=GObject.property(type=str, default='highG', blurb='Default gain')
     def __init__(self, offline=True):
+        self._OWG_init_lists()
+        self._OWG_entrytypes['default-gain']=objwithgui.OWG_Param_Type.ListOfStrings
+        self._OWG_hints['default-gain']={objwithgui.OWG_Hint_Type.ChoicesList:['lowG', 'midG', 'highG']}
         Instrument_TCP.__init__(self, offline)
         self._mesgseparator = '\x18'
         self.timeout = 1
@@ -308,7 +313,7 @@ class Pilatus(Instrument_TCP):
         if self.camsetup()['controllingPID'] != self.get_pid():
             raise PilatusError('Cannot establish read-write connection!')
         self._update_instrumentproperties()
-        self.set_threshold(4024)
+        self.set_threshold(self.default_threshold, self.default_gain)
     def camsetup(self):
         message = self.send_and_receive('CamSetup', blocking=True)
         mesg = self.interpret_message(message, 'CamSetup')
@@ -367,11 +372,11 @@ class Pilatus(Instrument_TCP):
         return self._get_general('SetThreshold', 'trimfile')
     def set_threshold(self, threshold, gain=None):
         if gain is None:
-            message = self.send_and_receive('SetThreshold %d' % threshold, blocking=False)
+            self.send_and_receive('SetThreshold %d' % threshold, blocking=False)
         else:
             if not gain.upper().endswith('G'):
                 gain = gain + 'G'
-            message = self.send_and_receive('SetThreshold %s %d' % (gain, threshold), blocking=False)
+            self.send_and_receive('SetThreshold %s %d' % (gain, threshold), blocking=False)
         with self._status_lock:
             self.status = PilatusStatus.Trimming
     def get_temperature_humidity(self):

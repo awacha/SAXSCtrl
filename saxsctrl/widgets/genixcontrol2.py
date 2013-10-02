@@ -1,6 +1,6 @@
 from .widgets import ToolDialog
 from .instrumentstatus import InstrumentStatus
-from ..hardware.instruments.genix import GenixStatus, GenixError, InstrumentError
+from ..hardware.instruments.genix import GenixStatus, InstrumentError
 from gi.repository import Gtk
 
 class GenixControl(ToolDialog):

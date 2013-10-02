@@ -1,16 +1,10 @@
 from gi.repository import Gtk
 import sasgui
-from gi.repository import GObject
 import sastool
-import re
 import os
-from .spec_filechoosers import MaskChooserDialog
 from .exposureselector import ExposureSelector
-import datetime
-from .data_reduction_setup import PleaseWaitDialog
 import qrcode
 from .widgets import ToolDialog
-from gi.repository import GLib
 
 class DataViewer(ToolDialog):
     _filechooserdialogs = None

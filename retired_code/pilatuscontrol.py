@@ -5,19 +5,11 @@ pilatus_exposure.py
 Make exposures.
 """
 
-from gi.repository import GObject
 from gi.repository import Gdk
 from gi.repository import GLib
-import itertools
-import ConfigParser
 from gi.repository import Gtk
 from ..hardware.instruments.pilatus import Pilatus, PilatusError, InstrumentError
 import collections
-import resource
-import os
-import sastool
-import sasgui
-import datetime
 import logging
 import time
 import glob

@@ -19,13 +19,10 @@ official documentation. Especially that part concerning reducing the high tensio
 current is finite, as this operation WILL DAMAGE THE POWER SOURCE!!! Be warned.
 """
 
-import modbus_tk.modbus_tcp
-import modbus_tk.defines
 import multiprocessing
 import logging
 import time
 import itertools
-from gi.repository import GObject
 from .instrument import InstrumentError, Instrument_ModbusTCP, InstrumentStatus, InstrumentProperty, InstrumentPropertyCategory
 
 logger = logging.getLogger(__name__)
@@ -71,7 +68,7 @@ class LoggingLock(object):
         return res
     def __enter__(self):
         return self.acquire()
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type_, value, traceback):
         return self.release()
     
 class Genix(Instrument_ModbusTCP):

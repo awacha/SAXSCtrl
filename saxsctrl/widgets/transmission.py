@@ -1,10 +1,8 @@
 # coding: utf-8
 from gi.repository import Gtk
 import sastool
-import numpy as np
 from .spec_filechoosers import MaskEntryWithButton
 from .samplesetup import SampleSelector
-from gi.repository import GObject
 from .widgets import ToolDialog
 
 class TransmissionMeasurement(ToolDialog):

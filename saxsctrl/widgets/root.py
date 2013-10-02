@@ -1,19 +1,15 @@
 from gi.repository import Gtk
-from gi.repository import GObject
 from gi.repository import Gdk
 from gi.repository import GLib
 
 import logging
-import logging.handlers
 import time
 import resource
 import sys
-import traceback
-import multiprocessing
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, data_reduction_setup, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer
+from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 

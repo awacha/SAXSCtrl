@@ -1,12 +1,10 @@
 from gi.repository import Gtk
 from ..hardware.instruments import genix
 import itertools
-from gi.repository import GObject
 from gi.repository import Gdk
 from gi.repository import GLib
 
 import logging
-import multiprocessing
 
 from .widgets import StatusLabel, ToolDialog
 logger = logging.getLogger(__name__)

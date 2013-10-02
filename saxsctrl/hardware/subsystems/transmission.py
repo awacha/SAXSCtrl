@@ -146,12 +146,12 @@ class SubSystemTransmission(SubSystem):
         elif self._whatsnext == 1:  # 'empty'
             logger.info('Transmission: exposing empty.')
             sse.operate_shutter = True
-            sam = self.credo().subsystems['Samples'].set(self.emptyname)
+            self.credo().subsystems['Samples'].set(self.emptyname)
             self.credo().subsystems['Samples'].moveto(blocking=True)
         elif self._whatsnext == 2:  # 'sample'
             sse.operate_shutter = True
             logger.info('Transmission: exposing sample.')
-            sam = self.credo().subsystems['Samples'].set(self.samplename)
+            self.credo().subsystems['Samples'].set(self.samplename)
             self.credo().subsystems['Samples'].moveto(blocking=True)
         else:
             raise NotImplementedError(self._whatsnext)

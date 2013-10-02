@@ -1,10 +1,8 @@
 from .widgets import ToolDialog, DateEntry
 from gi.repository import Gtk
-from gi.repository import GObject
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg
 from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
 from matplotlib.figure import Figure
-import matplotlib.dates
 import datetime
 
 class HWLogViewer(ToolDialog):

@@ -4,8 +4,6 @@ from gi.repository import GLib
 import os
 import matplotlib.pyplot as plt
 import shutil
-from gi.repository import GObject
-from ..fileformats.scan import Scan
 import sastool
 import threading
 import re
@@ -153,7 +151,7 @@ class MovieMaker(Gtk.Dialog):
                 outname = scanname + 'm%03d.avi' % (max([int(m.group(1)) for m in 
                                                          [m for m in 
                                                           [re.match(scanname + 'm(?P<num>\d+).avi', f) 
-                                                           for f in filespresent ] if m is not None]]) + 1)
+                                                           for f in moviefilespresent ] if m is not None]]) + 1)
             except ValueError:
                 outname = scanname + 'm001.avi'
         cwd = os.getcwd()

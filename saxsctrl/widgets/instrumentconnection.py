@@ -1,6 +1,4 @@
 from gi.repository import Gtk
-from ..hardware.instruments import pilatus, genix, tmcl_motor
-from ..hardware import credo
 from ..hardware import subsystems
 from .widgets import ToolDialog
 

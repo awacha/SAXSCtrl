@@ -1,8 +1,6 @@
 # encoding: utf-8
 from .widgets import ToolDialog
 from gi.repository import Gtk
-from gi.repository import GObject
-from gi.repository import Gdk
 from .instrumentstatus import InstrumentStatus
 
 

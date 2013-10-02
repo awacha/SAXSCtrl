@@ -1,11 +1,11 @@
 from gi.repository import GObject
 from gi.repository import GLib
+from gi.repository import Notify
 
 from .subsystem import SubSystem, SubSystemError
 from ..instruments.tmcl_motor import MotorError
 from ..instruments.pilatus import PilatusError
 from ..instruments.genix import GenixError
-import os
 import weakref
 import time
 import logging
@@ -217,6 +217,7 @@ class SubSystemScan(SubSystem):
         self._header_template['scanfsn'] = self.currentscan.fsn
         self._mask = mask
         self._firsttime = None
+        self._autoreturn_to = self.scandevice.where()
         try:
             del self._kill
         except AttributeError:
@@ -282,7 +283,7 @@ class SubSystemScan(SubSystem):
             # last exposure, set back operate_shutter of Exposure subsystem
             self.credo().subsystems['Exposure'].operate_shutter = self._original_shuttermode
         try:
-            logger.info('Scan step %d/%d' % (self._current_step + 1, self.nstep))
+            logger.debug('Scan step %d/%d' % (self._current_step + 1, self.nstep))
             self._where = self.scandevice.moveto(self.value_begin + (self.value_end - self.value_begin) / (self.nstep - 1) * self._current_step)
         except ScanDeviceError as sde:
             self.emit('scan-fail', str(sde))
@@ -313,7 +314,7 @@ class SubSystemScan(SubSystem):
         if self.autoreturn:
             logger.info('Auto-returning...')
             try:
-                self.scandevice.moveto(self.value_begin)
+                self.scandevice.moveto(self._autoreturn_to)
             except ScanDeviceError:
                 self.emit('scan-fail', 'Error on auto-return.')
         self._firsttime = None
@@ -329,9 +330,27 @@ class SubSystemScan(SubSystem):
             except GenixError:
                 logger.warning('Error closing shutter.')
         logger.info('Scan #%d finished.' % self.currentscan.fsn)
+        if Notify.is_initted():
+            if status:
+                n = Notify.Notification.new('Scan #%d finished' % self.currentscan.fsn,
+                                          'Sequence ended normally.',
+                                          'dialog-information')
+            else:
+                n = Notify.Notification.new('Scan #%d finished' % self.currentscan.fsn,
+                                          'Abnormal termination.',
+                                          'dialog-warning')
+            n.show()
+            del n
+            
 
     def do_scan_fail(self, message):
         logger.error('Scan failure: ' + message)
+        if Notify.is_initted():
+            n = Notify.Notification.new('Scan failure',
+                                      'Reason: ' + message,
+                                      'dialog-error')
+            n.show()
+            del n
     @property
     def stepsize(self):
         return (self.value_end - self.value_begin) / (self.nstep - 1)

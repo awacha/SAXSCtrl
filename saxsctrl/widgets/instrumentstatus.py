@@ -1,7 +1,6 @@
 from gi.repository import Gtk
 from gi.repository import Gdk
-from gi.repository import GObject
-from ..hardware.instruments import InstrumentPropertyCategory, InstrumentError
+from ..hardware.instruments import InstrumentPropertyCategory, InstrumentError, InstrumentPropertyUnknown
 
 class InstrumentStatusLabel(Gtk.Box):
     __gtype_name__ = 'SAXSCtrl_InstrumentStatusLabel'
@@ -34,10 +33,9 @@ class InstrumentStatusLabel(Gtk.Box):
         if propertyname != self._propertyname:
             return False
         try:
-            value, timestamp, category = instrument.get_instrument_property(propertyname)
-        except InstrumentError:
+            value, category = instrument.get_instrument_property(propertyname)[::2]
+        except (InstrumentError, InstrumentPropertyUnknown):
             value = None
-            timestamp = 0
             category = InstrumentPropertyCategory.UNKNOWN
         if self._colourer is None:
             if category in [InstrumentPropertyCategory.ERROR, InstrumentPropertyCategory.NO]:

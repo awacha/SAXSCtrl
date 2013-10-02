@@ -1,8 +1,5 @@
 from gi.repository import Gtk
-from gi.repository import GObject
 import sastool
-import os
-import re
 from sasgui import fileentry
 
 class MaskEntryWithButton(fileentry.FileEntryWithButton):
@@ -12,8 +9,6 @@ class MaskEntryWithButton(fileentry.FileEntryWithButton):
     def get_mask(self):
         return sastool.classes.SASMask(self.get_filename())
         
-
-
 class MaskChooserDialog(Gtk.FileChooserDialog):
     def __init__(self, title='Select mask file...', parent=None, action=Gtk.FileChooserAction.OPEN, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
         Gtk.FileChooserDialog.__init__(self, title, parent, action, buttons)
@@ -81,48 +76,48 @@ class MaskChooserDialog(Gtk.FileChooserDialog):
 #         self.entry.set_text(filename)
 
 
-class ExposureLoader(Gtk.HBox):
-    __gtype_name__ = 'SAXSCtrl_ExposureLoader'
-    __gsignals__ = {'exposure-loaded':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                  }
-    def __init__(self, credo, *args, **kwargs):
-        Gtk.HBox.__init__(self, *args, **kwargs)
-        self.label = Gtk.Label()
-        self.pack_start(self.label, True, True, 0)
-        self.label.set_alignment(0, 0.5)
-        self.button = Gtk.Button(stock=Gtk.STOCK_OPEN)
-        self.pack_start(self.button, False, True, 0)
-        self.button.connect('clicked', self.on_openbutton)
-        self.credo = credo
-        self._eod = None
-        self._exposure = None
-        self._filename = None
-    def _get_eod(self):
-        if self._eod is None:
-            self._eod = ExposureOpenDialog(self.credo, 'Open exposure', self.get_toplevel(), Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT)
-            self._eod.connect('exposure-loaded', self.on_load_exposure)
-        return self._eod
-        
-    def on_openbutton(self, button):
-        eod = self._get_eod()
-        while eod.run() not in (Gtk.ResponseType.CLOSE , RESPONSE_OPEN, Gtk.ResponseType.DELETE_EVENT):
-            pass
-        eod.hide()
-    def on_load_exposure(self, eod, ex):
-        self.label.set_text(ex['FileName'] + ': ' + ex['Title'] + '(' + str(ex['MeasTime']) + ' s)')
-        self._exposure = ex
-        self.emit('exposure-loaded', ex)
-    def get_exposure(self):
-        return self._exposure
-    def forget_exposure(self):
-        del self._exposure
-        self.label.set_text('')
-        self.exposure = None
-    def get_filename(self):
-        return self._exposure['FileName']
-    def set_filename(self, filename):
-        datadirs = self.credo.get_exploaddirs()
-        self.on_load_exposure(None, sastool.classes.SASExposure(filename, dirs=datadirs))
-        return
-            
+# class ExposureLoader(Gtk.HBox):
+#     __gtype_name__ = 'SAXSCtrl_ExposureLoader'
+#     __gsignals__ = {'exposure-loaded':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
+#                   }
+#     def __init__(self, credo, *args, **kwargs):
+#         Gtk.HBox.__init__(self, *args, **kwargs)
+#         self.label = Gtk.Label()
+#         self.pack_start(self.label, True, True, 0)
+#         self.label.set_alignment(0, 0.5)
+#         self.button = Gtk.Button(stock=Gtk.STOCK_OPEN)
+#         self.pack_start(self.button, False, True, 0)
+#         self.button.connect('clicked', self.on_openbutton)
+#         self.credo = credo
+#         self._eod = None
+#         self._exposure = None
+#         self._filename = None
+#     def _get_eod(self):
+#         if self._eod is None:
+#             self._eod = ExposureOpenDialog(self.credo, 'Open exposure', self.get_toplevel(), Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT)
+#             self._eod.connect('exposure-loaded', self.on_load_exposure)
+#         return self._eod
+#         
+#     def on_openbutton(self, button):
+#         eod = self._get_eod()
+#         while eod.run() not in (Gtk.ResponseType.CLOSE , RESPONSE_OPEN, Gtk.ResponseType.DELETE_EVENT):
+#             pass
+#         eod.hide()
+#     def on_load_exposure(self, eod, ex):
+#         self.label.set_text(ex['FileName'] + ': ' + ex['Title'] + '(' + str(ex['MeasTime']) + ' s)')
+#         self._exposure = ex
+#         self.emit('exposure-loaded', ex)
+#     def get_exposure(self):
+#         return self._exposure
+#     def forget_exposure(self):
+#         del self._exposure
+#         self.label.set_text('')
+#         self.exposure = None
+#     def get_filename(self):
+#         return self._exposure['FileName']
+#     def set_filename(self, filename):
+#         datadirs = self.credo.get_exploaddirs()
+#         self.on_load_exposure(None, sastool.classes.SASExposure(filename, dirs=datadirs))
+#         return
+#             
 

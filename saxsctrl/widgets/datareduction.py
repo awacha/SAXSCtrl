@@ -4,9 +4,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import GLib
 from .widgets import ToolDialog
-from sasgui.fileentry import FileEntryWithButton
 from ..hardware.subsystems.datareduction import DataReductionError
-import sastool
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

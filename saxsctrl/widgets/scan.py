@@ -1,23 +1,11 @@
 from gi.repository import Gtk
-from gi.repository import Pango
 from gi.repository import GLib
 
-import matplotlib.pyplot as plt
-import sasgui
-from gi.repository import GObject
-import numpy as np
-import gc
-from ..hardware import sample, virtualpointdetector, credo
-from .spec_filechoosers import MaskChooserDialog
 from .widgets import ToolDialog
-import sastool
 import scangraph
-import os
 import logging
 import datetime
-import re
-import multiprocessing
-import sys
+import time
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -28,7 +16,6 @@ class ScanDeviceSelector(Gtk.ComboBoxText):
         self.credo = credo
         self._fromcredo()
     def _fromcredo(self):
-        model = self.get_model().clear()
         for i, sd in enumerate(self.credo.subsystems['Scan'].get_supported_devices()):
             self.append_text(sd)
             if self.credo.subsystems['Scan'].devicename == sd:
@@ -76,21 +63,30 @@ class Scan(ToolDialog):
         self.entrytable.attach(self.exptime_entry, 1, 2, row, row + 1)
         row += 1
 
-        l = Gtk.Label(label='Start:'); l.set_alignment(0, 0.5)
-        self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.symmetric_scan_check = Gtk.CheckButton(label='Symmetric scan');
+        self.symmetric_scan_check.set_alignment(0, 0.5)
+        self.entrytable.attach(self.symmetric_scan_check, 0, 2, row, row + 1)
+        row += 1
+        
+        self.start_label = Gtk.Label(label='Start:'); self.start_label.set_alignment(0, 0.5)
+        self.entrytable.attach(self.start_label, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.start_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].value_begin, -1e9, 1e9, 1, 10), digits=4)
         self.entrytable.attach(self.start_entry, 1, 2, row, row + 1)
         self.start_entry.set_value(self.credo.subsystems['Scan'].value_begin)
         self.start_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
         row += 1
 
-        l = Gtk.Label(label='End:'); l.set_alignment(0, 0.5)
-        self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.end_label = Gtk.Label(label='End:'); self.end_label.set_alignment(0, 0.5)
+        self.end_label.set_no_show_all(True)
+        self.entrytable.attach(self.end_label, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.end_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(self.credo.subsystems['Scan'].value_end, -1e9, 1e9, 1, 10), digits=4)
+        self.end_entry.set_no_show_all(True)
         self.entrytable.attach(self.end_entry, 1, 2, row, row + 1)
         self.end_entry.set_value(self.credo.subsystems['Scan'].value_end)
         self.end_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
         row += 1
+
+        self.symmetric_scan_check.connect('toggled', self.on_symmetric_scan_toggled)
 
         l = Gtk.Label(label='Number of steps:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
@@ -133,15 +129,39 @@ class Scan(ToolDialog):
         self.entrytable.attach(self.repetitions_entry, 1, 2, row, row + 1)
         row += 1
         
+        self._progress_frame = Gtk.Frame(label='Progress')
+        self._progress_frame.set_no_show_all(True)
+        self.get_content_area().pack_start(self._progress_frame, False, False, 0)
+        self._progressbar = Gtk.ProgressBar()
+        self._progress_frame.add(self._progressbar)
+        self._progressbar.set_show_text(True)
+        self._progressbar.show()
+        
         self.lazystop_button = Gtk.ToggleButton(label="Stop after current run")
         self.lazystop_button.connect('toggled', self.on_lazystop)
         self.lazystop_button.set_sensitive(False)
         self.get_action_area().pack_start(self.lazystop_button, False, False, 0)
         
         self._recalculate_stepsize()
+        self.on_symmetric_scan_toggled(self.symmetric_scan_check)
         vb.show_all()
+        
+    def on_symmetric_scan_toggled(self, sscb):
+        if sscb.get_active():
+            self.end_label.hide()
+            self.end_entry.hide()
+            self.start_label.set_text('Half scan width:')
+        else:
+            self.end_label.show()
+            self.end_entry.show()
+            self.start_label.set_text('Start:')
+        self._recalculate_stepsize()
+            
     def _recalculate_stepsize(self):
-        self.stepsize_label.set_label(str((self.end_entry.get_value() - self.start_entry.get_value()) / (self.step_entry.get_value_as_int() - 1)))
+        if self.symmetric_scan_check.get_active():
+            self.stepsize_label.set_label(str((self.start_entry.get_value() * 2) / (self.step_entry.get_value_as_int() - 1)))
+        else:
+            self.stepsize_label.set_label(str((self.end_entry.get_value() - self.start_entry.get_value()) / (self.step_entry.get_value_as_int() - 1)))
     def on_lazystop(self, button):
         if self.lazystop_button.get_active():
             self.lazystop_button.set_label('Will stop...')
@@ -154,21 +174,26 @@ class Scan(ToolDialog):
         self.credo.subsystems['Samples'].set(None)
         self.credo.subsystems['Scan'].countingtime = self.exptime_entry.get_value()
         self.credo.subsystems['Scan'].waittime = self.dwelltime_entry.get_value()
-        self.credo.subsystems['Scan'].value_begin = self.start_entry.get_value()
-        self.credo.subsystems['Scan'].value_end = self.end_entry.get_value()
-        self.credo.subsystems['Scan'].nstep = self.step_entry.get_value_as_int()
         self.credo.subsystems['Scan'].devicename = self.scandevice_selector.get()
+        if self.symmetric_scan_check.get_active():
+            self.credo.subsystems['Scan'].value_begin = self.credo.subsystems['Scan'].scandevice.where() - self.start_entry.get_value()
+            self.credo.subsystems['Scan'].value_end = self.credo.subsystems['Scan'].scandevice.where() + self.start_entry.get_value()
+        else:
+            self.credo.subsystems['Scan'].value_begin = self.start_entry.get_value()
+            self.credo.subsystems['Scan'].value_end = self.end_entry.get_value()
+        self.credo.subsystems['Scan'].nstep = self.step_entry.get_value_as_int()
         self.credo.subsystems['Scan'].comment = self.samplename_entry.get_text()
         self.credo.subsystems['Scan'].autoreturn = self.autoreturn_checkbutton.get_active()
         self._scanconnections = [self.credo.subsystems['Scan'].connect('scan-end', self._scan_end),
                                  self.credo.subsystems['Scan'].connect('scan-report', self._scan_report),
                                  self.credo.subsystems['Scan'].connect('scan-fail', self._scan_fail)]
-        self.credo.subsystems['Scan'].prepare()
-        self._scangraph = scangraph.ScanGraph(self.credo.subsystems['Scan'].currentscan, 'Scan #%d' % (self.credo.subsystems['Scan'].currentscan.fsn))
-        self._scangraph.figtext(1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
-        self._scangraph.show_all()
-        self._scangraph.set_scalers([(vd.name, vd.visible, vd.scaler) for vd in self.credo.subsystems['VirtualDetectors']])
         try:
+            self.credo.subsystems['Scan'].prepare()
+            self._scangraph = scangraph.ScanGraph(self.credo.subsystems['Scan'].currentscan, self.credo, 'Scan #%d' % (self.credo.subsystems['Scan'].currentscan.fsn))
+            self._scangraph.figtext(1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
+            self._scangraph.show_all()
+            self._scangraph.set_scalers([(vd.name, vd.visible, vd.scaler) for vd in self.credo.subsystems['VirtualDetectors']])
+            self._scangraph.is_recording = True
             self.credo.subsystems['Scan'].start()
             self.entrytable.set_sensitive(False)
             self.set_sensitive(False)
@@ -185,7 +210,10 @@ class Scan(ToolDialog):
             self.entrytable.set_sensitive(False)
             self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
             self.lazystop_button.set_sensitive(True)
-        
+            self._progress_frame.show_now()
+            self._progressbar.set_fraction(0.0)
+            self._progressbar.set_text('Estimating end time...')
+            self._starttime = time.time()
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             if self.get_sensitive() and self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == Gtk.STOCK_EXECUTE:
@@ -227,9 +255,14 @@ class Scan(ToolDialog):
             self.set_response_sensitive(Gtk.ResponseType.OK, True)
             self.lazystop_button.set_sensitive(False)
             self.entrytable.set_sensitive(True)
+            self._progress_frame.hide()
+            self._scangraph.is_recording = False
         return True
     def _scan_report(self, subsys, scan):
         self._scangraph.redraw_scan()
+        self._progressbar.set_fraction(len(self.credo.subsystems['Scan'].currentscan) / self.step_entry.get_value())
+        endtime = self._starttime + (time.time() - self._starttime) * self.step_entry.get_value() / len(self.credo.subsystems['Scan'].currentscan)
+        self._progressbar.set_text('Est. end: ' + str(datetime.datetime.fromtimestamp(endtime)))
     def _scan_fail(self, subsys, mesg):
         md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Scan failure')
         md.format_secondary_text(mesg)

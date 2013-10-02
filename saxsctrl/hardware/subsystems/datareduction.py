@@ -1,18 +1,11 @@
 import sastool
-from sastool.misc.numerictests import *
-import numpy as np
+import sastool.misc.numerictests as smn
 import os
-import gc
-import re
-import ConfigParser
 import logging
-import functools
 from gi.repository import GObject
 import Queue
 import threading
-import uuid
 import weakref
-from gi.repository import Gtk
 from gi.repository import GLib
 import matplotlib.figure
 import matplotlib.backends.backend_agg
@@ -76,8 +69,8 @@ class BackgroundSubtraction(DataReductionStep):
             return True
         try:
             bgheader = self.chain.beamtimeraw.find('Title', self.title,
-                                                   'EnergyCalibrated', InClosedNeighbourhood(exposure['EnergyCalibrated'], self.energy_tolerance),
-                                                   'DistCalibrated', InClosedNeighbourhood(exposure['DistCalibrated'], self.distance_tolerance),
+                                                   'EnergyCalibrated', smn.InClosedNeighbourhood(exposure['EnergyCalibrated'], self.energy_tolerance),
+                                                   'DistCalibrated', smn.InClosedNeighbourhood(exposure['DistCalibrated'], self.distance_tolerance),
                                                    returnonly=self.association, date=exposure['Date'])
         except IndexError:
             raise DataReductionError('Cannot find background for ' + str(exposure.header))
@@ -152,8 +145,8 @@ class AbsoluteCalibration(DataReductionStep):
             return True
         try:
             refheader = self.chain.beamtimeraw.find('Title', self.title,
-                                                    'EnergyCalibrated', InClosedNeighbourhood(exposure['EnergyCalibrated'], self.energy_tolerance),
-                                                    'DistCalibrated', InClosedNeighbourhood(exposure['DistCalibrated'], self.distance_tolerance),
+                                                    'EnergyCalibrated', smn.InClosedNeighbourhood(exposure['EnergyCalibrated'], self.energy_tolerance),
+                                                    'DistCalibrated', smn.InClosedNeighbourhood(exposure['DistCalibrated'], self.distance_tolerance),
                                                     returnonly=self.association, date=exposure['Date'])
         except IndexError:
             raise DataReductionError('Cannot find reference dataset for ' + str(exposure.header))
@@ -256,7 +249,7 @@ class ReductionThread(GObject.GObject):
             except Queue.Empty:
                 self._threadsafe_emit('idle')
                 fsn, force = self.inqueue.get()
-            if isinstance(fsn, str) and exposure == 'KILL!':
+            if isinstance(fsn, str) and fsn == 'KILL!':
                 break
             try:
                 exposure = self.beamtimeraw.load_exposure(fsn)
@@ -343,7 +336,6 @@ class SubSystemDataReduction(SubSystem):
     def _on_idle(self, thread):
         self.emit('idle')
     def _on_done(self, thread, fsn, exposure):
-        ssf = self.credo().subsystems['Files']
         self.emit('done', fsn, exposure)
     def __del__(self):
         if self._reduction_thread is not None:

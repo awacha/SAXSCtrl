@@ -1,10 +1,9 @@
 from gi.repository import Gtk
-from gi.repository import GObject
 from gi.repository import Pango
 from gi.repository import GLib
 
 import logging
-import logging.handlers
+
 
 class LogDisplay(Gtk.VBox):
     def __init__(self, *args, **kwargs):

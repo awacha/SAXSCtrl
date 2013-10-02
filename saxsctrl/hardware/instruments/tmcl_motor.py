@@ -1,13 +1,6 @@
-import serial
 import logging
-import time
 import struct
-import multiprocessing
 import multiprocessing.queues
-import threading
-import os
-import socket
-import select
 import weakref
 import ConfigParser
 import numbers
@@ -124,7 +117,7 @@ class TMCMModule(Instrument_TCP):
             cp.read(filename)
             for name in cp.sections():
                 if name not in self.motors:
-                    mot = self.add_motor(0, name)
+                    self.add_motor(0, name)
                 self.motors[name].load_from_configparser(cp)
             self.settingsfile = filename
         finally:
@@ -430,7 +423,8 @@ class StepperMotor(GObject.GObject):
                     'motor-stop':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (bool, bool)),
                     'settings-changed':(GObject.SignalFlags.RUN_FIRST, None, ()),
-                    'notify':'override'
+                    'notify':'override',
+                    'idle':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     }
     mot_idx = GObject.property(type=int, default=0, minimum=0, maximum=100, blurb='Motor index in TMCM module')
     alias = GObject.property(type=str, default='<unknown motor>', blurb='Mnemonic name')
@@ -511,7 +505,9 @@ class StepperMotor(GObject.GObject):
             self.emit('settings-changed')
         else:
             logger.debug('Motor property %s changed to: %s' % (prop.name, str(self.get_property(prop.name))))
-            
+        if prop.name == 'status':
+            if self.status == StepperStatus.Idle:
+                self.emit('idle')
     def do_settings_changed(self):
         self.driver().save_settings_delayed()
     
@@ -530,7 +526,7 @@ class StepperMotor(GObject.GObject):
         # Warning: we now have acquired one semaphore. If for any
         # reason we cannot start the motion, we should release it.
         try:
-            rawpos, relative, endposition = self._movequeue.pop()
+            rawpos, relative = self._movequeue.pop()[:2]
         except IndexError:
             # if no motion commands are queued, return.
             self.driver()._motorsemaphore.release()

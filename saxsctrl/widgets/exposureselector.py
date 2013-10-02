@@ -72,8 +72,8 @@ class ExposureBrowserDialog(Gtk.Dialog):
         self.reload()
         vb.show_all()
     def _tvc_column_clicked(self, col, title, idx):
-        id, direct = self.liststore.get_sort_column_id()
-        if id == idx:
+        id_, direct = self.liststore.get_sort_column_id()
+        if id_ == idx:
             self.liststore.set_sort_column_id(idx, 1 - direct)
             col.set_sort_order(1 - direct)
         else:

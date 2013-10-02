@@ -2,26 +2,12 @@
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-import sastool
-import re
 import os
 import gc
-import matplotlib.pyplot as plt
-import datetime
-import dateutil.parser
-import threading
-import uuid
-import time
-import cPickle as pickle
-from gi.repository import Gio
 from gi.repository import GObject
 import ConfigParser
-import multiprocessing
-import numpy as np
 
 from . import subsystems
-from . import sample
-from . import virtualpointdetector
 from ..utils import objwithgui
 
 

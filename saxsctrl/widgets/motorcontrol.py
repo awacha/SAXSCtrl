@@ -5,7 +5,6 @@ from gi.repository import Gdk
 from gi.repository import GLib
 
 from .widgets import ToolDialog
-import multiprocessing
 import datetime
 import os
 import ConfigParser
@@ -194,7 +193,7 @@ class MotorMonitor(ToolDialog):
         del cp
         return True
     def _on_execute(self, button):
-        model, it = self._savedmotorstates_view.get_selection().get_selected()
+        it = self._savedmotorstates_view.get_selection().get_selected()[1]
         return self._on_row_activated(self._savedmotorstates_view, it, None)
         
     def _movement_finished(self, ssm, it):

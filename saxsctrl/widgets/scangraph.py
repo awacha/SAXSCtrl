@@ -4,16 +4,20 @@ from gi.repository import GdkPixbuf
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg
 from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
-import matplotlib.pyplot as plt
 import numpy as np
-import sys
 from .widgets import ToolDialog
+from ..hardware.subsystems import SubSystemError
+from ..hardware.instruments.tmcl_motor import MotorError
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import sastool
 import os
 import pkg_resources
+import matplotlib
+import itertools
+import sasgui
+
 
 iconfactory = Gtk.IconFactory()
 for f, n in [('fitpeak.png', 'Fit peak')]:
@@ -25,8 +29,13 @@ iconfactory.add_default()
 class ScanGraph(ToolDialog):
     RESPONSE_DERIVATIVE = 1
     RESPONSE_INTEGRATE = 2
-    def __init__(self, scan, title='Scan results'):
-        ToolDialog.__init__(self, None, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, 'Derivative', self.RESPONSE_DERIVATIVE, 'Integrate', self.RESPONSE_INTEGRATE))
+    is_recording = GObject.property(type=bool, default=False, blurb='Scan running')
+    __gsignals__ = {'notify':'override'}
+    def __init__(self, scan, credo, title='Scan results'):
+        self._lines = []
+        self._cursors = {}
+        self._cursor_at = None
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, 'Derivative', self.RESPONSE_DERIVATIVE, 'Integrate', self.RESPONSE_INTEGRATE))
         vb = self.get_content_area()
         self.fig = Figure()
         self.figcanvas = FigureCanvasGTK3Agg(self.fig)
@@ -34,6 +43,13 @@ class ScanGraph(ToolDialog):
         vb.pack_start(hb, True, True, 0)
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         hb.pack1(vb, True, False)
+        self._hb_cursor = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(self._hb_cursor, False, False, 0)
+        self._hb_cursor.set_no_show_all(True)
+        self._hb_motor = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(self._hb_motor, False, False, 0)
+        self._hb_motor.set_no_show_all(True)
+        
         vb.pack_start(self.figcanvas, True, True, 0)
         self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
         vb.pack_start(self.figtoolbar, False, True, 0)
@@ -45,11 +61,48 @@ class ScanGraph(ToolDialog):
         b.set_tooltip_text('Fit a Lorentzian peak to the zoomed portion of the currently selected signal')
         self.figtoolbar.insert(b, self.figtoolbar.get_n_items() - 2)
         b.connect('clicked', self.on_fitpeak)
+        
         self.scan = scan
         self.datacols = [c for c in self.scan.columns() if c != self.scan.get_dataname('x')]
         self.xname = self.scan.get_dataname('x')
         self.xlabel(self.xname)
-        
+
+            
+        l = Gtk.Label('Move cursor')
+        self._hb_cursor.pack_start(l, False, False, 0)
+        l.show()
+        self._cursor_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=Gtk.Adjustment(0, 0, 1, 0, 1))
+        self._hb_cursor.pack_start(self._cursor_scale, True, True, 0)
+        self._cursor_scale.show()
+        self._cursor_scale.set_draw_value(False)
+        self._cursor_scale.connect('value-changed', lambda scale:self.move_cursor(scale.get_value()))
+        self._cursor_label = Gtk.Label('')
+        self._hb_cursor.pack_start(self._cursor_label, False, False, 0)
+        self._cursor_label.show()
+        b = Gtk.Button('Go to min')
+        self._hb_cursor.pack_start(b, False, False, 0)
+        b.show()
+        b.connect('clicked', lambda b: self._on_goto_min())
+        b = Gtk.Button('Go to max')
+        self._hb_cursor.pack_start(b, False, False, 0)
+        b.show()
+        b.connect('clicked', lambda b: self._on_goto_max())
+        if not self.credo.offline:
+            try:
+                self.motor = self.credo.subsystems['Motors'].get(self.xname)
+            except SubSystemError:
+                pass
+            else:
+                b1 = Gtk.Button('Motor to cursor')
+                self._hb_cursor.pack_start(b1, False, False, 0)
+                b1.show()
+                b2 = Gtk.Button('Motor to peak')
+                self._hb_cursor.pack_start(b2, False, False, 0)
+                b2.show()
+                b1.connect('clicked', self._on_motor_to_cursor, b2)
+                b2.connect('clicked', self._on_motor_to_peak, b1)
+                
+
         ls = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_FLOAT)
         self.scalertreeview = Gtk.TreeView(ls)
         cr = Gtk.CellRendererText()
@@ -68,8 +121,17 @@ class ScanGraph(ToolDialog):
         tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)     
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
+        vb0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._logy_check = Gtk.CheckButton('Logarithmic y')
+        self._logy_check.connect('toggled', lambda cb:self.redraw_scan())
+        vb0.pack_start(self._logy_check, False, False, 0)
+        self._show2d_check = Gtk.CheckButton('Show 2D image')
+        self._show2d_check.connect('toggled', lambda cb:self.redraw_scan())
+        vb0.pack_start(self._show2d_check, False, False, 0)
+        
         vb = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        hb.pack2(vb, False, False)
+        hb.pack2(vb0, False, False)
+        vb0.pack_start(vb, True, True, 0)
         vb.set_size_request(100, -1)
         hb.set_size_request(740, -1)
         sw = Gtk.ScrolledWindow()
@@ -87,21 +149,102 @@ class ScanGraph(ToolDialog):
             vb.pack_start(f, False, False, 0)
             self.currvallabels[col] = Gtk.Label('--')
             f.add(self.currvallabels[col])
+        self._initialize_cursors()
         self.set_scalers(None)
+        self.is_recording = False
+    def _on_motor_to_cursor(self, *buttons):
+        try:
+            self._movement_connection = self.motor.connect('idle', self._on_motor_idle, *buttons)
+            self.motor.moveto(self.scan[self.xname][self._cursor_at])
+            for b in buttons:
+                b.set_sensitive(False)
+        except MotorError as me:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot move to cursor')
+            md.set_title('Reason: ' + str(me))
+            md.run()
+            md.destroy()
+            del md
+            return
+    def _on_motor_idle(self, mot, *buttons):
+        for b in buttons:
+            b.set_sensitive(True)
+        mot.disconnect(self._movement_connection)
+    def _on_motor_to_peak(self, *buttons):
+        if not hasattr(self, '_lastpeakpos'):
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot move to peak')
+            md.set_title('Please do a peak fit before trying to move the motor to the peak position!')
+            md.run()
+            md.destroy()
+            del md
+            return
+        try:
+            self._movement_connection = self.motor.connect('idle', self._on_motor_idle, *buttons)
+            self.motor.moveto(float(self._lastpeakpos))
+            for b in buttons:
+                b.set_sensitive(False)
+        except MotorError as me:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot move to peak')
+            md.set_title('Reason: ' + str(me))
+            md.run()
+            md.destroy()
+            del md
+            return
+        pass    
+    def _on_goto_min(self):
+        model, iter_ = self.scalertreeview.get_selection().get_selected()
+        if iter_ is None:
+            return
+        signalname = model[iter_][0]
+        self.move_cursor(self.scan[self.xname][self.scan[signalname].argmin()])
+    def _on_goto_max(self):
+        model, iter_ = self.scalertreeview.get_selection().get_selected()
+        if iter_ is None:
+            return
+        signalname = model[iter_][0]
+        self.move_cursor(self.scan[self.xname][self.scan[signalname].argmax()])
+    def _initialize_cursors(self):
+        for col, color in itertools.izip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
+            self._cursors[col] = self.gca().plot(np.nan, np.nan, 'o', markersize=4, mew=2, mfc='none', mec=color)[0]
+            
+    def do_notify(self, prop):
+        if prop.name == 'is-recording':
+            if not self.is_recording:
+                self._hb_cursor.show_now()
+                x = self.scan[self.xname]
+                if not len(x):
+                    return
+                self._cursor_scale.set_range(x.min(), x.max())
+                xlen = x.max() - x.min()
+                self._cursor_scale.set_increments(xlen * 1.0 / (len(x) - 1), min(xlen * 10.0 / (len(x) - 1), len(x) / 5.))
+                self._cursor_scale.set_digits(max(0, -np.log10(x.max() - x.min())) + 3)
+                self._cursor_scale.set_value(0.5 * (x.min() + x.max()))
+                self.move_cursor(0.5 * (x.min() + x.max()))
+            else:
+                self._hb_cursor.hide()
+                
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.destroy()
         elif respid == self.RESPONSE_DERIVATIVE:
-            sg = ScanGraph(self.scan.diff(), title='Derivative of ' + self.get_title())
+            sg = ScanGraph(self.scan.diff(), self.credo, title='Derivative of ' + self.get_title())
             sg.set_scalers([(x[0], x[1], x[2]) for x in self.scalertreeview.get_model()])
             sg.redraw_scan()
             sg.show_all()
         elif respid == self.RESPONSE_INTEGRATE:
-            sg = ScanGraph(self.scan.integrate(), title='Integrated ' + self.get_title())
+            sg = ScanGraph(self.scan.integrate(), self.credo, title='Integrated ' + self.get_title())
             sg.set_scalers([(x[0], x[1], x[2]) for x in self.scalertreeview.get_model()])
             sg.redraw_scan()
             sg.show_all()
         return
+    
+    def move_cursor(self, to):
+        self._cursor_at = np.interp(to, self.scan[self.xname], np.arange(len(self.scan)), 0, len(self.scan) - 1)
+        if self._cursor_scale.get_value() != to:
+            self._cursor_scale.set_value(to)
+            self._cursor_label.set_label(str(to))
+        self.redraw_scan()
+        
+
     def xlabel(self, *args, **kwargs):
         self.gca().set_xlabel(*args, **kwargs)
     def ylabel(self, *args, **kwargs):
@@ -119,26 +262,38 @@ class ScanGraph(ToolDialog):
     def redraw_scan(self, full=False):
         if self.scan is None:
             return
+        if not len(self.scan):
+            return
         mod = self.scalertreeview.get_model()
         x = self.scan[self.xname]
-        if not self.gca().lines:
+        if self.is_recording:
+            self._cursor_at = len(x) - 1
+        elif self._cursor_at is None:
+            self._cursor_at = 0
+        if not self._lines:
             full = True
         if full:
             self.gca().cla()
-            for col in self.datacols:
+            self._initialize_cursors()
+            for col, color in itertools.izip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
                 try:
                     scale = [m[2] for m in mod if m[0] == col][0]
                     visible = [m[1] for m in mod if m[0] == col][0]
                 except IndexError:
                     scale = None
                     visible = False
-                if not visible: continue
-                self.gca().plot(x, self.scan[col] * scale, '.-', label=col)
+                if not visible:
+                    self._cursors[col].set_visible(False)
+                    continue
+                self._cursors[col].set_visible(True)
+                self._lines.extend(self.gca().plot(x, self.scan[col] * scale, '.-', color=color, label=col))
+                self._cursors[col].set_xdata(x[self._cursor_at])
+                self._cursors[col].set_ydata(self.scan[col][self._cursor_at] * scale)
             self.xlabel(self.xname)
         else:
             miny = np.inf
             maxy = -np.inf
-            for l in self.gca().lines:
+            for l in self._lines:
                 l.set_xdata(x)
                 try:
                     scale = [m[2] for m in mod if m[0] == l.get_label()][0]
@@ -146,20 +301,35 @@ class ScanGraph(ToolDialog):
                 except IndexError:
                     scale = None
                     visible = False
+                self._cursors[l.get_label()].set_visible(visible)
                 if not visible: continue
                 
                 y = self.scan[l.get_label()] * scale 
                 l.set_ydata(y)
                 if y.max() > maxy: maxy = y.max()
                 if y.min() < miny: miny = y.min()
+                self._cursors[l.get_label()].set_xdata(x[self._cursor_at])
+                self._cursors[l.get_label()].set_ydata(y[self._cursor_at])
             dx = max(abs(x.max() - x.min()) * 0.05, 0.5)
             self.fig.gca().set_xlim(x.min() - dx, x.max() + dx)
             dy = max(abs(maxy - miny) * 0.05, 0.5)
             self.fig.gca().set_ylim(miny - dy, maxy + dy)
+        if self._show2d_check.get_active() and ('FSN' in self.scan.columns()):
+            ssf = self.credo.subsystems['Files']
+            exposure = sastool.classes.SASExposure(ssf.get_exposureformat('scan') % self.scan['FSN'][self._cursor_at], dirs=[ssf.scanpath, ssf.imagespath, ssf.parampath] + sastool.misc.find_subdirs(ssf.maskpath))
+            pltwin = sasgui.PlotSASImageWindow.get_current_plot()
+            pltwin.set_exposure(exposure)
+            if not pltwin.is_visible():
+                pltwin.show_all()
+            
         self.legend(loc='best')
+        if self._logy_check.get_active():
+            self.fig.gca().set_yscale('log')
+        else:
+            self.fig.gca().set_yscale('linear')
         self.fig.canvas.draw()
         for c in self.currvallabels:
-            self.currvallabels[c].set_label('%f' % self.scan[c][-1])
+            self.currvallabels[c].set_label('%f' % self.scan[c][self._cursor_at])
     def set_scalers(self, scalerlist=None):
         mod = self.scalertreeview.get_model()
         mod.clear()
@@ -185,20 +355,32 @@ class ScanGraph(ToolDialog):
         if iter_ is None:
             return
         signalname = model[iter_][0]
-        curve = sastool.GeneralCurve(self.scan[self.xname], self.scan[signalname])
+        scale = [m[2] for m in self.scalertreeview.get_model() if m[0] == signalname][0]
+        curve = sastool.GeneralCurve(self.scan[self.xname], self.scan[signalname] * scale)
         curve = curve.trim(*(self.gca().axis()))
-        if not len(curve):
+        try:
+            if not len(curve):
+                raise TypeError()
+            pos, hwhm, baseline, amplitude = sastool.misc.findpeak_single(curve.x, curve.y, curve='Lorentz')
+        except TypeError:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Fitting error')
             md.set_title('Please make sure you selected the correct signal for fitting.')
             md.run()
             md.destroy()
             del md
             return
-        pos, hwhm, baseline, amplitude = sastool.misc.findpeak_single(curve.x, curve.y, curve='Lorentz')
         xfitted = np.linspace(curve.x.min(), curve.x.max(), 5 * len(curve.x))
         fitted = sastool.GeneralCurve(xfitted, amplitude * hwhm ** 2 / (hwhm ** 2 + (pos - xfitted) ** 2) + baseline)
-        fitted.plot('r-', axes=self.gca(), label='Peak of %s at: ' % signalname + str(pos))
-        self.text(float(pos), curve.interpolate(float(pos)), 'Peak at: ' + str(pos), ha='left', va='top')
+        if hasattr(self, '_fittedline'):
+            self._fittedline.set_xdata(fitted.x)
+            self._fittedline.set_ydata(fitted.y)
+        else:
+            self._fittedline = fitted.plot('r-', axes=self.gca(), label='Peak of %s at: ' % signalname + str(pos))[0]
+        if hasattr(self, '_peakpostext'):
+            self._peakpostext.set_text('Peak at: ' + str(pos))
+        else:
+            self._peakpostext = self.text(float(pos), curve.interpolate(float(pos)), 'Peak at: ' + str(pos), ha='left', va='top')
+        self._lastpeakpos = pos
         self.fig.canvas.draw()
         
 class ImagingGraph(ToolDialog):

@@ -2,12 +2,9 @@
 # coding: utf-8
 from gi.repository import Gtk
 import datetime
-import dateutil.parser
 from ..hardware import sample
 from gi.repository import GObject
 # import cPickle as pickle
-import os
-import ConfigParser
 from .widgets import ToolDialog
 
 

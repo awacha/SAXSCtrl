@@ -1,5 +1,4 @@
 from gi.repository import Gtk
-import sastool
 import sasgui
 import os
 from .exposureselector import ExposureSelector

@@ -1,8 +1,7 @@
 import os
 import re
 import logging
-from .subsystem import SubSystem
-import ConfigParser
+from .subsystem import SubSystem, SubSystemError
 import sastool
 
 from gi.repository import GObject

@@ -148,7 +148,7 @@ class CapilSizer(ToolDialog):
         try:
             x = self._scan[0]
             y = self._scan[self._signalname_combo.get_active_text()]
-        except (KeyError, AttributeError, TypeError) as exc:
+        except (KeyError, AttributeError, TypeError):
             return
         self.fig.clf()
         ax = self.fig.gca()

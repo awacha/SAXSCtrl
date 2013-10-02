@@ -1,22 +1,8 @@
 from gi.repository import Gtk
-from gi.repository import Pango
-import matplotlib.pyplot as plt
-import sasgui
-from gi.repository import GObject
-import numpy as np
-import gc
-from ..hardware import sample, virtualpointdetector, credo
-from .spec_filechoosers import MaskChooserDialog
 from .widgets import ToolDialog
-import sastool
 import scangraph
-import os
 import logging
 import datetime
-import re
-import multiprocessing
-import sys
-from .scan import ScanDeviceSelector
 from gi.repository import GLib
 
 logger = logging.getLogger(__name__)
@@ -29,7 +15,7 @@ class ImagingDeviceSelector(Gtk.ComboBoxText):
         self.number = number
         self._fromcredo()
     def _fromcredo(self):
-        model = self.get_model().clear()
+        self.get_model().clear()
         for i, sd in enumerate(self.credo.subsystems['Imaging'].get_supported_devices()):
             self.append_text(sd)
             if self.credo.subsystems['Imaging'].get_property('devicename%d' % self.number) == sd:
@@ -189,13 +175,13 @@ class Imaging(ToolDialog):
         self._scanconnections = [self.credo.subsystems['Imaging'].connect('imaging-end', self._imaging_end),
                                  self.credo.subsystems['Imaging'].connect('imaging-report', self._imaging_report),
                                  self.credo.subsystems['Imaging'].connect('imaging-fail', self._imaging_fail)]
-        self.credo.subsystems['Imaging'].prepare()
-        self._scangraph = scangraph.ImagingGraph(self.credo.subsystems['Imaging'].currentscan, 'Imaging #%d' % (self.credo.subsystems['Imaging'].currentscan.fsn),
-                                                 extent=[self.start1_entry.get_value(), self.end1_entry.get_value(), self.start2_entry.get_value(), self.end2_entry.get_value()])
-        self._scangraph.figtext(1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
-        self._scangraph.show_all()
-        self._scangraph.set_scalers([(vd.name, vd.visible, 'Linear', vd.scaler) for vd in self.credo.subsystems['VirtualDetectors']])
         try:
+            self.credo.subsystems['Imaging'].prepare()
+            self._scangraph = scangraph.ImagingGraph(self.credo.subsystems['Imaging'].currentscan, 'Imaging #%d' % (self.credo.subsystems['Imaging'].currentscan.fsn),
+                                                     extent=[self.start1_entry.get_value(), self.end1_entry.get_value(), self.start2_entry.get_value(), self.end2_entry.get_value()])
+            self._scangraph.figtext(1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
+            self._scangraph.show_all()
+            self._scangraph.set_scalers([(vd.name, vd.visible, 'Linear', vd.scaler) for vd in self.credo.subsystems['VirtualDetectors']])
             self.credo.subsystems['Imaging'].start()
             self.entrytable.set_sensitive(False)
             self.set_sensitive(False)

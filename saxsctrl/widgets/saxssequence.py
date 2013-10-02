@@ -2,15 +2,11 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 from .widgets import ToolDialog
-from .samplesetup import SampleSelector
 from ..hardware.instruments import genix
-from ..utils import objwithgui
 from gi.repository import GtkSource
 from gi.repository import Pango
 from gi.repository import Gdk
 from gi.repository import GLib
-import ConfigParser
-import uuid
 import time
 import re
 
@@ -247,7 +243,7 @@ class SeqCommandMoveMotor(SeqCommand):
         return self._kill
     def simulate(self, credo, prevval, vars):
         self._parse_expressions(credo, prevval, vars)
-        logger.info('Simulating: moving motor ' + self.motor + ' to absolute position ' + str(to))
+        logger.info('Simulating: moving motor ' + self.motor + ' to absolute position ' + str(self.to))
 
 class SeqCommandMoverelMotor(SeqCommand):
     command = 'moverel'
@@ -271,7 +267,7 @@ class SeqCommandMoverelMotor(SeqCommand):
         return self._kill
     def simulate(self, credo, prevval, vars):
         self._parse_expressions(credo, prevval, vars)
-        logger.info('Simulating: moving motor ' + self.motor + ' to relative position ' + str(to))
+        logger.info('Simulating: moving motor ' + self.motor + ' to relative position ' + str(self.to))
 
 class SeqCommandLabel(SeqCommand):
     command = 'label'

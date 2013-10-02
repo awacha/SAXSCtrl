@@ -1,12 +1,11 @@
 import logging
-import weakref
 import ConfigParser
 import os
 
 from gi.repository import Gtk
 from gi.repository import GObject
 from ..virtualpointdetector import VirtualPointDetector, virtualpointdetector_new_from_configparser, VirtualPointDetectorExposure, VirtualPointDetectorGenix, VirtualPointDetectorEpoch, VirtualPointDetectorHeader
-from .subsystem import SubSystem, SubSystemError
+from .subsystem import SubSystem
 from ...utils import objwithgui
 
 __all__ = ['SubSystemVirtualDetectors']
@@ -88,7 +87,7 @@ class DetectorListTable(Gtk.Frame):
         self.add(hb)
         hb.pack_start(self._detview, True, True, 0)
         self._detview.set_rules_hint(True)
-        sel = self._detview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
+        self._detview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self._detview.append_column(Gtk.TreeViewColumn('Name', Gtk.CellRendererText(), text=1))
         self._detview.append_column(Gtk.TreeViewColumn('Type', Gtk.CellRendererText(), text=2))
         self._detview.append_column(Gtk.TreeViewColumn('Scaling', Gtk.CellRendererText(), text=3))
@@ -166,9 +165,9 @@ class DetectorListTable(Gtk.Frame):
     def _move_down(self):
         model, it = self._detview.get_selection().get_selected()
         if it is not None:
-            next = model.iter_next(it)
-            if next is not None:
-                model.move_after(it, next)
+            nextiter = model.iter_next(it)
+            if nextiter is not None:
+                model.move_after(it, nextiter)
     def _move_bottom(self):
         model, it = self._detview.get_selection().get_selected()
         if it is not None:

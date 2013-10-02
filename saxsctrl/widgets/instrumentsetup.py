@@ -1,5 +1,4 @@
 from gi.repository import Gtk
-from .nextfsn_monitor import NextFSNMonitor
 from .widgets import ToolDialog
 
 class InstrumentSetup(ToolDialog):

@@ -1,7 +1,7 @@
 # encoding: utf-8
 from .widgets import ToolDialog
 from .instrumentstatus import InstrumentStatus
-from ..hardware.instruments.pilatus import PilatusStatus, PilatusError, InstrumentError
+from ..hardware.instruments.pilatus import InstrumentError
 from gi.repository import Gtk
 
 class PilatusControl(ToolDialog):

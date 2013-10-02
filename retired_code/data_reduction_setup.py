@@ -1,7 +1,4 @@
 from gi.repository import Gtk
-import sastool
-import collections
-import ConfigParser
 # from .spec_filechoosers import ExposureLoader, FileEntryWithButton
 
 class PleaseWaitDialog(Gtk.Dialog):

@@ -1,15 +1,9 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import Pango
-import os
-import re
-import dateutil.parser
 import sastool
-import numpy as np
-import matplotlib.pyplot as plt
 from .moviemaker import MovieMaker
 from . import scangraph
-from ..fileformats.scan import Scan
 from sasgui.fileentry import FileEntryWithButton
 from .widgets import ToolDialog
 import datetime
@@ -124,7 +118,7 @@ class ScanViewer(ToolDialog):
         if isinstance(scan._N, tuple):
             sg = scangraph.ImagingGraph(scan, 'Imaging #' + str(scan.fsn) + ' -- ' + str(scan.comment))
         else:
-            sg = scangraph.ScanGraph(scan, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
+            sg = scangraph.ScanGraph(scan, self.credo, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
         sg.redraw_scan()
         sg.show_all()
 

@@ -173,8 +173,6 @@ class PeakFinder(Gtk.Dialog):
             raise NotImplementedError
 
         c = self.curve.trimzoomed()
-        x = c.x
-        y = c.y
         if not self.position_cb.get_active():
             self.position_entry.set_text(str(c.x[c.y == c.y.max()][0]))
         if not self.sigma_cb.get_active():

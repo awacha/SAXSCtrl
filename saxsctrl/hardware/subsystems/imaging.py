@@ -1,14 +1,10 @@
 from gi.repository import GObject
 from gi.repository import GLib
+from gi.repository import Notify
 
 from .subsystem import SubSystem, SubSystemError
 from .scan import ScanDevice, ScanDeviceError  # import all defined scan devices 
-from ..instruments.tmcl_motor import MotorError
-from ..instruments.pilatus import PilatusError
 from ..instruments.genix import GenixError
-import os
-import weakref
-import time
 import logging
 import sastool
 logger = logging.getLogger(__name__)
@@ -169,7 +165,7 @@ class SubSystemImaging(SubSystem):
             # last exposure, set back operate_shutter of Exposure subsystem
             self.credo().subsystems['Exposure'].operate_shutter = self._original_shuttermode
         try:
-            logger.info('Imaging step (%d,%d)/(%d,%d)' % (self._current_step[0] + 1, self._current_step[1] + 1, self.nstep1, self.nstep2))
+            logger.debug('Imaging step (%d,%d)/(%d,%d)' % (self._current_step[0] + 1, self._current_step[1] + 1, self.nstep1, self.nstep2))
             self._where = [self.scandevice1.moveto(self.value_begin1 + (self.value_end1 - self.value_begin1) / (self.nstep1 - 1) * self._current_step[0]),
                            self.scandevice2.moveto(self.value_begin2 + (self.value_end2 - self.value_begin2) / (self.nstep2 - 1) * self._current_step[1])]
         except ScanDeviceError as sde:
@@ -218,9 +214,26 @@ class SubSystemImaging(SubSystem):
             except GenixError:
                 logger.warning('Error closing shutter.')
         logger.info('Imaging #%d finished.' % self.currentscan.fsn)
+        if Notify.is_initted():
+            if status:
+                n = Notify.Notification.new('Imaging #%d finished' % self.currentscan.fsn,
+                                          'Sequence ended normally.',
+                                          'dialog-information')
+            else:
+                n = Notify.Notification.new('Imaging #%d finished' % self.currentscan.fsn,
+                                          'Abnormal termination.',
+                                          'dialog-warning')
+            n.show()
+            del n
 
     def do_imaging_fail(self, message):
         logger.error('Imaging failure: ' + message)
+        if Notify.is_initted():
+            n = Notify.Notification.new('Imaging failure',
+                                      'Reason: ' + message,
+                                      'dialog-error')
+            n.show()
+            del n
     @property
     def stepsize1(self):
         return (self.value_end1 - self.value_begin1) / (self.nstep1 - 1)

@@ -6,6 +6,7 @@ import sys
 import os
 from gi.repository import Gtk
 from gi.repository import GObject
+from gi.repository import Notify
 import subprocess
 import warnings
 import gc
@@ -17,6 +18,8 @@ formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 handler.setLevel(logging.WARNING)
+
+Notify.init('SAXSCtrl')
 
 import utils
 import hardware

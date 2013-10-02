@@ -1,16 +1,11 @@
 import collections
 from gi.repository import Gtk
-import matplotlib.pyplot as plt
 import sasgui
-from gi.repository import GObject
 import numpy as np
 import gc
-from ..hardware import sample
 import logging
 import sastool
-from sasgui.fileentry import FileEntryWithButton
 from .widgets import ToolDialog
-import multiprocessing
 from .exposure import ExposureFrame
 
 logger = logging.getLogger(__name__)
@@ -20,7 +15,7 @@ logger.setLevel(logging.DEBUG)
 class BeamAlignment(ToolDialog):
     _images_pending = []
     def __init__(self, credo, title='Beam alignment'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
 
         vb = self.get_content_area()
         tab = Gtk.Table()
@@ -126,7 +121,7 @@ class BeamAlignment(ToolDialog):
         for sb, val in zip([self.pri_left_entry, self.pri_right_entry, self.pri_bottom_entry, self.pri_top_entry], ax):
             sb.set_value(val)
     def _on_start(self, expframe):
-        for w in [self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)]:
+        for w in [self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CLOSE)]:
             w.set_sensitive(False)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
         
@@ -144,7 +139,7 @@ class BeamAlignment(ToolDialog):
     def get_beamarea(self):
         return (self.pri_top_entry.get_value(), self.pri_bottom_entry.get_value(), self.pri_left_entry.get_value(), self.pri_right_entry.get_value()) 
     def _on_end(self, expframe, status):
-        for w in [self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CANCEL)]:
+        for w in [self.beamposframe, self.entrytable, self.get_widget_for_response(Gtk.ResponseType.CLOSE)]:
             w.set_sensitive(True)
         self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
         logger.debug('last image received, analyzing images.')

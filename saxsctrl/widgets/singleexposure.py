@@ -2,21 +2,14 @@
 from gi.repository import Gtk
 from gi.repository import GLib
 import logging
-import sastool
-from .spec_filechoosers import MaskChooserDialog
 from .nextfsn_monitor import NextFSNMonitor
 from .samplesetup import SampleSelector
-import multiprocessing
 from .widgets import ToolDialog
 from .exposure import ExposureFrame
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-from gi.repository import GObject
 import sasgui
-import datetime
-import os
-from .data_reduction_setup import PleaseWaitInfoBar
 import qrcode
 
 class SingleExposure(ToolDialog):

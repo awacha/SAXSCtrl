@@ -1,11 +1,8 @@
 from gi.repository import Gtk
 from gi.repository import GObject
-from gi.repository import Gdk
-import sasgui
-import warnings
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 import calendar
 import datetime
 import dateutil.parser

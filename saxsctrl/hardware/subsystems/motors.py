@@ -1,4 +1,4 @@
-from .subsystem import SubSystem, SubSystemException, SubSystemError
+from .subsystem import SubSystem, SubSystemError
 from gi.repository import GObject
 from gi.repository import GLib
 import weakref

@@ -1,10 +1,7 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, InstrumentProperty, InstrumentPropertyCategory
+from .instrument import Instrument_TCP, InstrumentError, InstrumentProperty, InstrumentPropertyCategory
 import logging
-from gi.repository import GObject
 from gi.repository import GLib
 from ...utils import objwithgui
-import os
-import threading
 import time
 import re
 

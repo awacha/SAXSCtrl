@@ -3,9 +3,7 @@ from gi.repository import GLib
 import logging
 import socket
 import threading
-import Queue
 import weakref
-import select
 import re
 import multiprocessing
 import select
@@ -59,7 +57,7 @@ class InstrumentProperty(object):
         for name in kwargs.keys():
             self.__setattr__(name, kwargs[name])
             del kwargs[name]
-    def __get__(self, obj, type=None):
+    def __get__(self, obj, type_=None):
         if obj is None:
             return self
         if not ((self.name in obj._instrumentproperties) and (time.time() - obj._instrumentproperties[self.name][1] <= self.timeout)):
@@ -166,7 +164,7 @@ class Instrument(objwithgui.ObjWithGUI):
     def get_property(self, propertyname):
         try:
             return objwithgui.ObjWithGUI.get_property(self, propertyname)
-        except TypeError as te:
+        except TypeError:
             return getattr(self, propertyname)
     def get_instrument_property(self, propertyname):
         try:
@@ -621,7 +619,7 @@ class Instrument_TCP(Instrument):
                     cmd = self._get_command(command)
                     mymessage = [m for m in message.split(self._mesgseparator) if cmd.match(m) is not None][0]
                     othermessages = [m for m in message.split(self._mesgseparator) if m != mymessage]
-                except (TypeError, IndexError, AttributeError) as excep:
+                except (TypeError, IndexError, AttributeError):
                     mymessage = message.split(self._mesgseparator)[0]
                     othermessages = message.split(self._mesgseparator)[1:]
                 for m in othermessages:

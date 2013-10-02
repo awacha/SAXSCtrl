@@ -4,7 +4,6 @@ import sasgui
 import numpy as np
 from .exposureselector import ExposureSelector
 from .peakfinder import PeakFinder
-from .widgets import ToolDialog
 
 class QCalibrationDialog(sasgui.QCalibrator):
     __gsignals__ = {'response':'override'}
@@ -16,7 +15,6 @@ class QCalibrationDialog(sasgui.QCalibrator):
         self.credo = credo
         self.connect('notify::dist', lambda obj, prop:self.do_changed())
         vb = self.get_content_area()
-        row = 0
 
         f = Gtk.Expander(label='Exposure:')
         vb.pack_start(f, True, True, 0)

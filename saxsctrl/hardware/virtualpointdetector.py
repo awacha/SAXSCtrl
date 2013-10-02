@@ -63,7 +63,7 @@ class VirtualPointDetectorExposure(VirtualPointDetector):
             try:
                 self._mask = sastool.classes.SASMask(self.mask)
             except IOError as ioe:
-                logger.error('Cannot load mask: ' + self.mask)
+                logger.error('Cannot load mask: ' + self.mask + '. Reason: ' + str(ioe))
                 self._mask = None
     def readout(self, exposure):
         if self.mode == 'max':
