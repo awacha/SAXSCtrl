@@ -24,6 +24,7 @@ import logging
 import time
 import itertools
 from .instrument import InstrumentError, Instrument_ModbusTCP, InstrumentStatus, InstrumentProperty, InstrumentPropertyCategory
+from gi.repository import Notify
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -190,6 +191,13 @@ class Genix(Instrument_ModbusTCP):
                 getattr(type(self), propname)._update(self, True, InstrumentPropertyCategory.NO)
             else:
                 getattr(type(self), propname)._update(self, False, InstrumentPropertyCategory.YES)
+    def do_notify(self, prop):
+        Instrument_ModbusTCP.do_notify(self, prop)
+        if Notify.is_initted():
+            n = Notify.Notification.new('GeniX status change', 'New status: ' + self.status, 'dialog-information')
+            n.show()
+            del n
+        
     def _pre_disconnect(self, should_do_communication):
         if should_do_communication:
             self.shutter_close(False)
@@ -420,4 +428,6 @@ class Genix(Instrument_ModbusTCP):
             return self.status
     def get_current_parameters(self):
         return {'HT':self.ht, 'Current':self.current, 'TubeTime':self.tubetime, 'Status':self.faultstatus}
+    
+        
         

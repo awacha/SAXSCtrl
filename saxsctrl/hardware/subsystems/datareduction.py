@@ -216,13 +216,14 @@ class PostScaling(DataReductionStep):
 class Saving(DataReductionStep):
     save2dcorr = GObject.property(type=bool, default=True, blurb='Save corrected 2d images')
     save1d = GObject.property(type=bool, default=True, blurb='Save radial averages (I(q) curves)')
+    pixels_per_qbin = GObject.property(type=float, minimum=0, default=1, blurb='Number of pixels in a q-bin')
     def execute(self, exposure, force=False):
         if self.save2dcorr:
             self.chain.filessubsystem.writereduced(exposure)
             self.message(exposure, 'Saved corrected 2D image.')
         if self.save1d:
-            self.chain.filessubsystem.writeradial(exposure)
-            self.message(exposure, 'Saved radial averaged curve.')
+            self.chain.filessubsystem.writeradial(exposure, self.pixels_per_qbin)
+            self.message(exposure, 'Saved radial averaged curve (pixels per q bin: %.2f).' % self.pixels_per_qbin)
 
 class ReductionThread(GObject.GObject):
     __gtype_name__ = 'SAXSCtrl_ReductionThread'
@@ -304,6 +305,7 @@ class SubSystemDataReduction(SubSystem):
                                                        ssf.get_headerformat(self.filebegin, self.ndigits))
         self.beamtimereduced = sastool.classes.SASBeamTime(ssf.reducedloadpath, ssf.get_eval2dformat(self.filebegin, self.ndigits),
                                                            ssf.get_evalheaderformat(self.filebegin, self.ndigits))
+        ssf.connect('new-nextfsn', self._on_new_nextfsn)
         self._reduction_thread = ReductionThread(self.beamtimeraw, self.beamtimereduced, ssf)
         self._OWG_init_lists()
         self._OWG_parts = self._reduction_thread.chain
@@ -322,6 +324,12 @@ class SubSystemDataReduction(SubSystem):
                                   self._reduction_thread.connect('idle', self._on_idle),
                                   self._reduction_thread.connect('message', self._on_message),
                                   self._reduction_thread.connect('done', self._on_done)]
+    def _on_new_nextfsn(self, ssf, nextfsn, filebegin):
+        if filebegin.startswith(self.filebegin):
+            logger.debug('Updating beamtimeraw up to %d' % nextfsn)
+            self.beamtimeraw.update_cache_up_to(nextfsn)
+        else:
+            logger.debug('New nextfsn, but not updating beamtimeraw: %s does not start with %s' % (filebegin, self.filebegin))
     def add_step(self, step):
         self._reduction_thread.add_step(step)
     def reduce(self, fsn, force=False):

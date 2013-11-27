@@ -11,7 +11,7 @@ import time
 import logging
 import sastool
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 __all__ = ['SubSystemScan']
 
@@ -249,6 +249,7 @@ class SubSystemScan(SubSystem):
             self._do_next_step()
     
     def _exposure_image(self, sse, ex):
+        logger.debug('Received exposure. FSN: %d' % ex['FSN'])
         if self.scandevice.name() == 'Time':
             if self._firsttime is None:
                 where = 0
@@ -294,8 +295,8 @@ class SubSystemScan(SubSystem):
         if (self._current_step == 0) and self._original_shuttermode and not self.operate_shutter:
             self.credo().get_equipment('genix').shutter_open()
             logger.debug('Opened shutter before starting of the first exposure.')
-        self.credo().subsystems['Exposure'].start(self._header_template, self._mask)
-        logger.debug('Done starting exposure in scan sequence')
+        fsnwillbe = self.credo().subsystems['Exposure'].start(self._header_template, self._mask, write_nexus=False)
+        logger.debug('Done starting exposure in scan sequence. FSN will be: %d' % fsnwillbe)
         return False    
     def kill(self):
         logger.debug('Killing of scan sequence requested')

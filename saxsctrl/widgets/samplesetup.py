@@ -160,7 +160,7 @@ class SampleListDialog(ToolDialog):
         
         sw = Gtk.ScrolledWindow()
         sw.set_size_request(400, 300)
-        vb.pack_start(sw, False, True, 0)
+        vb.pack_start(sw, True, True, 0)
         self.sampleliststore = Gtk.ListStore(GObject.TYPE_STRING,  # title 
                                              GObject.TYPE_STRING,  # prepared by
                                              GObject.TYPE_STRING,  # preparation time

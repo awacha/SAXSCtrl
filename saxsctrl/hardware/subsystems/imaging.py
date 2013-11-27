@@ -177,7 +177,7 @@ class SubSystemImaging(SubSystem):
         if (self._current_step[0] == 0) and (self._current_step[1] == 0) and self._original_shuttermode and not self.operate_shutter:
             self.credo().get_equipment('genix').shutter_open()
             logger.debug('Opened shutter before starting of the first exposure.')
-        self.credo().subsystems['Exposure'].start(self._header_template, self._mask)
+        self.credo().subsystems['Exposure'].start(self._header_template, self._mask, write_nexus=False)
         logger.debug('Done starting exposure in imaging sequence')
         return False    
     def kill(self):

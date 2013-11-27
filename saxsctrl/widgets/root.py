@@ -11,7 +11,7 @@ import weakref
 from ..hardware import credo
 from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 def my_excepthook(type_, value, traceback_):
     try:
@@ -71,13 +71,18 @@ class Tool(object):
             self.button.set_sensitive(sensitivity)
         if self.menuitem is not None:
             self.menuitem.set_sensitive(sensitivity)
+    
     def on_delete(self, *args):
         for c in self._windowconn:
             self.window.disconnect(c)
         self._windowconn = []
-        self.window.destroy()
+        if not self.window.in_destruction():
+            self.window.destroy()
+        else:
+            logger.debug('Window for tool ' + self.toolsection + '::' + self.buttonname + ' is already being destroyed.')
         del self.window
         self.window = None
+        
     def destroywindow(self):
         if self.window is not None:
             logger.debug('Destroying tool: ' + self.buttonname)
@@ -131,6 +136,7 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Imaging', 'Imaging', imaging.Imaging, 'Scan', ['genix', 'pilatus'], True),
                             Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus'], True),
                             Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351'], True),
+                            Tool(self.credo, 'Transmission (multi)', 'Measure multiple transmission', transmission.TransmissionMeasurementMulti, 'Expose', ['genix', 'pilatus', 'tmcm351'], True),
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View', [], False),
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View', [], False),
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),

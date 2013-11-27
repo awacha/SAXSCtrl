@@ -83,17 +83,17 @@ class SeqCommand(GObject.GObject):
         for prop in m.groupdict():
             self.__setattr__(prop, m.groupdict()[prop])
         return True
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         """Execute the command. Return only if the execution finished either normally or by a break.
         
         Should return True or raise an exception.
         """
         pass
-    def _parse_expressions(self, credo, prevval, vars):
+    def _parse_expressions(self, credo, prevval, variables):
         for a in self._arguments:
             value = self.__getattribute__(a)
             if isinstance(value, basestring) and value.startswith('{') and value.endswith('}'):
-                self.__setattr__(a, eval(value[1:-1].replace('§', '(' + str(prevval) + ')'), globals(), vars))
+                self.__setattr__(a, eval(value[1:-1].replace('§', '(' + str(prevval) + ')'), globals(), variables))
             elif isinstance(value, basestring) and value == '§':
                 self.__setattr__(a, prevval)
                 
@@ -113,12 +113,12 @@ class SeqCommand(GObject.GObject):
     
 class SeqCommandComment(SeqCommand):
     cmd_regex = '#.*'
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         return 
 
 class SeqCommandEmpty(SeqCommand):
     cmd_regex = ''
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         return
 
 class SeqCommandGenixPower(SeqCommand):
@@ -126,7 +126,7 @@ class SeqCommandGenixPower(SeqCommand):
     cmd_regex = 'xray_power\s+(?P<level>(low|full|off))'
     level = 'off'
     _arguments = ['level']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         self._kill = False
         try:
             g = credo.get_equipment('genix')
@@ -152,7 +152,7 @@ class SeqCommandGenixPower(SeqCommand):
     def _handler(self):
         self.limited_emit('pulse', 'Setting GeniX power to ' + self.level)
         return self._kill
-    def simulate(self, credo, prevval, vars):
+    def simulate(self, credo, prevval, variables):
         logger.info('Simulating: setting Genix Power to ' + self.level)
         
 class SeqCommandGenixXrayState(SeqCommand):
@@ -160,7 +160,7 @@ class SeqCommandGenixXrayState(SeqCommand):
     cmd_regex = 'xray\s+(?P<level>(on|off))'
     level = 'off'
     _arguments = ['level']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         self._kill = False
         try:
             g = credo.get_equipment('genix')
@@ -181,7 +181,7 @@ class SeqCommandGenixShutterState(SeqCommand):
     cmd_regex = 'shutter\s+(?P<level>(open|close))'
     level = 'close'
     _arguments = ['level']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         self._kill = False
         try:
             g = credo.get_equipment('genix')
@@ -197,7 +197,7 @@ class SeqCommandGenixShutterState(SeqCommand):
             logger.info('Shutter is now closed.')
         else:
             raise SequenceError('Invalid shutter state: ' + self.level, ErrorSeverity.fatal)
-    def simulate(self, credo, prevval, vars):
+    def simulate(self, credo, prevval, variables):
         logger.info('Simulating: setting shutter to ' + self.level)
 
 class SeqCommandChangeSample(SeqCommand):
@@ -205,7 +205,7 @@ class SeqCommandChangeSample(SeqCommand):
     cmd_regex = 'sample\s+(?P<title>.*)'
     title = ''
     _arguments = ['title']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         self._kill = False
         try:
             credo.subsystems['Samples'].set(self.title)
@@ -217,7 +217,7 @@ class SeqCommandChangeSample(SeqCommand):
     def _handler(self):
         self.limited_emit('pulse', 'Moving sample %s into the beam' % self.title)
         return self._kill
-    def simulate(self, credo, prevval, vars):
+    def simulate(self, credo, prevval, variables):
         logger.info('Simulating: changing sample to ' + self.title)
     
 class SeqCommandMoveMotor(SeqCommand):
@@ -226,8 +226,8 @@ class SeqCommandMoveMotor(SeqCommand):
     motor = ''
     to = 0
     _arguments = ['motor', 'to']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         self._kill = False
         try:
             motor = credo.subsystems['Motors'].get(self.motor)
@@ -241,8 +241,8 @@ class SeqCommandMoveMotor(SeqCommand):
     def _handler(self):
         self.limited_emit('pulse', 'Moving motor %s' % self.motor)
         return self._kill
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: moving motor ' + self.motor + ' to absolute position ' + str(self.to))
 
 class SeqCommandMoverelMotor(SeqCommand):
@@ -251,8 +251,8 @@ class SeqCommandMoverelMotor(SeqCommand):
     motor = ''
     to = 0
     _arguments = ['motor', 'to']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         self._kill = False
         try:
             motor = credo.subsystems['Motors'].get(self.motor)
@@ -265,8 +265,8 @@ class SeqCommandMoverelMotor(SeqCommand):
     def _handler(self):
         self.limited_emit('pulse', 'Moving motor %s' % self.motor)
         return self._kill
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: moving motor ' + self.motor + ' to relative position ' + str(self.to))
 
 class SeqCommandLabel(SeqCommand):
@@ -274,7 +274,7 @@ class SeqCommandLabel(SeqCommand):
     cmd_regex = r'label\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         return 
 
 class SeqCommandJump(SeqCommand):
@@ -282,7 +282,7 @@ class SeqCommandJump(SeqCommand):
     cmd_regex = r'goto\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         raise JumpException(self.label, setstack=False)
 
 class SeqCommandJumpSub(SeqCommand):
@@ -290,7 +290,7 @@ class SeqCommandJumpSub(SeqCommand):
     cmd_regex = r'gosub\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         raise JumpException(self.label, setstack=True)
 
 
@@ -299,7 +299,7 @@ class SeqCommandJumpTrue(SeqCommand):
     cmd_regex = r'goif\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         if prevval:
             raise JumpException(self.label, setstack=False)
         else:
@@ -310,7 +310,7 @@ class SeqCommandJumpSubTrue(SeqCommand):
     cmd_regex = r'gosubif\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         if prevval:
             raise JumpException(self.label, setstack=True)
         else:
@@ -322,7 +322,7 @@ class SeqCommandJumpFalse(SeqCommand):
     cmd_regex = r'goifnot\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         if not prevval:
             raise JumpException(self.label, setstack=False)
         else:
@@ -333,7 +333,7 @@ class SeqCommandJumpSubFalse(SeqCommand):
     cmd_regex = r'gosubifnot\s+(?P<label>\w+)'
     label = ''
     _arguments = ['label']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         if not prevval:
             raise JumpException(self.label, setstack=True)
         else:
@@ -343,7 +343,7 @@ class SeqCommandJumpSubFalse(SeqCommand):
 class SeqCommandReturn(SeqCommand):
     command = 'return'
     cmd_regex = r'return'
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         raise JumpException(None)
     
 class SeqCommandWait(SeqCommand):
@@ -351,8 +351,8 @@ class SeqCommandWait(SeqCommand):
     cmd_regex = r'sleep\s+(?P<timeout>' + RE_FLOAT_OR_EXPRESSION + ')'
     timeout = 1
     _arguments = ['timeout']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         self._kill = False
         t0 = time.time()
         while not (self._kill or (time.time() > (t0 + float(self.timeout)))):
@@ -363,8 +363,8 @@ class SeqCommandWait(SeqCommand):
                     break
         if self._kill:
             raise KillException()
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: waiting ' + str(self.timeout) + ' seconds')
 
 class SeqCommandExpose(SeqCommand):
@@ -373,8 +373,8 @@ class SeqCommandExpose(SeqCommand):
     exptime = 1
     do_datareduction = False
     _arguments = ['exptime', 'do_datareduction']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         self.do_datareduction = _parse_bool(self.do_datareduction)
         self._kill = None
         self.credo = credo
@@ -384,7 +384,7 @@ class SeqCommandExpose(SeqCommand):
         self._imgrecvconn = sse.connect('exposure-image', self._on_image, credo.subsystems['DataReduction'])
         sse.exptime = float(self.exptime)
         sse.nimages = 1
-        sse.start()
+        sse.start(write_nexus=True)
         t0 = time.time()
         while self._kill is None:
             self.limited_emit('progress', 'Exposing. Time left: %.2f sec.' % (float(self.exptime) - (time.time() - t0)), (time.time() - t0) / float(self.exptime))
@@ -405,8 +405,8 @@ class SeqCommandExpose(SeqCommand):
         if self.do_datareduction:
             logger.info('Running data reduction on ' + str(exposure.header))
             ssdr.reduce(exposure['FSN'])
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: exposing for ' + str(self.exptime) + ' seconds')
 
 class SeqCommandSet(SeqCommand):
@@ -415,9 +415,9 @@ class SeqCommandSet(SeqCommand):
     varname = ''
     expression = ''
     _arguments = ['varname', 'expression']
-    def execute(self, credo, prevval, vars):
-        vars[self.varname] = eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), vars)
-        logger.debug('Set %s to %s' % (self.varname, vars[self.varname]))
+    def execute(self, credo, prevval, variables):
+        variables[self.varname] = eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), variables)
+        logger.debug('Set %s to %s' % (self.varname, variables[self.varname]))
         return True
 
 class SeqCommandMath(SeqCommand):
@@ -425,16 +425,16 @@ class SeqCommandMath(SeqCommand):
     cmd_regex = r'math\s+(?P<expression>.*)'
     expression = ''
     _arguments = ['expression']
-    def execute(self, credo, prevval, vars):
-        return eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), vars)
+    def execute(self, credo, prevval, variables):
+        return eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), variables)
 
 class SeqCommandVacuum(SeqCommand):
     command = 'wait_vacuum'
     cmd_regex = r'wait_vacuum\s+(?P<pressure>' + RE_FLOAT_OR_EXPRESSION + ')'
     pressure = ''
     _arguments = ['pressure']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         self._kill = False
         credo.subsystems['Equipments'].get('vacgauge').wait_for_vacuum(float(self.pressure), lambda :self._handler(credo))
         if self._kill:
@@ -443,20 +443,20 @@ class SeqCommandVacuum(SeqCommand):
     def _handler(self, credo):
         self.limited_emit('pulse', 'Waiting for vacuum <%.4f mbar. Now: %.4f mbar.' % (float(self.pressure), credo.subsystems['Equipments'].get('vacgauge').readout()))
         return self._kill
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: waiting until vacuum becomes better than ' + str(self.pressure) + ' mbar')
         
 class SeqCommandBreakpoint(SeqCommand):
     command = 'breakpoint'
     cmd_regex = r'breakpoint'
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         raise KillException()
         
 class SeqCommandEnd(SeqCommand):
     command = 'end'
     cmd_regex = r'end'
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         raise KillException()
 
 class SeqCommandSetTemp(SeqCommand):
@@ -464,12 +464,12 @@ class SeqCommandSetTemp(SeqCommand):
     cmd_regex = r'set_temp\s+(?P<setpoint>' + RE_FLOAT_OR_EXPRESSION + ')'
     setpoint = ''
     _arguments = ['setpoint']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Setting temperature to ' + str(self.setpoint) + ' C')
         credo.get_equipment('haakephoenix').set_setpoint(float(self.setpoint), verify=True)
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: setting temperature to ' + str(self.setpoint) + ' C')
 
 class SeqCommandWaitTemp(SeqCommand):
@@ -478,8 +478,8 @@ class SeqCommandWaitTemp(SeqCommand):
     time = ''
     delta = ''
     _arguments = ['time', 'delta']
-    def execute(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         self._kill = False
         self._is_in_delta = False
         self._in_delta_since = 0
@@ -500,8 +500,8 @@ class SeqCommandWaitTemp(SeqCommand):
         else:
             self.limited_emit('pulse', 'Waiting for temperature stability. Temperature is at: %.2f C' % self.phoenix.get_temperature())
         return self._kill
-    def simulate(self, credo, prevval, vars):
-        self._parse_expressions(credo, prevval, vars)
+    def simulate(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: waiting until temperature is nearer to the setpoint than ' + str(self.delta) + ' in the interval of ' + str(self.time) + ' seconds')
 
 class SeqCommandStartStopCirculator(SeqCommand):
@@ -509,14 +509,14 @@ class SeqCommandStartStopCirculator(SeqCommand):
     cmd_regex = r'circulator\s+(?P<state>(start|stop))'
     state = ''
     _arguments = ['state']
-    def execute(self, credo, prevval, vars):
+    def execute(self, credo, prevval, variables):
         if self.state.lower() == 'start':
             credo.get_equipment('haakephoenix').start_circulation()
         elif self.state.lower() == 'stop':
             credo.get_equipment('haakephoenix').stop_circulation()
         else:
             raise SequenceError('Invalid circulator state: ' + self.state)
-    def simulate(self, credo, prevval, vars):
+    def simulate(self, credo, prevval, variables):
         logger.info('Simulating: circulator ' + self.state)
             
 
@@ -575,7 +575,7 @@ class SequenceInterpreter(GObject.GObject):
                         if isinstance(self._currentcommand, SeqCommandBreakpoint) and not self.respect_breakpoints:
                             pass
                         else:
-                            raise
+                            raise ke
                     finally:
                         for c in self._cmdconn:
                             self._currentcommand.disconnect(c)
@@ -735,7 +735,7 @@ class SAXSSequence(ToolDialog):
                     self._breakpointcb.set_sensitive(True)
                     self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
                     self._interpreter.execute(self._simulatecb.get_active())
-                except KillException as ke:
+                except KillException:
                     md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, 'User break!')
                     md.run()
                     md.destroy()

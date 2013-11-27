@@ -158,3 +158,9 @@ class SubSystemSamples(SubSystem):
             if sel == '__None__':
                 sel = None
             self.set(sel)
+    def get_xmotor(self):
+        ssmot = self.credo().subsystems['Motors']
+        return ssmot.get(self.motor_samplex)
+    def get_ymotor(self):
+        ssmot = self.credo().subsystems['Motors']
+        return ssmot.get(self.motor_sampley)

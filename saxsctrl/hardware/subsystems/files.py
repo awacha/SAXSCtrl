@@ -3,6 +3,7 @@ import re
 import logging
 from .subsystem import SubSystem, SubSystemError
 import sastool
+import numpy as np
 
 from gi.repository import GObject
 from gi.repository import Gio
@@ -168,7 +169,7 @@ class SubSystemFiles(SubSystem):
     @property
     def exposureloadpath(self):
         ret = []
-        for p in ['eval2d', 'eval1d', 'param', 'images']:
+        for p in ['eval2d', 'eval1d', 'param_override', 'param', 'images', 'nexus']:
             try:
                 ret.append(self._get_subpath(p))
             except OSError:
@@ -178,7 +179,7 @@ class SubSystemFiles(SubSystem):
     @property
     def rawloadpath(self):
         ret = []
-        for p in ['param', 'images']:
+        for p in ['param_override', 'param', 'images', 'nexus']:
             try:
                 ret.append(self._get_subpath(p))
             except OSError:
@@ -200,6 +201,8 @@ class SubSystemFiles(SubSystem):
     @property
     def parampath(self): return self._get_subpath('param')
     @property
+    def param_overridepath(self): return self._get_subpath('param_override')
+    @property
     def maskpath(self): return self._get_subpath('mask')
     @property
     def scanpath(self): return self._get_subpath('scan')
@@ -209,6 +212,8 @@ class SubSystemFiles(SubSystem):
     def eval1dpath(self): return self._get_subpath('eval1d')
     @property
     def imagespath(self): return self._get_subpath('images')
+    @property
+    def nexuspath(self): return self._get_subpath('nexus')
     def get_fileformat(self, filebegin=None, ndigits=None):
         if filebegin is None: filebegin = self.filebegin
         if ndigits is None: ndigits = self.ndigits
@@ -226,18 +231,29 @@ class SubSystemFiles(SubSystem):
             return re.compile(filebegin + '_' + '(?P<fsn>\d{%d})' % ndigits)
         else:
             return re.compile(filebegin + '_' + '(?P<fsn>\d+)')
-    def writeheader(self, header, raw=True):
-        if raw:
-            header.write(os.path.join(self.parampath, self.get_headerformat() % header['FSN']))
+    def writeheader(self, header, raw=True, override=False):
+        if raw and override:
+            path = self.param_overridepath
+        elif raw:
+            path = self.parampath
         else:
-            header.write(os.path.join(self.eval2dpath, self.get_headerformat() % header['FSN']))
+            path = self.eval2dpath
+        header.write(os.path.join(path, self.get_headerformat() % header['FSN']))
     def writereduced(self, exposure):
         exposure.write(os.path.join(self.eval2dpath, self.get_eval2dformat() % exposure['FSN']))
         exposure.header.write(os.path.join(self.eval2dpath, self.get_evalheaderformat() % exposure['FSN']))
-    def writeradial(self, exposure):
-        exposure.radial_average().save(os.path.join(self.eval1dpath, 'crd_%d.txt' % exposure['FSN']))
+    def writeradial(self, exposure, pixels_per_qbin=None):
+        if pixels_per_qbin is None:
+            rad = exposure.radial_average()
+        else:
+            qrange = exposure.get_qrange()
+            pixrange = exposure.get_pixrange()
+            Npix = (pixrange.max() - pixrange.min())
+            Nq = int(Npix / float(pixels_per_qbin))
+            rad = exposure.radial_average(np.linspace(qrange.min(), qrange.max(), Nq))
+        rad.save(os.path.join(self.eval1dpath, 'crd_%d.txt' % exposure['FSN']))
     def create_subdirs(self):
-        for subdir in ['config', 'eval1d', 'eval2d', 'mask', 'movie', 'param', 'png', 'processing', 'scan', 'sequences', 'user', 'log']:
+        for subdir in ['config', 'eval1d', 'eval2d', 'mask', 'movie', 'param', 'param_override', 'png', 'processing', 'scan', 'sequences', 'user', 'log', 'nexus']:
             if os.path.exists(subdir) and os.path.isdir(subdir):
                 continue  # nothing to do
             elif os.path.islink(subdir):

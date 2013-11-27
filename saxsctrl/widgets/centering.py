@@ -108,7 +108,7 @@ class CenteringDialog(ToolDialog):
         self.beamposx_label.set_text('%.2f' % ex['BeamPosX'])
         self.beamposy_label.set_text('%.2f' % ex['BeamPosY'])
     def on_radavg(self, button):
-        ex = self.plot2d.exposure
+        ex = self.plot2d.get_exposure()
         rad = ex.radial_average(pixel=True)
         if self._radavgwin is not None and not self._radavgwin.get_realized():
             self._radavgwin.destroy()
@@ -122,9 +122,9 @@ class CenteringDialog(ToolDialog):
         if self.autosave_cb.get_active():
             self.save_beampos()
     def execute_findbeam(self):
-        ex = self.plot2d.exposure
+        ex = self.plot2d.get_exposure()
         if self.nb.get_current_page() == 0:  # barycenter
-            xmin, xmax, ymin, ymax = self.plot2d.get_axes().axis()
+            xmin, xmax, ymin, ymax = self.plot2d.get_zoom()
             beampos = ex.find_beam_semitransparent((ymin, ymax, xmin, xmax), threshold=None, update=True)
         elif self.nb.get_current_page() == 1:  # radial peak
             beampos = ex.find_beam_radialpeak(self.minpixel_entry.get_value(), self.maxpixel_entry.get_value(), self.driveby_combo.get_active_text(), update=True)
@@ -139,7 +139,7 @@ class CenteringDialog(ToolDialog):
         self.beamposx_label.set_text('%.2f' % beampos[0])
         self.beamposy_label.set_text('%.2f' % beampos[1])
     def save_beampos(self):
-        ex = self.plot2d.exposure
+        ex = self.plot2d.get_exposure()
         basename = os.path.basename(ex['FileName']).rsplit('.', 1)[0]
         ex.header.write(os.path.join(self.credo.subsystems['Files'].eval2dpath, basename + '.param'))
         

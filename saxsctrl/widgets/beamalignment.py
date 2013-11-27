@@ -117,7 +117,7 @@ class BeamAlignment(ToolDialog):
     def on_threshold_toggled(self, cb, entry):
         entry.set_sensitive(cb.get_active())
     def on_set_limits_from_zoom(self, widget):
-        ax = sasgui.PlotSASImageWindow.get_current_plot().get_axes().axis()
+        ax = sasgui.PlotSASImageWindow.get_current_plot().get_zoom()
         for sb, val in zip([self.pri_left_entry, self.pri_right_entry, self.pri_bottom_entry, self.pri_top_entry], ax):
             sb.set_value(val)
     def _on_start(self, expframe):
@@ -130,7 +130,7 @@ class BeamAlignment(ToolDialog):
             if self.beamposframe.get_sensitive():
                 self.credo.subsystems['Samples'].set(None)
                 self._images_pending = []
-                self.exposure_frame.execute({'Comment':self.comment_entry.get_text()})
+                self.exposure_frame.execute({'Comment':self.comment_entry.get_text()}, write_nexus=False)
             else:
                 self.exposure_frame.kill()
         else:
@@ -200,7 +200,6 @@ class BeamAlignment(ToolDialog):
                 win = sasgui.plot2dsasimage.PlotSASImageWindow(imgdata)
                 win.show_all()
             if not ((pri[0] == pri[1]) and (pri[2] == pri[3])):
-                win.plot.gca().axis((pri[2], pri[3], pri[1], pri[0]))
-                win.plot.canvas.draw()
+                win.plot.zoom((pri[2], pri[3], pri[1], pri[0]))
         return False
     

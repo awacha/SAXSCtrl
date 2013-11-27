@@ -95,7 +95,7 @@ class SingleExposure(ToolDialog):
                 self.credo.subsystems['Samples'].set(sam)
                 self.credo.subsystems['Samples'].moveto(blocking=True)
                 # make an exposure
-                self.expframe.execute()
+                self.expframe.execute(write_nexus=True)
             else:
                 # break the exposure
                 self.expframe.kill()
@@ -124,8 +124,6 @@ class SingleExposure(ToolDialog):
             else:
                 win = sasgui.plot2dsasimage.PlotSASImageWindow()
             win.set_exposure(exposure)
-            win.set_bottomrightdata(self.credo.username + '@CREDO ' + str(exposure['Date']))
-            win.set_bottomleftdata(qrcode.make(self.credo.username + '@CREDO://' + str(exposure.header) + ' ' + str(exposure['Date']), box_size=10))
             win.show_all()
             win.present()
         if self.plot1D_checkbutton.get_active():

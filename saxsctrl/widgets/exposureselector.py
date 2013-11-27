@@ -1,4 +1,5 @@
 from gi.repository import Gtk
+from gi.repository import GLib
 from gi.repository import GObject
 from .spec_filechoosers import MaskEntryWithButton
 import sastool
@@ -131,12 +132,12 @@ class ExposureSelector(Gtk.Frame):
         
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.add(hb)
-        tab = Gtk.Table()
-        hb.pack_start(tab, True, True, 0)
+        grid = Gtk.Grid()
+        hb.pack_start(grid, True, True, 0)
         row = 0
         
         l = Gtk.Label('Filename prefix:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        grid.attach(l, 0, row, 1, 1)
         self._fileprefix_combo = Gtk.ComboBoxText.new_with_entry()
         for i, pf in enumerate(self.credo.subsystems['Files'].formats()):
             self._fileprefix_combo.append_text(pf)
@@ -144,70 +145,56 @@ class ExposureSelector(Gtk.Frame):
                 self._fileprefix_combo.set_active(i)
         if self._fileprefix_combo.get_active_text() is None:
             self._fileprefix_combo.set_active(0)
-        tab.attach(self._fileprefix_combo, 1, 2, row, row + 1)
+        grid.attach(self._fileprefix_combo, 1, row, 1, 1)
+        self._fileprefix_combo.set_hexpand(True)
         row += 1
         
         l = Gtk.Label('Digits in filename:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        grid.attach(l, 0, row, 1, 1)
         self._digits_sb = Gtk.SpinButton(adjustment=Gtk.Adjustment(5, 1, 10, 1, 10), digits=0)
-        tab.attach(self._digits_sb, 1, 2, row, row + 1)
+        self._digits_sb.set_value(self.credo.subsystems['Files'].ndigits)
+        grid.attach(self._digits_sb, 1, row, 1, 1)
+        self._digits_sb.set_hexpand(True)
         row += 1
         
         l = Gtk.Label('File sequence number:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        grid.attach(l, 0, row, 1, 1)
         self._fsn_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 9999999999, 1, 10), digits=0)
-        tab.attach(self._fsn_entry, 1, 2, row, row + 1)
+        self._fsn_entry.set_value(1)
+        self._fsn_entry.connect('value-changed', self._on_fsn_changed)
+        self._fsn_entry.connect('activate', self._on_fsn_changed)
+        hb1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        grid.attach(hb1, 1, row, 1, 1)
+        hb1.set_hexpand(True)
+        hb1.pack_start(self._fsn_entry, True, True, 0)
+        b = Gtk.Button()
+        b.set_image(Gtk.Image.new_from_stock(Gtk.STOCK_GOTO_FIRST, Gtk.IconSize.BUTTON))
+        hb1.pack_start(b, False, False, 0)
+        b.connect('clicked', lambda b:self._load_first())
+        b = Gtk.Button()
+        b.set_image(Gtk.Image.new_from_stock(Gtk.STOCK_GOTO_LAST, Gtk.IconSize.BUTTON))
+        hb1.pack_start(b, False, False, 0)
+        b.connect('clicked', lambda b:self._load_last())
+        b = Gtk.Button()
+        b.set_image(Gtk.Image.new_from_stock(Gtk.STOCK_FIND, Gtk.IconSize.BUTTON))
+        hb1.pack_start(b, True, True, 0)
+        b.connect('clicked', lambda b:self._browse())
         row += 1
         
         self._mask_override_cb = Gtk.CheckButton('Override mask with:'); self._mask_override_cb.set_alignment(0, 0.5)
-        tab.attach(self._mask_override_cb, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        grid.attach(self._mask_override_cb, 0, row, 1, 1)
         self._maskentry = MaskEntryWithButton(self.credo)
-        tab.attach(self._maskentry, 1, 2, row, row + 1)
+        grid.attach(self._maskentry, 1, row, 1, 1)
+        self._maskentry.set_hexpand(True)
         self._mask_override_cb.connect('toggled', lambda cb: self._maskentry.set_sensitive(cb.get_active()))
         self._mask_override_cb.set_active(False)
         self._maskentry.set_sensitive(False)
-        vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.pack_start(vb, False, False, 0)
         
-        hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        hbb.set_homogeneous(True)
-        vb.pack_start(hbb, True, True, 0)
-        
-        b = Gtk.Button(stock=Gtk.STOCK_GO_BACK)
-        hbb.pack_start(b, True, True, 0)
-        b.connect('clicked', lambda b:self._load_prev())
-        
-        
-        b = Gtk.Button(stock=Gtk.STOCK_GO_FORWARD)
-        hbb.pack_start(b, True, True, 0)
-        b.connect('clicked', lambda b:self._load_next())
-        
-        hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        hbb.set_homogeneous(True)
-        vb.pack_start(hbb, True, True, 0)
-
-        b = Gtk.Button(stock=Gtk.STOCK_GOTO_FIRST)
-        hbb.pack_start(b, True, True, 0)
-        b.connect('clicked', lambda b:self._load_first())
-
-        b = Gtk.Button(stock=Gtk.STOCK_GOTO_LAST)
-        hbb.pack_start(b, True, True, 0)
-        b.connect('clicked', lambda b:self._load_last())
-
-        hbb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        hbb.set_homogeneous(True)
-        vb.pack_start(hbb, True, True, 0)
-
-        b = Gtk.Button(stock=Gtk.STOCK_OPEN)
-        hbb.pack_start(b, True, True, 0)
-        b.connect('clicked', lambda b:self._load_current())
-
-        b = Gtk.Button(stock=Gtk.STOCK_FIND)
-        hbb.pack_start(b, True, True, 0)
-        b.connect('clicked', lambda b:self._browse())
 
         self.show_all()
 
+    def _on_fsn_changed(self, fsnentry):
+        GLib.idle_add(lambda :self._load_current() and False)
     def _load_first(self):
         self._fsn_entry.set_value(self.credo.subsystems['Files'].get_first_fsn(self.credo.subsystems['Files'].get_format_re(self._fileprefix_combo.get_active_text(), self._digits_sb.get_value_as_int())) - 1)
         self._load_current()

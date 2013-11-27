@@ -7,6 +7,9 @@ import logging
 import os
 import time
 from ...utils import objwithgui
+import nxs
+import numpy as np
+import scipy
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -71,7 +74,7 @@ class SubSystemExposure(SubSystem):
         if stop_processing_results:
             self._stopswitch.set()
 
-    def start(self, header_template=None, mask=None):
+    def start(self, header_template=None, mask=None, write_nexus=False):
         logger.debug('Exposure subsystem: starting exposure.')
         pilatus = self.credo().get_equipment('pilatus')
         genix = self.credo().get_equipment('genix')
@@ -110,6 +113,7 @@ class SubSystemExposure(SubSystem):
         header_template['Project'] = self.credo().projectname
         header_template['Filter'] = self.credo().filter
         header_template['Monitor'] = header_template['MeasTime']
+        header_template['StartDate'] = datetime.datetime.now()
         if mask is not None:
             header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
@@ -120,7 +124,7 @@ class SubSystemExposure(SubSystem):
         self._thread = threading.Thread(target=self._thread_worker, args=(os.path.join(self.credo().subsystems['Files'].imagespath, exposureformat),
                                                                           os.path.join(self.credo().subsystems['Files'].parampath, headerformat),
                                                                           self._stopswitch, self._queue, self.exptime, self.nimages, self.dwelltime,
-                                                                          fsn, self.cbf_file_timeout, header_template, mask,
+                                                                          fsn, self.cbf_file_timeout, header_template, mask, write_nexus
                                                                           ))
         self._thread.daemon = True
         if self.operate_shutter and genix.shutter_state() == False:
@@ -163,10 +167,9 @@ class SubSystemExposure(SubSystem):
         # this is the last signal emitted during an exposure. The _check_if_exposure_finished() idle handler
         # has already deregistered itself.
         logger.info('Exposure ended.')
-        pass
     def do_exposure_image(self, ex):
         pass
-    def _process_exposure(self, exposurename, headername, stopswitch, queue, headertemplate, cbf_file_timeout, mask):
+    def _process_exposure(self, exposurename, headername, stopswitch, queue, headertemplate, cbf_file_timeout, mask, write_nexus):
         # try to load the header from the CBF file.
         logger.debug('process_exposure starting')
         t0 = time.time()
@@ -209,11 +212,188 @@ class SubSystemExposure(SubSystem):
         logger.debug('Writing header')
         ex.header.write(headername)
         logger.debug('Header %s written.' % (headername))
+        if write_nexus:
+            nexusname = os.path.join(self.credo().subsystems['Files'].nexuspath , os.path.splitext(os.path.split(exposurename)[1])[0] + '.nx5')
+            self.write_nexus(nexusname, cbfdata, ex.header, mask)
         queue.put((ExposureMessageType.Image, ex))
         logger.debug('Process_exposure took %f seconds.' % (time.time() - t0))
         del ex
         return True
-    def _thread_worker(self, expname_template, headername_template, stopswitch, outqueue, exptime, nimages, dwelltime, firstfsn, cbf_file_timeout, header_template, mask):
+    
+    
+    def update_nexustree(self, nexustree, data, header, mask):
+        pass
+    
+    def write_nexus(self, nexusname, data, header, mask):
+        root = nxs.NXroot()
+        root.entry = nxs.NXentry()
+        root.entry.start_time = header['StartDate'].isoformat()
+        root.entry.end_time = header['EndDate'].isoformat()
+        root.entry.experiment_identifier = header['Project']
+        root.entry.definition = 'NXsas'
+        root.entry.definition.attrs['version'] = '1.0b'
+        root.entry.definition.attrs['URL'] = 'http://svn.nexusformat.org/definitions/trunk/applications/NXsas.nxdl.xml'
+        root.entry.duration = (header['EndDate'] - header['StartDate']).total_seconds()
+        root.entry.duration.attrs['units'] = 's'
+        root.entry.program_name = 'SAXSCtrl'
+        root.entry.program_name.attrs['version'] = 0  # TODO
+        root.entry.revision = 'raw'
+        root.entry.title = header['Title']
+        # root.entry.pre_sample_flightpath=None # TODO: make this a link to the appropriate place in root.entry.instrument
+        root.entry.user = nxs.NXuser()
+        root.entry.user.name = header['Owner']
+        root.entry.user.role = 'operator'
+        # TODO: user management.
+        root.entry.control = nxs.NXmonitor()
+        root.entry.control.mode = 'timer'
+        root.entry.control.start_time = header['StartDate'].isoformat()
+        root.entry.control.end_time = header['EndDate'].isoformat()
+        root.entry.control.preset = header['MeasTime']
+        root.entry.control.distance = np.nan
+        root.entry.control.integral = header['MeasTime']
+        root.entry.control.data = header['MeasTime']
+        root.entry.control.count_time = header['MeasTime']
+        root.entry.instrument = nxs.NXinstrument()
+        root.entry.instrument.name = 'Creative Research Equipment for DiffractiOn'
+        root.entry.instrument.name.attrs['short_name'] = 'CREDO'
+        root.entry.instrument.source = nxs.NXsource()
+        root.entry.instrument.source.current = header['GeniX_Current']
+        root.entry.instrument.source.current.attrs['units'] = 'A'
+        # root.entry.instrument.source.distance=None #TODO: better collimation description.
+        root.entry.instrument.source.name = 'GeniX3D Cu ULD'
+        root.entry.instrument.source.name.attrs['short_name'] = 'GeniX'
+        root.entry.instrument.source.type = 'Fixed Tube X-ray'
+        root.entry.instrument.source.probe = 'x-ray'
+        root.entry.instrument.source.power = header['GeniX_HT'] * header['GeniX_Current']
+        root.entry.instrument.source.power.attrs['units'] = 'W'
+        root.entry.instrument.source.energy = header['GeniX_HT']
+        root.entry.instrument.source.energy.attrs['units'] = 'eV'
+        root.entry.instrument.source.voltage = header['GeniX_HT']
+        root.entry.instrument.source.voltage.attrs['units'] = 'V'
+        root.entry.instrument.positioners = nxs.NXcollection()
+        positioners = {}
+        for mot in self.credo().subsystems['Motors']:
+            positioners[mot] = mot.to_NeXus()
+            root.entry.instrument.positioners[mot.name] = positioners[mot]
+        root.entry.instrument.monochromator = nxs.NXmonochromator()
+        root.entry.instrument.monochromator.wavelength = header['Wavelength']
+        root.entry.instrument.monochromator.wavelength.attrs['units'] = 'Angstrom'
+        root.entry.instrument.monochromator.wavelength_spread = root.entry.instrument.monochromator.wavelength * 0.015  # The FOX3D optics used in GeniX has a spectral purity of 97%.
+        root.entry.instrument.monochromator.wavelength_spread.attrs['units'] = 'Angstrom'
+        root.entry.instrument.monochromator.energy = scipy.constants.codata.value('Planck constant in eV s') * scipy.constants.codata.value('speed of light in vacuum') * 1e10 / header['Wavelength']
+        root.entry.instrument.monochromator.energy.attrs['units'] = 'eV'
+        root.entry.instrument.monochromator.energy_spread = root.entry.instrument.monochromator.energy * 0.015
+        root.entry.instrument.monochromator.energy_spread.attrs['units'] = 'eV'
+        root.entry.instrument.collimator = nxs.NXcollimator()  # TODO: better description of the collimator
+        root.entry.instrument.beam_stop = nxs.NXbeam_stop()  # TODO: better description of the geometry
+        root.entry.instrument.vacuum = nxs.NXsensor()
+        vg = self.credo().subsystems['Equipments'].get('vacgauge')
+        if vg.connected():
+            root.entry.instrument.vacuum.model = vg.get_version()
+            root.entry.instrument.vacuum.name = 'TPG-201 Handheld Pirani Gauge'
+            root.entry.instrument.vacuum.short_name = 'Vacuum Gauge'
+            root.entry.instrument.vacuum.measurement = 'pressure'
+            root.entry.instrument.vacuum.type = 'Pirani'
+            root.entry.instrument.vacuum.value = vg.pressure
+            root.entry.instrument.vacuum.value.attrs['units'] = 'mbar'
+        root.entry.instrument.thermostat = nxs.NXsensor()
+        ts = self.credo().subsystems['Equipments'].get('haakephoenix')
+        if ts.connected():
+            root.entry.instrument.thermostat.model = ts.get_version()
+            root.entry.instrument.thermostat.name = 'Haake Phoenix Circulator'
+            root.entry.instrument.thermostat.short_name = 'haakephoenix'
+            root.entry.instrument.thermostat.measurement = 'temperature'
+            root.entry.instrument.thermostat.type = 'Pt100'
+            root.entry.instrument.thermostat.value = ts.temperature
+            root.entry.instrument.thermostat.value.attrs['units'] = '°C'
+        root.entry.sample = nxs.NXsample()
+        root.entry.sample.name = header['Title']
+        if 'Temperature' in header:
+            root.entry.sample.temperature = header['Temperature']
+        else:
+            root.entry.sample.temperature = np.nan
+        root.entry.sample.temperature.attrs['units'] = '°C'
+        root.entry.sample.preparation_date = header['Preparetime'].isoformat()
+        root.entry.sample.thickness = header['Thickness']
+        root.entry.sample.thickness.attrs['units'] = 'cm'
+        root.entry.sample.transmission = float(header['Transm'])
+        root.entry.sample.geometry = nxs.NXgeometry()
+        root.entry.sample.geometry.description = 'Sample position'
+        root.entry.sample.geometry.component_index = 0
+        root.entry.sample.geometry.translation = nxs.NXtranslation()
+        root.entry.sample.geometry.translation.distances = np.array([header['PosSampleX'], header['PosSample'], header['DistMinus']])
+        root.entry.sample.positioners = nxs.NXcollection()
+        root.entry.sample.positioners.makelink(positioners[self.credo().subsystems['Samples'].get_xmotor()])
+        root.entry.sample.positioners.makelink(positioners[self.credo().subsystems['Samples'].get_ymotor()])
+        
+        det = nxs.NXdetector()
+        root.entry.instrument.insert(det)
+        det.description = header['Detector']
+        det.type = 'pixel'
+        det.layout = 'area'
+        det.aequatorial_angle = 0
+        det.azimuthal_angle = 0
+        det.polar_angle = 0
+        det.rotation_angle = 0
+        det.beam_center_x = header['BeamPosX'] * header['XPixel']
+        det.beam_center_y = header['BeamPosY'] * header['YPixel']
+        det.distance = header['Dist']
+        det.count_time = header['Exposure_time']
+        det.count_time.attrs['units'] = 's'
+        det.saturation_value = header['Count_cutoff']
+        det.saturation_value.attrs['units'] = 'count'
+        det.sensor_material = 'Si'
+        det.sensor_thickness = header['Silicon sensor, thickness']
+        det.sensor_thickness.attrs['units'] = 'micron'
+        if header['Threshold_setting'] == 'not set':
+            det.threshold_energy = np.nan
+        else:
+            det.threshold_energy = header['Threshold_setting']
+        det.threshold_energy.attrs['units'] = 'eV'
+        det.gain_setting = header['Gain_setting']
+        det.frame_time = header['Exposure_period']
+        det.bit_depth_readout = 20
+        det.angular_calibration_applied = 0
+        det.acquisition_mode = 'summed'
+        det.dead_time = header['Tau']
+        det.dead_time.attrs['units'] = 's'
+        det.x_pixel_size = header['XPixel']
+        det.x_pixel_size.attrs['units'] = 'micron'
+        det.y_pixel_size = header['YPixel']
+        det.y_pixel_size.attrs['units'] = 'micron'
+        det.data = np.require(data, requirements='C')
+        det.data.attrs['signal'] = 1
+        det.data.attrs['long_name'] = 'Counts'
+        det.data.attrs['axes'] = 'x:y'
+        det.data.attrs['units'] = 'count'
+        det.data.attrs['calibration_status'] = 'Measured'
+        det.data.attrs['interpretation'] = 'image'
+        det.x = np.arange(data.shape[0])
+        det.y = np.arange(data.shape[1])
+        det.detector_readout_time = 2.3
+        det.detector_readout_time.attrs['units'] = 'ms'
+        if header['Excluded_pixels'] == '(nil)':
+            det.pixel_mask_applied = 0
+        else:
+            det.pixel_mask_applied = 1
+        det.pixel_mask = (mask == 0) << 6
+        if header['Tau'] == 0:
+            det.countrate_correction_applied = 0
+        else:
+            det.countrate_correction_applied = 1
+        if header['Flat_field'] == '(nil)':
+            det.flatfield_applied = 0
+        else:
+            det.flatfield_applied = 1
+        nxdata = nxs.NXdata()
+        root.entry.insert(nxdata)
+        nxdata.makelink(root.entry.instrument.detector.data)
+        nxdata.makelink(root.entry.instrument.detector.x)
+        nxdata.makelink(root.entry.instrument.detector.y)
+        nt = nxs.NeXusTree(nexusname, 'w5')
+        nt.writefile(root)
+        
+    def _thread_worker(self, expname_template, headername_template, stopswitch, outqueue, exptime, nimages, dwelltime, firstfsn, cbf_file_timeout, header_template, mask, write_nexus):
         """Wait for the availability of scattering image files (especially when doing multiple exposures).
         If a new file is available, try to load and process it (using _process_exposure), and resume waiting.
         
@@ -239,11 +419,12 @@ class SubSystemExposure(SubSystem):
                     is_userbreak = stopswitch.is_set()
                 header_template['FSN'] = (firstfsn + i)
                 result = self._process_exposure(expname_template % (firstfsn + i), headername_template % (firstfsn + i),
-                                                stopswitch, outqueue, header_template, cbf_file_timeout, mask)
+                                                stopswitch, outqueue, header_template, cbf_file_timeout, mask, write_nexus)
                 if is_userbreak or not result:
                     # process_exposure() returns False if a userbreak occurs.
                     outqueue.put((ExposureMessageType.End, False))
                     return
+                header_template['StartDate'] += datetime.timedelta(seconds=exptime + dwelltime)
         except Exception, exc:
             # catch all exceptions and put an error state in the output queue, then re-raise.
             outqueue.put((ExposureMessageType.Failure, str(exc)))

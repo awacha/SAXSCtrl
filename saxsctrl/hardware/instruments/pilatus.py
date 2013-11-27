@@ -7,6 +7,7 @@ import math
 import time
 from gi.repository import GObject
 from ...utils import objwithgui
+import numpy as np
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -81,9 +82,9 @@ class Pilatus(Instrument_TCP):
                               'temperature': lambda lis: [float(x) for x in lis], 'humidity': lambda lis: [float(x) for x in lis]}),
         Command('Df', [CommandReplyPilatus(5, r'(?P<diskfree>' + RE_INT + ')')], {'diskfree':int}),
         Command('SetThreshold', [CommandReplyPilatus(15, 'Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>' + RE_INT + ') eV; vcmp: (?P<vcmp>' + RE_FLOAT + ') V\n\s*Trim file:\s*\n\s*(?P<trimfile>.*)'),
-                               CommandReplyPilatus(15, '/tmp/setthreshold\.cmd', defaults={'gain':None, 'vcmp':None, 'threshold':None, 'trimfile':None}),
-                               CommandReplyPilatus(15, 'Threshold has not been set', defaults={'gain':None, 'vcmp':None, 'threshold':None, 'trimfile':None}),
-                               CommandReplyPilatus(15, 'Requested threshold \(' + RE_FLOAT + ' eV\) is out of range', defaults={'gain':None, 'vcmp':None, 'threshold':None, 'trimfile':None}),
+                               CommandReplyPilatus(15, '/tmp/setthreshold\.cmd', defaults={'gain':None, 'vcmp':np.nan, 'threshold':np.nan, 'trimfile':None}),
+                               CommandReplyPilatus(15, 'Threshold has not been set', defaults={'gain':None, 'vcmp':np.nan, 'threshold':np.nan, 'trimfile':None}),
+                               CommandReplyPilatus(15, 'Requested threshold \(' + RE_FLOAT + ' eV\) is out of range', defaults={'gain':None, 'vcmp':np.nan, 'threshold':np.nan, 'trimfile':None}),
                                reply_noaccess,
                                ], {'gain':str, 'threshold':float, 'vcmp':float, 'trimfile':str}),
         Command('K', [CommandReplyPilatus(13, 'kill'), reply_noaccess]),  # use this to kill exposure when NImages >1
@@ -126,19 +127,19 @@ class Pilatus(Instrument_TCP):
     tau = InstrumentProperty(name='tau', type=float, timeout=10, refreshinterval=10)
     cutoff = InstrumentProperty(name='cutoff', type=float, timeout=10, refreshinterval=10)
     imagesremaining = InstrumentProperty(name='imagesremaining', type=int, timeout=10, refreshinterval=10)
-    default_threshold=GObject.property(type=int, default=4024, minimum=3814, maximum=20202, blurb='Default threshold value (eV)')
-    default_gain=GObject.property(type=str, default='highG', blurb='Default gain')
+    default_threshold = GObject.property(type=int, default=4024, minimum=3814, maximum=20202, blurb='Default threshold value (eV)')
+    default_gain = GObject.property(type=str, default='highG', blurb='Default gain')
     def __init__(self, offline=True):
         self._OWG_init_lists()
-        self._OWG_entrytypes['default-gain']=objwithgui.OWG_Param_Type.ListOfStrings
-        self._OWG_hints['default-gain']={objwithgui.OWG_Hint_Type.ChoicesList:['lowG', 'midG', 'highG']}
+        self._OWG_entrytypes['default-gain'] = objwithgui.OWG_Param_Type.ListOfStrings
+        self._OWG_hints['default-gain'] = {objwithgui.OWG_Hint_Type.ChoicesList:['lowG', 'midG', 'highG']}
         Instrument_TCP.__init__(self, offline)
         self._mesgseparator = '\x18'
         self.timeout = 1
         self._status_lock = threading.RLock()
         self._exposure_starttime = None
         self.logfile = 'log.pilatus300k'
-        self._logging_parameters = [('threshold', 'f4', '%.0d'), ('gain', 'S5', '%s'), ('status', 'S20', '%s'),
+        self._logging_parameters = [('threshold', 'f4', '%s'), ('gain', 'S5', '%s'), ('status', 'S20', '%s'),
                                     ('temperature0', 'f4', '%.2f'), ('temperature1', 'f4', '%.2f'), ('temperature2', 'f4', '%.2f'),
                                     ('humidity0', 'f4', '%.1f'), ('humidity1', 'f4', '%.1f'), ('humidity2', 'f4', '%.1f'), ]
     def _logthread_worker(self):

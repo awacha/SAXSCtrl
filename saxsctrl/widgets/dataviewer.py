@@ -1,10 +1,13 @@
 from gi.repository import Gtk
+from gi.repository import Gdk
 import sasgui
 import sastool
 import os
 from .exposureselector import ExposureSelector
 import qrcode
 from .widgets import ToolDialog
+
+_errorflags = [('Wrong distance', 'BADDIST'), ('Wrong sample', 'BADSAMPLE'), ('Artifacts (i.e. chip flares)', 'ARTIFACTS')]
 
 class DataViewer(ToolDialog):
     _filechooserdialogs = None
@@ -53,9 +56,21 @@ class DataViewer(ToolDialog):
         hbb.pack_start(b, True, True, 0)
         row += 1
         
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(hb, False, False, 0)
+        l = Gtk.Label('Flags:')
+        hb.pack_start(l, False, False, 0)
+        self._flagbuttons = {}
+        for flaglabel, flagname in _errorflags:
+            self._flagbuttons[flagname] = Gtk.ToggleButton(flaglabel)
+            self._flagbuttons[flagname].override_background_color(Gtk.StateFlags.ACTIVE, Gdk.RGBA(1, 0, 0, 1))
+            self._flagbuttons[flagname].connect('toggled', self._on_flag, flagname)
+            hb.pack_start(self._flagbuttons[flagname], False, False, 0)
+        
         p = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(p, True, True, 0)
         self.plot2d = sasgui.PlotSASImage()
+        self.plot2d.logo = os.path.join(self.credo.subsystems['Files'].rootpath, 'credo_logo.png')
         self.plot2d.set_size_request(200, -1)
         p.pack1(self.plot2d, True, False)
         self.plot1d = sasgui.PlotSASCurve()
@@ -63,8 +78,22 @@ class DataViewer(ToolDialog):
         p.pack2(self.plot1d, True, False)
         p.set_size_request(-1, 480)
         
-        
         vb.show_all()
+        
+    def _on_flag(self, flagbutton, flagname):
+        exposure = self.plot2d.get_exposure()
+        header = exposure.header
+        if 'ErrorFlags' not in header:
+            header['ErrorFlags'] = ''
+        currentflags = set(header['ErrorFlags'].upper().split())
+        if flagbutton.get_active():
+            currentflags.add(flagname)
+        elif flagname in currentflags:
+            currentflags.remove(flagname)
+        header['ErrorFlags'] = ' '.join(sorted(currentflags))
+        self.credo.subsystems['Files'].writeheader(header, raw=True, override=True)
+        self._exposure_open(self._exposureselector, exposure)
+    
     def on_data_reduction_finished(self, ssdr, fsn, header, button, fsn_to_wait_for):
         if fsn != fsn_to_wait_for:
             return False
@@ -76,14 +105,14 @@ class DataViewer(ToolDialog):
         self.plot2d.set_exposure(exposure)
         return False
     def do_data_reduction(self, button):
-        if self.plot2d.exposure is None:
+        if self.plot2d.get_exposure() is None:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Please open a file first!')
             md.run()
             md.destroy()
             del md
             return
         ssdr = self.credo.subsystems['DataReduction']
-        if not os.path.split(self.plot2d.exposure['FileName'])[1].startswith(ssdr.filebegin):
+        if not os.path.split(self.plot2d.get_exposure()['FileName'])[1].startswith(ssdr.filebegin):
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot do data reduction on exposure. File must begin with %s' % ssdr.filebegin)
             md.run()
             md.destroy()
@@ -91,8 +120,8 @@ class DataViewer(ToolDialog):
             return
         button.set_sensitive(False)
         self._exposureselector.set_sensitive(False)
-        self._dr_connid = ssdr.connect('done', self.on_data_reduction_finished, button, self.plot2d.exposure['FSN'])
-        ssdr.reduce(self.plot2d.exposure['FSN'])
+        self._dr_connid = ssdr.connect('done', self.on_data_reduction_finished, button, self.plot2d.get_exposure()['FSN'])
+        ssdr.reduce(self.plot2d.get_exposure()['FSN'])
     def _exposure_open(self, eselector, ex):
         self._labels['fsn'].set_label(str(ex['FSN']))
         self._labels['title'].set_label(ex['Title'])
@@ -108,20 +137,23 @@ class DataViewer(ToolDialog):
         self._labels['meastime'].set_label(str(ex['MeasTime']))
         self._labels['owner'].set_label(ex['Owner'])
         self.plot2d.set_exposure(ex)
-        self.plot2d.set_bottomrightdata(ex['Owner'] + '@CREDO ' + str(ex['Date']))
-        self.plot2d.set_bottomleftdata(qrcode.make(ex['Owner'] + '@CREDO://' + str(ex.header) + ' ' + str(ex['Date']), box_size=10))
         try:
             rad = ex.radial_average()
         except sastool.classes.SASExposureException as see:
             self.plot1d.gca().text(0.5, 0.5, 'Cannot do radial average:\n' + str(see), ha='center', va='center', transform=self.plot1d.gca().transAxes)
         else:
             self.plot1d.add_curve_with_errorbar(rad, label=str(ex.header))
+        if 'ErrorFlags' not in ex.header:
+            ex.header['ErrorFlags'] = ''
+        currentflags = ex.header['ErrorFlags'].upper().split()
+        for flag in self._flagbuttons:
+            self._flagbuttons[flag].set_active(flag in currentflags)     
         return False
     def _editmask(self, widget):
-        maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.exposure)
+        maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.get_exposure())
         resp = maskmaker.run()
         if resp == Gtk.ResponseType.OK:
-            ex = self.plot2d.exposure
+            ex = self.plot2d.get_exposure()
             ex.set_mask(maskmaker.mask)
             self.plot2d.set_exposure(ex)
         maskmaker.destroy()

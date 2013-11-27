@@ -105,7 +105,7 @@ class ExposureFrame(Gtk.Frame):
                 entity.disconnect(c)
     def _fileformat_entry_changed(self):
         self._nextfsn_label.set_text(str(self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(self._fileformat_entry.get_active_text(), None))))
-    def execute(self, header_template={}):
+    def execute(self, header_template={}, write_nexus=False):
         if self.credo.subsystems['Files'].filebegin != self._fileformat_entry.get_active_text():
             self.credo.subsystems['Files'].filebegin = self._fileformat_entry.get_active_text()
         self._conns = [self.credo.subsystems['Exposure'].connect('exposure-image', lambda sse, img: self.emit('image', img)),
@@ -113,7 +113,7 @@ class ExposureFrame(Gtk.Frame):
                        self.credo.subsystems['Exposure'].connect('exposure-end', lambda sse, state: self.emit('end', state)), ]
         self._images_remaining = self._nimages_entry.get_value_as_int()
         try:
-            self.credo.expose(self._exptime_entry.get_value(), self._nimages_entry.get_value_as_int(), self._dwelltime_entry.get_value(), self._maskfile_entry.get_mask(), header_template=header_template)
+            self.credo.expose(self._exptime_entry.get_value(), self._nimages_entry.get_value_as_int(), self._dwelltime_entry.get_value(), self._maskfile_entry.get_mask(), header_template=header_template, write_nexus=write_nexus)
             self._starttime = time.time()
         except Exception as exc:
             md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error starting exposure')

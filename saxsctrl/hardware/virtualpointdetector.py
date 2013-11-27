@@ -3,6 +3,7 @@ import sastool
 from ..utils import objwithgui
 from gi.repository import GObject
 import logging
+import nxs
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +37,12 @@ class VirtualPointDetector(objwithgui.ObjWithGUI):
         return False
     def __str__(self):
         return 'VirtualPointDetector base class'
+    def get_nexus(self):
+        grp = nxs.NXgroup(name=self.name, nxclass='virtualpointdetector')
+        grp.scaler = self.scaler
+        grp.visible = int(self.visible)
+        grp.type = 'Base'
+        return grp 
     
 class VirtualPointDetectorExposure(VirtualPointDetector):
     mode = GObject.property(type=str, default='max', blurb='Image manipulation mode')
@@ -97,7 +104,13 @@ class VirtualPointDetectorExposure(VirtualPointDetector):
         return other.name == self.name
     def __str__(self):
         return self.name + '; mask: ' + self.mask + '; mode: ' + self.mode
-        
+    def get_nexus(self):
+        grp = VirtualPointDetector.get_nexus(self)
+        grp.type = 'Exposure'
+        grp.mode = self.mode
+        grp.mask = self.mask
+        return grp
+    
 class VirtualPointDetectorEpoch(VirtualPointDetector):
     def __init__(self, name, scaler=None):
         VirtualPointDetector.__init__(self, name, scaler)
@@ -109,6 +122,10 @@ class VirtualPointDetectorEpoch(VirtualPointDetector):
         return self.name == other.name
     def __str__(self):
         return self.name
+    def get_nexus(self):
+        grp = VirtualPointDetector.get_nexus(self)
+        grp.type = 'Epoch'
+        return grp
 
 class VirtualPointDetectorGenix(VirtualPointDetector):
     genixparam = GObject.property(type=str, default='HT', blurb='GeniX parameter to record')
@@ -136,6 +153,11 @@ class VirtualPointDetectorGenix(VirtualPointDetector):
         return self.name == other.name
     def __str__(self):
         return self.name + '; ' + self.genixparam
+    def get_nexus(self):
+        grp = VirtualPointDetector.get_nexus(self)
+        grp.type = 'GeniX'
+        grp.genixparam = self.genixparam
+        return grp
 
 class VirtualPointDetectorHeader(VirtualPointDetector):
     headerfield = GObject.property(type=str, default='FSN', blurb='Header field')
@@ -154,6 +176,11 @@ class VirtualPointDetectorHeader(VirtualPointDetector):
         return self.name == other.name
     def __str__(self):
         return self.name + '; ' + self.headerfield
+    def get_nexus(self):
+        grp = VirtualPointDetector.get_nexus(self)
+        grp.type = 'Header'
+        grp.headerfield = self.headerfield
+        return grp
 
 def virtualpointdetector_new(name, **kwargs):
     if 'scaler' not in kwargs:

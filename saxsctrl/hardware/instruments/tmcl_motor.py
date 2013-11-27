@@ -6,6 +6,7 @@ import ConfigParser
 import numbers
 from gi.repository import GObject
 from gi.repository import GLib
+import nxs
 
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, ConnectionBrokenError
 logger = logging.getLogger(__name__)
@@ -704,3 +705,34 @@ class StepperMotor(GObject.GObject):
             
     def __str__(self):
         return self.name + ' (' + self.alias + ')'
+
+    def to_NeXus(self):
+        p = nxs.NXpositioner()
+        p.name = self.alias
+        p.description = self.name
+        p.value = self.get_parameter('Current_position', raw=False)
+        p.value.attrs['units'] = 'mm'
+        p.raw_value = self.get_parameter('Current_position', raw=True)
+        p.target_value = self.get_parameter('Target_position', raw=False)
+        p.target_value.attrs['units'] = 'mm'
+        p.tolerance = 0
+        p.tolerance.attrs['units'] = 'mm'
+        p.soft_limit_min = self.get_parameter('soft_left', raw=False)
+        p.soft_limit_min.attrs['units'] = 'mm'
+        p.soft_limit_max = self.get_parameter('soft_right', raw=False)
+        p.soft_limit_max.attrs['units'] = 'mm'
+        p.velocity = self.get_parameter('Current_speed', raw=False)
+        p.velocity.attrs['units'] = 'mm s-1'
+        p.acceleration_time = self.get_parameter('Max_speed', raw=False) / self.get_parameter('Max_accel', raw=False)
+        p.acceleration_time.attrs['units'] = 's'
+        return p
+
+    def update_NeXus(self, nxpositioner):
+        nxpositioner.value = self.get_parameter('Current_position', raw=False)
+        nxpositioner.raw_value = self.get_parameter('Current_position', raw=True)
+        nxpositioner.target_value = self.get_parameter('Target_position', raw=False)
+        nxpositioner.soft_limit_min = self.get_parameter('soft_left', raw=False)
+        nxpositioner.soft_limit_max = self.get_parameter('soft_right', raw=False)
+        nxpositioner.velocity = self.get_parameter('Current_speed', raw=False)
+        nxpositioner.acceleration_time = self.get_parameter('Max_speed', raw=False) / self.get_parameter('Max_accel', raw=False)
+        return nxpositioner

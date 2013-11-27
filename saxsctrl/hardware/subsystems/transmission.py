@@ -33,6 +33,7 @@ class SubSystemTransmission(SubSystem):
     iterations = GObject.property(type=int, default=1, minimum=1, maximum=10000, blurb='Number of iterations')
     beamstop_motor = GObject.property(type=str, default='BeamStop_Y', blurb='Beam-stop motor name')
     method = GObject.property(type=str, default='max', blurb='Intensity counting method')
+    move_beamstop_back_at_end = GObject.property(type=bool, default=True, blurb='Move beam-stop back at end')
     def __init__(self, credo, offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['mask'] = objwithgui.OWG_Param_Type.File
@@ -157,17 +158,20 @@ class SubSystemTransmission(SubSystem):
             raise NotImplementedError(self._whatsnext)
         logger.info('Transmission: starting exposure.')
         self._images_received = 0
-        sse.start(mask=self._mask)
+        sse.start(mask=self._mask, write_nexus=False)
     def do_end(self, status):
         for c in self._ex_conn:
             self.credo().subsystems['Exposure'].disconnect(c)
         self.credo().subsystems['Exposure'].operate_shutter = self._oldshuttermode
         self._ex_conn = []
-        mot = self.credo().subsystems['Motors'].get(self.beamstop_motor)
-        mot.moveto(self.beamstop_in)
-        logger.info('Moving beam-stop in the beam.')
-        self.credo().subsystems['Motors'].wait_for_idle()
-        logger.info('Beam-stop is in the beam.')
+        if self.move_beamstop_back_at_end:
+            mot = self.credo().subsystems['Motors'].get(self.beamstop_motor)
+            mot.moveto(self.beamstop_in)
+            logger.info('Moving beam-stop in the beam.')
+            self.credo().subsystems['Motors'].wait_for_idle()
+            logger.info('Beam-stop is in the beam.')
+        else:
+            logger.info('Beam-stop still out of beam.')
     def do_dark(self, mean, std, n):
         logger.debug('Intensity of dark current up to now: %d +/- %d (from %d exposures)' % (mean, std, n))
     def do_empty(self, mean, std, n):

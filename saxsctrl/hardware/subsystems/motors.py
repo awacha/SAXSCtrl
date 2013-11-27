@@ -70,3 +70,6 @@ class SubSystemMotors(SubSystem):
                 if not GLib.main_context_default().pending():
                     break
         return (not alternative_breakfunc())
+    def __iter__(self):
+        for m in self.get_motors():
+            yield m
