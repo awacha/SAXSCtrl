@@ -1,4 +1,3 @@
-# coding: utf-8
 from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import GLib
@@ -19,7 +18,7 @@ class TransmissionMeasurement(ToolDialog):
         self._entrytab = Gtk.Table()
         vb.pack_start(self._entrytab, False, True, 0)
         row = 0
-    
+
         l = Gtk.Label(label='Sample:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._sample_combo = SampleSelector(self.credo, autorefresh=False)
@@ -41,7 +40,7 @@ class TransmissionMeasurement(ToolDialog):
         self._entrytab.attach(self._empty_combo, 1, 2, row, row + 1)
         self._empty_combo.connect('sample-changed', lambda combo, sample:self.clear_data())
         row += 1
-        
+
         l = Gtk.Label(label='Exposure time:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(sst.countingtime, 0.0001, 1e10, 1, 10), digits=4)
@@ -62,7 +61,7 @@ class TransmissionMeasurement(ToolDialog):
         self._ncycles_entry.set_value(sst.iterations)
         self._entrytab.attach(self._ncycles_entry, 1, 2, row, row + 1)
         row += 1
-    
+
         l = Gtk.Label(label='Mask for beam area:'); l.set_alignment(0, 0.5)
         self._entrytab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self._mask_entry = MaskEntryWithButton(self.credo)
@@ -81,9 +80,9 @@ class TransmissionMeasurement(ToolDialog):
         row += 1
 
 
-        self._resultstable = Gtk.Table()        
+        self._resultstable = Gtk.Table()
         vb.pack_start(self._resultstable, False, True, 0)
-        
+
         self._resultlabels = {}
         for row, what in enumerate(['Dark background', 'Empty beam', 'Sample'], 1):
             l = Gtk.Label(what + ':'); l.set_alignment(0, 0.5)
@@ -98,14 +97,14 @@ class TransmissionMeasurement(ToolDialog):
                 self._resultlabels[what][how] = Gtk.Label('0')
                 self._resultstable.attach(self._resultlabels[what][how], column, column + 1, row, row + 1, xpadding=10)
 
-        
+
         f = Gtk.Frame(label='Measured transmission')
         vb.pack_start(f, True, True, 0)
         hb = Gtk.HBox()
         f.add(hb)
         self._transm_label = Gtk.Label(label='--')
         hb.pack_start(self._transm_label, False, True, 0)
-        
+
     def do_response(self, respid):
         if respid == Gtk.ResponseType.OK:
             if self.get_widget_for_response(respid).get_label() == Gtk.STOCK_STOP:
@@ -161,7 +160,7 @@ class TransmissionMeasurement(ToolDialog):
                     self.do_response(Gtk.ResponseType.APPLY)
                 md.destroy()
                 del md
-                
+
             self.destroy()
     def clear_data(self):
         for what in ['dark', 'empty', 'sample']:
@@ -197,7 +196,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         grid = Gtk.Grid()
         self._basicsettings_expander.add(grid)
         row = 0
-        
+
         sst = self.credo.subsystems['Transmission']
         l = Gtk.Label('Empty sample:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
@@ -206,7 +205,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         grid.attach(self._empty_combo, 1, row, 1, 1)
         self._empty_combo.set_hexpand(True)
         row += 1
-        
+
         l = Gtk.Label('Exposure time:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.5, 0.0001, 1e10, 1, 10), digits=4)
@@ -214,22 +213,22 @@ class TransmissionMeasurementMulti(ToolDialog):
         grid.attach(self._exptime_entry, 1, row, 1, 1)
         self._exptime_entry.set_hexpand(True)
         row += 1
-        
+
         l = Gtk.Label('Number of exposures:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(10, 1, 10000, 1, 10), digits=0)
         self._nimages_entry.set_value(sst.nimages)
         grid.attach(self._nimages_entry, 1, row, 1, 1)
         self._nimages_entry.set_hexpand(True)
-        row += 1 
-        
+        row += 1
+
         l = Gtk.Label(label='Number of iterations:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._ncycles_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 1e10, 1, 10), digits=0)
         self._ncycles_entry.set_value(sst.iterations)
         grid.attach(self._ncycles_entry, 1, row, 1, 1)
         row += 1
-    
+
         l = Gtk.Label(label='Mask for beam area:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._mask_entry = MaskEntryWithButton(self.credo)
@@ -246,7 +245,7 @@ class TransmissionMeasurementMulti(ToolDialog):
             if sst.method == m:
                 self._method_combo.set_active(i)
         row += 1
-        
+
         sw = Gtk.ScrolledWindow()
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         sw.set_size_request(-1, 300)
@@ -255,7 +254,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         self._allsamplenames = Gtk.ListStore(GObject.TYPE_STRING)
         sss = self.credo.subsystems['Samples']
         sss.connect('changed', self._on_samples_changed)
-        self._on_samples_changed(sss) 
+        self._on_samples_changed(sss)
         self._samplelist = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_FLOAT, GObject.TYPE_BOOLEAN, GObject.TYPE_UINT)
         self._sampleview = Gtk.TreeView(self._samplelist)
         self._sampleview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
@@ -273,10 +272,10 @@ class TransmissionMeasurementMulti(ToolDialog):
         for i, title in enumerate(['mean Idark', 'std Idark', 'mean I0', 'std I0', 'mean I1', 'std I1', 'Transmission', 'Sigma T']):
             crtext = Gtk.CellRendererText()
             self._sampleview.append_column(Gtk.TreeViewColumn(title, crtext, text=i + 1))
-        self._tsconn = None
+        self._tsconn = []
     def _on_sample_selected(self, crcombo, path, newiter):
         self._samplelist[path][0] = crcombo.get_property('model')[newiter][0]
-    
+
     def _on_samples_changed(self, sss):
         self._allsamplenames.clear()
         for sam in sss:
@@ -296,14 +295,14 @@ class TransmissionMeasurementMulti(ToolDialog):
             del md
             self._cleanup_after_measurement()
             return
-        
+
     def _idle_function(self):
         for row in self._samplelist:
             row[10] += 1
         return True
 
     def _cleanup_after_measurement(self):
-        if not hasattr(self, '_tsconn'):
+        if not hasattr(self, '_tsconn') or (self._tsconn is None):
             self._tsconn = []
         for c in self._tsconn:
             self.credo.subsystems['Transmission'].disconnect(c)
@@ -335,7 +334,7 @@ class TransmissionMeasurementMulti(ToolDialog):
                 sst.mask = self._mask_entry.get_filename()
                 sst.method = self._method_combo.get_active_text()
                 sst.move_beamstop_back_at_end = (len(self._samplelist) == 1)
-            
+
                 self._tsconn = [sst.connect('end', lambda s, stat: self._on_end(stat)),
                                 sst.connect('dark', lambda s, mean, std, num, what: self._on_data(mean, std, num, what), 'dark'),
                                 sst.connect('empty', lambda s, mean, std, num, what: self._on_data(mean, std, num, what), 'empty'),
@@ -383,7 +382,7 @@ class TransmissionMeasurementMulti(ToolDialog):
             if active_row + 1 == len(self._samplelist) - 1:
                 self.credo.subsystems['Transmission'].move_beamstop_back_at_end = True
             self._measure_transmission()
-            
+
     def _on_data(self, mean, std, num, what):
         active_row = [i for i in range(len(self._samplelist)) if self._samplelist[i][9]][0]
         if what == 'dark':
@@ -395,7 +394,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         else:
             self._samplelist[active_row][5] = mean
             self._samplelist[active_row][6] = std
-            
+
     def _on_transm(self, mean, std, num):
         active_row = [i for i in range(len(self._samplelist)) if self._samplelist[i][9]][0]
         self._samplelist[active_row][7] = mean

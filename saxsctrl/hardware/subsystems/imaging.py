@@ -3,7 +3,7 @@ from gi.repository import GLib
 from gi.repository import Notify
 
 from .subsystem import SubSystem, SubSystemError
-from .scan import ScanDevice, ScanDeviceError  # import all defined scan devices 
+from .scan import ScanDevice, ScanDeviceError  # import all defined scan devices
 from ..instruments.genix import GenixError
 import logging
 import sastool
@@ -13,7 +13,7 @@ logger.setLevel(logging.DEBUG)
 __all__ = ['SubSystemImaging']
 
 
-        
+
 class SubSystemImaging(SubSystem):
     __gsignals__ = {'imaging-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
                     'imaging-report':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
@@ -66,12 +66,12 @@ class SubSystemImaging(SubSystem):
         vdnames = [vd.name for vd in self.credo().subsystems['VirtualDetectors']]
         columns = [self.scandevice1.name(), self.scandevice2.name(), 'FSN'] + vdnames
         try:
-            if ((not self.scandevice1.validate_interval(self.value_begin1, self.value_end1, self.nstep1, self.countingtime, self.waittime)) or 
+            if ((not self.scandevice1.validate_interval(self.value_begin1, self.value_end1, self.nstep1, self.countingtime, self.waittime)) or
                 (not self.scandevice2.validate_interval(self.value_begin2, self.value_end2, self.nstep2, self.countingtime, self.waittime))):
                 raise ValueError('Invalid scan interval')
         except Exception as exc:
             raise SubSystemError('Validation of scan interval failed: ' + str(exc))
-        
+
         logger.debug('Initializing scan object.')
         # Initialize the scan object
         self.currentscan = sastool.classes.scan.SASScan(columns, (self.nstep1, self.nstep2))
@@ -96,11 +96,11 @@ class SubSystemImaging(SubSystem):
         self.credo().subsystems['Exposure'].timecriticalmode = True
         self.credo().subsystems['Files'].filebegin = 'imaging'
         self._original_shuttermode = self.credo().subsystems['Exposure'].operate_shutter
-        
+
         self._ex_conn = [self.credo().subsystems['Exposure'].connect('exposure-fail', self._exposure_fail),
                          self.credo().subsystems['Exposure'].connect('exposure-image', self._exposure_image),
                          self.credo().subsystems['Exposure'].connect('exposure-end', self._exposure_end)]
-        
+
         self._current_step = None
         self._header_template = header_template.copy()
         self._header_template['imagingfsn'] = self.currentscan.fsn
@@ -111,19 +111,19 @@ class SubSystemImaging(SubSystem):
         """Set-up and start a scan measurement.
         """
         self._do_next_step()
-    
+
     def execute(self, header_template={}, mask=None):
         self.prepare(header_template, mask)
         self.start()
-        
+
     def is_last_step(self):
         if self._current_step is None:
             return False
         return (self._current_step[1] >= self.nstep2 - 1) and (self._current_step[0] >= self.nstep1)
-        
+
     def _exposure_fail(self, sse, message):
         self.emit('imaging-fail', message)
-    
+
     def _exposure_end(self, sse, status):
         self._current_step[0] += 1
         if self.is_last_step() or not status:
@@ -136,7 +136,7 @@ class SubSystemImaging(SubSystem):
             self._current_step[0] = 0
             self._current_step[1] += 1
         self._do_next_step()
-    
+
     def _exposure_image(self, sse, ex):
         where = self._where
         logger.debug('WHERE: ' + str(where[0]) + str(where[1]))
@@ -145,7 +145,7 @@ class SubSystemImaging(SubSystem):
         cols = self.currentscan.columns()
         self.currentscan.append(tuple(vdreadout[c] for c in cols))
         self.emit('imaging-report', self.currentscan)
-    
+
     def _do_next_step(self):
         logger.debug('Do-next-step starting.')
         if hasattr(self, '_kill'):
@@ -179,7 +179,7 @@ class SubSystemImaging(SubSystem):
             logger.debug('Opened shutter before starting of the first exposure.')
         self.credo().subsystems['Exposure'].start(self._header_template, self._mask, write_nexus=False)
         logger.debug('Done starting exposure in imaging sequence')
-        return False    
+        return False
     def kill(self):
         logger.debug('Killing of scan sequence requested')
         self._kill = True
@@ -188,7 +188,7 @@ class SubSystemImaging(SubSystem):
         except:
             pass
         logger.info('Stopping scan sequence on user request.')
-    
+
     def do_imaging_end(self, status):
         if self._ex_conn is not None:
             for c in self._ex_conn:

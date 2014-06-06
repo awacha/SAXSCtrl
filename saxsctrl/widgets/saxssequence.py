@@ -1,4 +1,3 @@
-# encoding: utf-8
 from gi.repository import Gtk
 from gi.repository import GObject
 from .widgets import ToolDialog
@@ -114,12 +113,12 @@ class SeqCommand(GObject.GObject):
 class SeqCommandComment(SeqCommand):
     cmd_regex = '#.*'
     def execute(self, credo, prevval, variables):
-        return 
+        return prevval
 
 class SeqCommandEmpty(SeqCommand):
     cmd_regex = ''
     def execute(self, credo, prevval, variables):
-        return
+        return prevval
 
 class SeqCommandGenixPower(SeqCommand):
     command = 'xray_power'

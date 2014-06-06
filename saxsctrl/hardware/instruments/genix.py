@@ -102,10 +102,10 @@ class Genix(Instrument_ModbusTCP):
     interlock = InstrumentProperty(name='interlock', type=bool, refreshinterval=1, timeout=1)
     overridden = InstrumentProperty(name='overridden', type=bool, refreshinterval=1, timeout=1)
     faultstatus = InstrumentProperty(name='faultstatus', type=int, refreshinterval=1, timeout=1)
-    def __init__(self, offline=True):
+    def __init__(self, name='source', offline=True):
         if self._OWG_nosave_props is None:
             self._OWG_nosave_props = []
-        Instrument_ModbusTCP.__init__(self, offline)
+        Instrument_ModbusTCP.__init__(self, name, offline)
         self._shutter_lock = multiprocessing.RLock()
         self.logfile = 'log.genix'
         self.logtimeout = 1
@@ -193,6 +193,7 @@ class Genix(Instrument_ModbusTCP):
                 getattr(type(self), propname)._update(self, False, InstrumentPropertyCategory.YES)
     def do_notify(self, prop):
         Instrument_ModbusTCP.do_notify(self, prop)
+        logger.info('GeniX status changed to: '+self.status)
         if Notify.is_initted():
             n = Notify.Notification.new('GeniX status change', 'New status: ' + self.status, 'dialog-information')
             n.show()

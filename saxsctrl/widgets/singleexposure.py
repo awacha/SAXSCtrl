@@ -1,4 +1,4 @@
-# coding: utf-8
+
 from gi.repository import Gtk
 from gi.repository import GLib
 import logging
@@ -9,8 +9,7 @@ from .exposure import ExposureFrame
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-import sasgui
-import qrcode
+import sasgui.libconfig
 
 class SingleExposure(ToolDialog):
     _filechooserdialogs = None
@@ -136,7 +135,7 @@ class SingleExposure(ToolDialog):
             func(rad, label=str(exposure.header))
             win.legend(loc='best')
             if self.q_or_pixel_checkbutton.get_active():
-                win.set_xlabel(u'q (1/\xc5)')
+                win.set_xlabel(u'q ('+sasgui.libconfig.qunit()+')')
             else:
                 win.set_xlabel(u'Radial pixel number')
             win.set_ylabel('Intensity (total counts)')

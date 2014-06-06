@@ -6,7 +6,7 @@ from .widgets import ToolDialog
 
 class CenteringDialog(ToolDialog):
     def __init__(self, credo, title='Centering image...') :
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_SAVE, Gtk.ResponseType.YES))
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_EXECUTE, 1, Gtk.STOCK_SAVE, Gtk.ResponseType.YES))
         vb = self.get_content_area()
         f = Gtk.Expander(label='Exposure')
         vb.pack_start(f, False, True, 0)
@@ -144,10 +144,15 @@ class CenteringDialog(ToolDialog):
         ex.header.write(os.path.join(self.credo.subsystems['Files'].eval2dpath, basename + '.param'))
         
     def do_response(self, respid):
-        if respid == Gtk.ResponseType.APPLY:  # execute
+        if respid == 1:  # execute
             self.execute_findbeam()
         if respid == Gtk.ResponseType.YES:  # save
             self.save_beampos()
-        if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+        if respid in (Gtk.ResponseType.APPLY, Gtk.ResponseType.OK):
+            beamposx,beamposy=self.plot2d.get_exposure()['BeamPosX'], self.plot2d.get_exposure()['BeamPosY']
+            if self.credo.get_property('beamposx') != beamposx:  self.credo.set_property('beamposx', beamposx)
+            if self.credo.get_property('beamposy') != beamposy:  self.credo.set_property('beamposy', beamposy)
+        if respid in (Gtk.ResponseType.CANCEL, Gtk.ResponseType.OK, Gtk.ResponseType.DELETE_EVENT):
             self.destroy()
+    
             

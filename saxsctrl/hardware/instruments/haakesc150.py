@@ -8,19 +8,20 @@ import re
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-class HaakePhoenixError(InstrumentError):
+class HaakeSC150Error(InstrumentError):
     pass
 
-class HaakePhoenix(Instrument_TCP):
-    __gtype_name__ = 'SAXSCtrl_Instrument_HaakePhoenix'
+class HaakeSC150(Instrument_TCP):
+    __gtype_name__ = 'SAXSCtrl_Instrument_HaakeSC150'
     setpoint = InstrumentProperty(name='setpoint', type=float, timeout=1, refreshinterval=1)
     temperature = InstrumentProperty(name='temperature', type=float, timeout=1, refreshinterval=1)
     difftemp = InstrumentProperty(name='difftemp', type=float, timeout=1, refreshinterval=1)
     version = InstrumentProperty(name='version', type=str, timeout=3600, refreshinterval=3600)
-    pumppower = InstrumentProperty(name='pumppower', type=float, timeout=1, refreshinterval=1)
-    temperaturecontrol = InstrumentProperty(name='temperaturecontrol', type=bool, timeout=1, refreshinterval=1)
-    externalcontrol = InstrumentProperty(name='externalcontrol', type=bool, timeout=1, refreshinterval=1)
-    mainrelay_fault = InstrumentProperty(name='mainrelay_fault', type=bool, timeout=1, refreshinterval=1)
+    pumppower = InstrumentProperty(name='pumppower', type=str, timeout=1, refreshinterval=1)
+    uniton = InstrumentProperty(name='uniton', type=bool, timeout=1, refreshinterval=1)
+    energysavingmode = InstrumentProperty(name='energysavingmode', type=bool, timeout=1, refreshinterval=1)
+    rtd1_shorted_fault = InstrumentProperty(name='rtd1_shorted_fault', type=bool, timeout=1, refreshinterval=1)
+    rtd1_open_fault = InstrumentProperty(name='rtd1_open_fault', type=bool, timeout=1, refreshinterval=1)
     overtemperature_fault = InstrumentProperty(name='overtemperature_fault', type=bool, timeout=1, refreshinterval=1)
     liquidlevel_fault = InstrumentProperty(name='liquidlevel_fault', type=bool, timeout=1, refreshinterval=1)
     motor_overload_fault = InstrumentProperty(name='motor_overload_fault', type=bool, timeout=1, refreshinterval=1)
@@ -35,16 +36,16 @@ class HaakePhoenix(Instrument_TCP):
                    '(?P<cooling_fault>[01])(?P<reserved1>[01])(?P<reserved2>[01])(?P<internal_pt100_fault>[01])'
                    '(?P<external_pt100_fault>[01])\$', message)
         if m is None:
-            raise HaakePhoenixError('Invalid state flags data received: %s' % message)
+            raise HaakeSC150Error('Invalid state flags data received: %s' % message)
         gd = m.groupdict()
         for k in gd:
             gd[k] = (gd[k] == '1')
         
         return {k:gd[k] for k in gd if not k.startswith('reserved')}
-    def __init__(self, name='circulator', offline=True):
+    def __init__(self, offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['logfile'] = objwithgui.OWG_Param_Type.File
-        Instrument_TCP.__init__(self, name, offline)
+        Instrument_TCP.__init__(self, offline)
         self.timeout = 0.1
         self.timeout2 = 0.1
         self.port = 2003
@@ -57,39 +58,39 @@ class HaakePhoenix(Instrument_TCP):
         if self.is_instrumentproperty_expired('setpoint'):
             try:
                 type(self).setpoint._update(self, self.get_setpoint(), InstrumentPropertyCategory.NORMAL)
-            except HaakePhoenixError:
+            except HaakeSC150Error:
                 type(self).setpoint._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         if self.is_instrumentproperty_expired('pumppower'):
             try:
                 pumppower = self.get_pumppower()
                 type(self).pumppower._update(self, pumppower, [InstrumentPropertyCategory.NO, InstrumentPropertyCategory.YES][int(pumppower != 0) % 2])
-            except HaakePhoenixError:
+            except HaakeSC150Error:
                 type(self).pumppower._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         if self.is_instrumentproperty_expired('version'):
             try:
                 type(self).version._update(self, self.get_version(), InstrumentPropertyCategory.NORMAL)
-            except HaakePhoenixError:
+            except HaakeSC150Error:
                 type(self).version._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         if self.is_instrumentproperty_expired('temperature'):
             try:
                 temp = self.get_temperature()
                 type(self).temperature._update(self, temp, InstrumentPropertyCategory.NORMAL)
-            except HaakePhoenixError:
+            except HaakeSC150Error:
                 type(self).temperature._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         if self.is_instrumentproperty_expired('difftemp'):
             try:
                 type(self).difftemp._update(self, self.temperature - self.setpoint, InstrumentPropertyCategory.NORMAL)
-            except (HaakePhoenixError, TypeError):
+            except (HaakeSC150Error, TypeError):
                 type(self).difftemp._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         if self.is_instrumentproperty_expired('iscooling'):
             try:
                 value = self.get_cooling_state()
                 type(self).iscooling._update(self, value, [InstrumentPropertyCategory.NO, InstrumentPropertyCategory.YES][int(value) % 2])
-            except HaakePhoenixError:
+            except HaakeSC150Error:
                 type(self).iscooling._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         try:
             stateflags = self.get_stateflags()
-        except HaakePhoenixError:
+        except HaakeSC150Error:
             for flag in stateflags:
                 getattr(type(self), flag)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         else:
@@ -121,18 +122,18 @@ class HaakePhoenix(Instrument_TCP):
                 if i > 1:
                     logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (command, i + 1, retries, str(ie)))
                 if i >= retries - 1:
-                    raise HaakePhoenixError('Communication error on command %s. %d retries exhausted. Error: %s' % (command, retries, str(ie)))
+                    raise HaakeSC150Error('Communication error on command %s. %d retries exhausted. Error: %s' % (command, retries, str(ie)))
     def interpret_message(self, message, command=None):
         if command is None:
             logger.warning('Asynchronous commands not supported for vacuum gauge!')
             return None
         if message[-1] != '\r':
-            raise HaakePhoenixError('Invalid message: does not end with CR: ' + message)
+            raise HaakeSC150Error('Invalid message: does not end with CR: ' + message)
         return message[:-1]
     def _parse_temperature(self, mesg):
         m = re.match('([+-]\d\d\d\d.\d\d) [CKF]\$', mesg)
         if m is None:
-            raise HaakePhoenixError('Invalid temperature data received: %s' % mesg)
+            raise HaakeSC150Error('Invalid temperature data received: %s' % mesg)
         return float(m.group(1))
     def get_temperature(self):
         return self.execute('I', self._parse_temperature)
@@ -147,13 +148,13 @@ class HaakePhoenix(Instrument_TCP):
     def _parse_pumppower(self, mesg):
         m = re.match('PF(\d+\.\d+)\$', mesg)
         if m is None:
-            raise HaakePhoenixError('Invalid pump power data received: %s' % mesg)
+            raise HaakeSC150Error('Invalid pump power data received: %s' % mesg)
         return float(m.group(1))
     def get_pumppower(self):
         return self.execute('r pf', self._parse_pumppower)
     def set_setpoint(self, temp, verify=True):
         if (temp < -50) or (temp > 200):
-            raise HaakePhoenixError('Temperature outside limits.')
+            raise HaakeSC150Error('Temperature outside limits.')
         cmd = 'S  %05d' % (temp * 100)
         if verify:
             for i in range(3):
@@ -161,12 +162,12 @@ class HaakePhoenix(Instrument_TCP):
                     self.execute(cmd)
                     setpoint = self.get_setpoint()
                     if abs(setpoint - temp) > 0.01:
-                        raise HaakePhoenixError('Could not set setpoint on Haake Phoenix!')
+                        raise HaakeSC150Error('Could not set setpoint on Haake Phoenix!')
                     else:
                         return True
-                except HaakePhoenixError as hpe:
+                except HaakeSC150Error as hpe:
                     logger.warning(str(hpe))
-            raise HaakePhoenixError('Could not set setpoint on Haake Phoenix!')
+            raise HaakeSC150Error('Could not set setpoint on Haake Phoenix!')
         else:
             return True
                     
@@ -200,7 +201,7 @@ class HaakePhoenix(Instrument_TCP):
     def _parse_coolingstate(self, message):
         m = re.match('CC(?P<coolingstate>[01])\$', message)
         if m is None:
-            raise HaakePhoenixError('Invalid cooling state: ' + message)
+            raise HaakeSC150Error('Invalid cooling state: ' + message)
         return m.group(1) == '1' 
     def get_cooling_state(self):
         return self.execute('R CC', self._parse_coolingstate)

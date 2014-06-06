@@ -30,7 +30,7 @@ class BeamAlignment(ToolDialog):
         tab.attach(self.comment_entry, 1, 2, row, row + 1)
         row += 1
 
-        self.exposure_frame = ExposureFrame(self.credo, 'test')
+        self.exposure_frame = ExposureFrame(self.credo, 'tst')
         tab.attach(self.exposure_frame, 0, 2, row, row + 1)
         self.exposure_frame.connect('started', self._on_start)
         self.exposure_frame.connect('end', self._on_end)

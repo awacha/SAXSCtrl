@@ -120,8 +120,11 @@ class Instrument(objwithgui.ObjWithGUI):
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
     _enable_instrumentproperty_signals = None
     _logging_parameters = []
-    def __init__(self, offline=True):
+    def __init__(self, name=None, offline=True):
         self._instrumentproperties = {}
+        if name is None:
+            name='Unnamed instrument'
+        self._name=name
         self._OWG_init_lists()
         self._OWG_nosave_props.append('status')
         self._OWG_nogui_props.append('status')
@@ -132,6 +135,8 @@ class Instrument(objwithgui.ObjWithGUI):
         self._logthread = None
         self._logthread_stop = threading.Event()
         self._enable_instrumentproperty_signals = threading.Event()
+    def _get_classname(self):
+        return objwithgui.ObjWithGUI._get_classname(self)+'__'+self._name
     def do_instrumentproperty_notify(self, propertyname):
         try:
             logger.debug('InstrumentProperty %s changed to: %s' % (propertyname, str(self.get_property(propertyname))))
@@ -201,7 +206,14 @@ class Instrument(objwithgui.ObjWithGUI):
             while True:
                 if not self.connected():
                     break
-                self._logthread_worker()
+                try:
+                    self._logthread_worker()
+                except ConnectionBrokenError as ex:
+                    raise ex
+                except InstrumentError as ex:
+                    logger.warn('Non-fatal exception in logger thread of instrument ' + self._get_classname() + ': ' + str(type(ex)) + str(str(ex)))
+                except:
+                    raise
                 if stopswitch.wait(self.logtimeout):
                     logger.debug('Stopping logger thread')
                     break
@@ -376,10 +388,10 @@ class CommunicationCollector(threading.Thread):
 class Instrument_ModbusTCP(Instrument):
     host = GObject.property(type=str, default='', blurb='Host name')
     port = GObject.property(type=int, minimum=0, default=502, blurb='Port number')
-    def __init__(self, offline=True):
+    def __init__(self, name=None, offline=True):
         self._communications_lock = multiprocessing.RLock()
         self._modbus = None
-        Instrument.__init__(self, offline)
+        Instrument.__init__(self, name, offline)
     def connected(self):
         return self._modbus is not None
     def connect_to_controller(self):
@@ -458,11 +470,11 @@ class Instrument_TCP(Instrument):
     _mesgseparator = None
     collector_sleep = GObject.property(type=float, minimum=0, default=0.1, blurb='Sleeping time for collector thread.')
     _commands = None
-    def __init__(self, offline=True):
+    def __init__(self, name=None, offline=True):
         self._socket = None
         self._socketlock = multiprocessing.Lock()
         self._inqueue = multiprocessing.queues.Queue()
-        Instrument.__init__(self, offline)
+        Instrument.__init__(self, name, offline)
 
     def connect_to_controller(self):
         if self.offline:

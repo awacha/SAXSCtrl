@@ -49,25 +49,25 @@ class ScanGraph(ToolDialog):
         self._hb_motor = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(self._hb_motor, False, False, 0)
         self._hb_motor.set_no_show_all(True)
-        
+
         vb.pack_start(self.figcanvas, True, True, 0)
         self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
         vb.pack_start(self.figtoolbar, False, True, 0)
         tab = Gtk.Table()
         vb.pack_start(tab, False, True, 0)
         self.figcanvas.set_size_request(640, 480)
-        
+
         b = Gtk.ToolButton(stock_id='saxsctrl_fitpeak')
         b.set_tooltip_text('Fit a Lorentzian peak to the zoomed portion of the currently selected signal')
         self.figtoolbar.insert(b, self.figtoolbar.get_n_items() - 2)
         b.connect('clicked', self.on_fitpeak)
-        
+
         self.scan = scan
         self.datacols = [c for c in self.scan.columns() if c != self.scan.get_dataname('x')]
         self.xname = self.scan.get_dataname('x')
         self.xlabel(self.xname)
 
-            
+
         l = Gtk.Label('Move cursor')
         self._hb_cursor.pack_start(l, False, False, 0)
         l.show()
@@ -101,7 +101,6 @@ class ScanGraph(ToolDialog):
                 b2.show()
                 b1.connect('clicked', self._on_motor_to_cursor, b2)
                 b2.connect('clicked', self._on_motor_to_peak, b1)
-                
 
         ls = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_FLOAT)
         self.scalertreeview = Gtk.TreeView(ls)
@@ -118,7 +117,7 @@ class ScanGraph(ToolDialog):
         cr.connect('edited', self.on_cell_edited)
         tvc = Gtk.TreeViewColumn('Scaling', cr, text=2)
         tvc.set_min_width(30)
-        tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)     
+        tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
         vb0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -128,7 +127,7 @@ class ScanGraph(ToolDialog):
         self._show2d_check = Gtk.CheckButton('Show 2D image')
         self._show2d_check.connect('toggled', lambda cb:self.redraw_scan())
         vb0.pack_start(self._show2d_check, False, False, 0)
-        
+
         vb = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         hb.pack2(vb0, False, False)
         vb0.pack_start(vb, True, True, 0)
@@ -189,7 +188,7 @@ class ScanGraph(ToolDialog):
             md.destroy()
             del md
             return
-        pass    
+        pass
     def _on_goto_min(self):
         model, iter_ = self.scalertreeview.get_selection().get_selected()
         if iter_ is None:
@@ -205,7 +204,7 @@ class ScanGraph(ToolDialog):
     def _initialize_cursors(self):
         for col, color in itertools.izip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
             self._cursors[col] = self.gca().plot(np.nan, np.nan, 'o', markersize=4, mew=2, mfc='none', mec=color)[0]
-            
+
     def do_notify(self, prop):
         if prop.name == 'is-recording':
             if not self.is_recording:
@@ -221,7 +220,7 @@ class ScanGraph(ToolDialog):
                 self.move_cursor(0.5 * (x.min() + x.max()))
             else:
                 self._hb_cursor.hide()
-                
+
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.destroy()
@@ -236,14 +235,14 @@ class ScanGraph(ToolDialog):
             sg.redraw_scan()
             sg.show_all()
         return
-    
+
     def move_cursor(self, to):
         self._cursor_at = np.interp(to, self.scan[self.xname], np.arange(len(self.scan)), 0, len(self.scan) - 1)
         if self._cursor_scale.get_value() != to:
             self._cursor_scale.set_value(to)
             self._cursor_label.set_label(str(to))
         self.redraw_scan()
-        
+
 
     def xlabel(self, *args, **kwargs):
         self.gca().set_xlabel(*args, **kwargs)
@@ -290,6 +289,7 @@ class ScanGraph(ToolDialog):
                 self._cursors[col].set_xdata(x[self._cursor_at])
                 self._cursors[col].set_ydata(self.scan[col][self._cursor_at] * scale)
             self.xlabel(self.xname)
+            self.fig.gca().axis('tight')
         else:
             miny = np.inf
             maxy = -np.inf
@@ -303,25 +303,29 @@ class ScanGraph(ToolDialog):
                     visible = False
                 self._cursors[l.get_label()].set_visible(visible)
                 if not visible: continue
-                
-                y = self.scan[l.get_label()] * scale 
+
+                y = self.scan[l.get_label()] * scale
                 l.set_ydata(y)
                 if y.max() > maxy: maxy = y.max()
                 if y.min() < miny: miny = y.min()
                 self._cursors[l.get_label()].set_xdata(x[self._cursor_at])
                 self._cursors[l.get_label()].set_ydata(y[self._cursor_at])
-            dx = max(abs(x.max() - x.min()) * 0.05, 0.5)
-            self.fig.gca().set_xlim(x.min() - dx, x.max() + dx)
-            dy = max(abs(maxy - miny) * 0.05, 0.5)
-            self.fig.gca().set_ylim(miny - dy, maxy + dy)
+            dx = abs(x.max() - x.min()) * 0.01
+            if dx == 0:
+                dx = 0.5
+            #self.fig.gca().set_xlim(x.min() - dx, x.max() + dx)
+            dy = abs(maxy - miny)
+            if dy == 0:
+                dy = 0.5
+            self.fig.gca().axis('tight')
         if self._show2d_check.get_active() and ('FSN' in self.scan.columns()):
             ssf = self.credo.subsystems['Files']
-            exposure = sastool.classes.SASExposure(ssf.get_exposureformat('scan') % self.scan['FSN'][self._cursor_at], dirs=[ssf.scanpath, ssf.imagespath, ssf.parampath] + sastool.misc.find_subdirs(ssf.maskpath))
+            exposure = sastool.classes.SASExposure(ssf.get_exposureformat('scn') % self.scan['FSN'][self._cursor_at], dirs=[ssf.scanpath, ssf.imagespath, ssf.parampath] + sastool.misc.find_subdirs(ssf.maskpath))
             pltwin = sasgui.PlotSASImageWindow.get_current_plot()
             pltwin.set_exposure(exposure)
             if not pltwin.is_visible():
                 pltwin.show_all()
-            
+
         self.legend(loc='best')
         if self._logy_check.get_active():
             self.fig.gca().set_yscale('log')
@@ -376,13 +380,13 @@ class ScanGraph(ToolDialog):
             self._fittedline.set_ydata(fitted.y)
         else:
             self._fittedline = fitted.plot('r-', axes=self.gca(), label='Peak of %s at: ' % signalname + str(pos))[0]
-        if hasattr(self, '_peakpostext'):
+        if hasattr(self, '_peakpostext') and self._peakpostext is not None:
             self._peakpostext.set_text('Peak at: ' + str(pos))
         else:
             self._peakpostext = self.text(float(pos), curve.interpolate(float(pos)), 'Peak at: ' + str(pos), ha='left', va='top')
         self._lastpeakpos = pos
         self.fig.canvas.draw()
-        
+
 class ImagingGraph(ToolDialog):
     def __init__(self, scan, title='Imaging results', extent=None):
         self._axes = []
@@ -408,7 +412,7 @@ class ImagingGraph(ToolDialog):
         self.x2name = self.scan.columns()[1]
         self.x1label(self.x1name)
         self.x2label(self.x2name)
-        
+
         ls = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_BOOLEAN, GObject.TYPE_STRING, GObject.TYPE_FLOAT)
         self.scalertreeview = Gtk.TreeView(ls)
         cr = Gtk.CellRendererText()
@@ -436,7 +440,7 @@ class ImagingGraph(ToolDialog):
         cr.connect('edited', self.on_cell_edited)
         tvc = Gtk.TreeViewColumn('Factor', cr, text=3)
         tvc.set_min_width(60)
-        tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)     
+        tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
         vb = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)

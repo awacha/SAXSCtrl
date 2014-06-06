@@ -6,7 +6,7 @@ import sys
 import os
 from gi.repository import Gtk
 from gi.repository import GObject
-from gi.repository import Notify
+# from gi.repository import Notify
 import subprocess
 import warnings
 import gc
@@ -19,7 +19,9 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 handler.setLevel(logging.WARNING)
 
-Notify.init('SAXSCtrl')
+# Notify.init('SAXSCtrl')
+import sastool
+sastool.libconfig.LENGTH_UNIT='nm'
 
 import utils
 import hardware

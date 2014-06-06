@@ -188,15 +188,20 @@ class Scan(ToolDialog):
                                  self.credo.subsystems['Scan'].connect('scan-report', self._scan_report),
                                  self.credo.subsystems['Scan'].connect('scan-fail', self._scan_fail)]
         try:
+            logger.debug('Preparing scan.')
             self.credo.subsystems['Scan'].prepare()
+            logger.debug('Setting up scangraph')
             self._scangraph = scangraph.ScanGraph(self.credo.subsystems['Scan'].currentscan, self.credo, 'Scan #%d' % (self.credo.subsystems['Scan'].currentscan.fsn))
             self._scangraph.figtext(1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
             self._scangraph.show_all()
             self._scangraph.set_scalers([(vd.name, vd.visible, vd.scaler) for vd in self.credo.subsystems['VirtualDetectors']])
             self._scangraph.is_recording = True
+            logger.debug('Starting scan')
             self.credo.subsystems['Scan'].start()
+            logger.debug('Adjusting GUI sensitivity')
             self.entrytable.set_sensitive(False)
             self.set_sensitive(False)
+            logger.debug('Scan started')
         except Exception as exc:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error starting scan.')
             md.format_secondary_markup('<b>Reason:</b>\n' + str(exc))

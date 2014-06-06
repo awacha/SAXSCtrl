@@ -4,10 +4,14 @@ import sasgui
 import sastool
 import os
 from .exposureselector import ExposureSelector
-import qrcode
 from .widgets import ToolDialog
+import logging
 
 _errorflags = [('Wrong distance', 'BADDIST'), ('Wrong sample', 'BADSAMPLE'), ('Artifacts (i.e. chip flares)', 'ARTIFACTS')]
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 class DataViewer(ToolDialog):
     _filechooserdialogs = None
@@ -20,7 +24,7 @@ class DataViewer(ToolDialog):
         
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, True, 0)
-        self._exposureselector = ExposureSelector(self.credo)
+        self._exposureselector = ExposureSelector(self.credo,loadtype='Raw')
         self._exposureselector.connect('open', self._exposure_open)
         hb.pack_start(self._exposureselector, True, True, 0)
         
@@ -64,6 +68,7 @@ class DataViewer(ToolDialog):
         for flaglabel, flagname in _errorflags:
             self._flagbuttons[flagname] = Gtk.ToggleButton(flaglabel)
             self._flagbuttons[flagname].override_background_color(Gtk.StateFlags.ACTIVE, Gdk.RGBA(1, 0, 0, 1))
+            self._flagbuttons[flagname].override_background_color(Gtk.StateFlags.ACTIVE | Gtk.StateFlags.NORMAL, Gdk.RGBA(1, 0, 0, 1))
             self._flagbuttons[flagname].connect('toggled', self._on_flag, flagname)
             hb.pack_start(self._flagbuttons[flagname], False, False, 0)
         
@@ -91,8 +96,12 @@ class DataViewer(ToolDialog):
         elif flagname in currentflags:
             currentflags.remove(flagname)
         header['ErrorFlags'] = ' '.join(sorted(currentflags))
-        self.credo.subsystems['Files'].writeheader(header, raw=True, override=True)
+        headerformat=self.credo.subsystems['Files'].get_headerformat(self._exposureselector.get_fileprefix(),
+                                                                     self._exposureselector.get_ndigits())
+        self.credo.subsystems['Files'].writeheader(header, raw=True, override=True, 
+                                                   headerformat=headerformat)
         self._exposure_open(self._exposureselector, exposure)
+        self.credo.subsystems['DataReduction'].beamtimeraw.reload_header_for_fsn(header['FSN'])
     
     def on_data_reduction_finished(self, ssdr, fsn, header, button, fsn_to_wait_for):
         if fsn != fsn_to_wait_for:

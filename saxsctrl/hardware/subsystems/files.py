@@ -13,6 +13,7 @@ __all__ = ['SubSystemFiles']
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+DEFAULT_FILEPREFIXES=['crd','tst','scn','tra']
 
 class SubSystemFiles(SubSystem):
     __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever properties filebegin or ndigits, or the list of watched folders change
@@ -71,7 +72,7 @@ class SubSystemFiles(SubSystem):
         return [self._get_subpath(subdir) for subdir in ['images', 'param', 'eval2d', 'eval1d']]
     def _search_formats(self):
         regex = re.compile('(?P<begin>[a-zA-Z0-9]+)_(?P<fsn>\d+)')
-        formats = set()
+        formats = set(DEFAULT_FILEPREFIXES)
         for pth in self.exposureloadpath:
             formats.update({m.groupdict()['begin'] for m in [regex.match(f) for f in os.listdir(pth)] if (m is not None)})
         return sorted(list(formats))
@@ -84,7 +85,7 @@ class SubSystemFiles(SubSystem):
             logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: ' + otherfilename.get_path() + ', event: ' + str(event))
         else:
             logger.debug('SubSystemFiles._on_monitor_event() starting: filename: ' + filename.get_path() + ', otherfilename: None, event: ' + str(event))
-            
+
         if (event in (Gio.FileMonitorEvent.CHANGED, Gio.FileMonitorEvent.CREATED)):
             basename = filename.get_basename()
             if basename:
@@ -153,7 +154,7 @@ class SubSystemFiles(SubSystem):
         if (regex.pattern == self.get_fileformat_re().pattern):
             self.emit('new-nextfsn', self._nextfsn_cache[regex], regex.pattern)
         return self._nextfsn_cache[regex]
-        
+
     def _get_subpath(self, subdir):
         pth = os.path.join(os.path.expanduser(self.rootpath), subdir)
         while os.path.islink(pth):
@@ -231,14 +232,16 @@ class SubSystemFiles(SubSystem):
             return re.compile(filebegin + '_' + '(?P<fsn>\d{%d})' % ndigits)
         else:
             return re.compile(filebegin + '_' + '(?P<fsn>\d+)')
-    def writeheader(self, header, raw=True, override=False):
+    def writeheader(self, header, raw=True, override=False, headerformat=None):
+        if headerformat is None:
+            headerformat=self.get_headerformat()
         if raw and override:
             path = self.param_overridepath
         elif raw:
             path = self.parampath
         else:
             path = self.eval2dpath
-        header.write(os.path.join(path, self.get_headerformat() % header['FSN']))
+        header.write(os.path.join(path, headerformat % header['FSN']))
     def writereduced(self, exposure):
         exposure.write(os.path.join(self.eval2dpath, self.get_eval2dformat() % exposure['FSN']))
         exposure.header.write(os.path.join(self.eval2dpath, self.get_evalheaderformat() % exposure['FSN']))

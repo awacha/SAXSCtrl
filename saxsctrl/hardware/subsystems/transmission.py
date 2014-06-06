@@ -80,7 +80,7 @@ class SubSystemTransmission(SubSystem):
         sse.exptime = self.countingtime
         sse.dwelltime = self.dwelltime
         sse.nimages = self.nimages
-        self.credo().subsystems['Files'].filebegin = 'transm'
+        self.credo().subsystems['Files'].filebegin = 'tra'
         self._oldshuttermode = sse.operate_shutter
         self._kill = False
         self._do_iteration()

@@ -129,11 +129,11 @@ class Pilatus(Instrument_TCP):
     imagesremaining = InstrumentProperty(name='imagesremaining', type=int, timeout=10, refreshinterval=10)
     default_threshold = GObject.property(type=int, default=4024, minimum=3814, maximum=20202, blurb='Default threshold value (eV)')
     default_gain = GObject.property(type=str, default='highG', blurb='Default gain')
-    def __init__(self, offline=True):
+    def __init__(self, name='detector', offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['default-gain'] = objwithgui.OWG_Param_Type.ListOfStrings
         self._OWG_hints['default-gain'] = {objwithgui.OWG_Hint_Type.ChoicesList:['lowG', 'midG', 'highG']}
-        Instrument_TCP.__init__(self, offline)
+        Instrument_TCP.__init__(self, name, offline)
         self._mesgseparator = '\x18'
         self.timeout = 1
         self._status_lock = threading.RLock()

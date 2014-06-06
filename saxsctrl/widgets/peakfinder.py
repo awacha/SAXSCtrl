@@ -4,7 +4,7 @@ import sastool
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg 
 from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
-
+import sasgui.libconfig
 
 class PeakFinder(Gtk.Dialog):
     __gsignals__ = {'peak-found':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object , object))}
@@ -103,7 +103,7 @@ class PeakFinder(Gtk.Dialog):
         l = Gtk.Label(label='Periodicity:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.d_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(58.402, 0, 1e5, 0.1, 1), digits=4)
-        self.d_entry.set_value(58.402)
+        self.d_entry.set_value(5.8402)
         tab.attach(self.d_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
         
@@ -161,7 +161,7 @@ class PeakFinder(Gtk.Dialog):
         self.fig.gca().cla()
         func = self.curve.__getattribute__(self.plottype_combo.get_active_text())
         func(axes=self.fig.gca())
-        self.fig.gca().set_xlabel(u'q (\xc5$^{-1}$)')
+        self.fig.gca().set_xlabel(u'q ('+sasgui.libconfig.qunit()+')')
         self.fig.gca().set_ylabel('Intensity (arb. units)')
         self.canvas.draw()
     def do_findpeak(self, button):

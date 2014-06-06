@@ -5,6 +5,8 @@ from .spec_filechoosers import MaskEntryWithButton
 import sastool
 DEFAULT_PREFIX = 'crd'
 
+
+
 class ExposureBrowserDialog(Gtk.Dialog):
     __gsignals__ = {'selected':(GObject.SignalFlags.RUN_FIRST, None, (int,)),
                    }
@@ -126,9 +128,11 @@ class ExposureBrowserDialog(Gtk.Dialog):
         
 class ExposureSelector(Gtk.Frame):
     __gsignals__ = {'open':(GObject.SignalFlags.RUN_FIRST, None, (object,))}
-    def __init__(self, credo, filebegin='crd', ndigits=5):
+    loadtype=GObject.property(type=int,minimum=0,maximum=2,default=0)
+    def __init__(self, credo, filebegin='crd', ndigits=5, loadtype='All'):
         Gtk.Frame.__init__(self, label='Select exposure to load')
         self.credo = credo
+        self.loadtype=['ALL','RAW','EVAL'].index(loadtype.upper())
         
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.add(hb)
@@ -177,7 +181,7 @@ class ExposureSelector(Gtk.Frame):
         b.connect('clicked', lambda b:self._load_last())
         b = Gtk.Button()
         b.set_image(Gtk.Image.new_from_stock(Gtk.STOCK_FIND, Gtk.IconSize.BUTTON))
-        hb1.pack_start(b, True, True, 0)
+        hb1.pack_start(b, False, False, 0)
         b.connect('clicked', lambda b:self._browse())
         row += 1
         
@@ -197,18 +201,26 @@ class ExposureSelector(Gtk.Frame):
         GLib.idle_add(lambda :self._load_current() and False)
     def _load_first(self):
         self._fsn_entry.set_value(self.credo.subsystems['Files'].get_first_fsn(self.credo.subsystems['Files'].get_format_re(self._fileprefix_combo.get_active_text(), self._digits_sb.get_value_as_int())) - 1)
-        self._load_current()
+        #self._load_current()
     def _load_prev(self):
         self._fsn_entry.set_value(self._fsn_entry.get_value() - 1)
-        self._load_current()
+        #self._load_current()
     def _load_current(self):
         try:
+            if self.loadtype==0: #All
+                dirs=self.credo.subsystems['Files'].exposureloadpath
+            elif self.loadtype==1: #Raw
+                dirs=self.credo.subsystems['Files'].rawloadpath
+            elif self.loadtype==2: #Eval
+                dirs=self.credo.subsystems['Files'].reducedloadpath
+            else:
+                raise NotImplementedError('Unknown loadtype: '+str(self.loadtype))
             if self._mask_override_cb.get_active(): 
                 ex = sastool.classes.SASExposure(self.credo.subsystems['Files'].get_exposureformat(self._fileprefix_combo.get_active_text(), self._digits_sb.get_value_as_int()),
-                                                 self._fsn_entry.get_value_as_int(), dirs=self.credo.subsystems['Files'].exposureloadpath, maskfile=self._maskentry.get_filename())
+                                                 self._fsn_entry.get_value_as_int(), dirs=dirs, maskfile=self._maskentry.get_filename())
             else:
                 ex = sastool.classes.SASExposure(self.credo.subsystems['Files'].get_exposureformat(self._fileprefix_combo.get_active_text(), self._digits_sb.get_value_as_int()),
-                                                 self._fsn_entry.get_value_as_int(), dirs=self.credo.subsystems['Files'].exposureloadpath)
+                                                 self._fsn_entry.get_value_as_int(), dirs=dirs)
             self.emit('open', ex)
         except IOError as ioe:
             md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error reading file: ' + str(ioe))
@@ -217,21 +229,24 @@ class ExposureSelector(Gtk.Frame):
             del md
     def _load_next(self):
         self._fsn_entry.set_value(self._fsn_entry.get_value() + 1)
-        self._load_current()
+        #self._load_current()
     def _load_last(self):
         self._fsn_entry.set_value(self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(self._fileprefix_combo.get_active_text(), self._digits_sb.get_value_as_int())) - 1)
-        self._load_current()
+        #self._load_current()
     def _browse(self):
         dlg = ExposureBrowserDialog(self.credo, self._fileprefix_combo.get_active_text(), self._digits_sb.get_value_as_int(), parent=self.get_toplevel())
         while True:
             resp = dlg.run()
             if resp == Gtk.ResponseType.OK:
                 self._fsn_entry.set_value(dlg.get_fsn())
-                self._load_current()
+                #self._load_current()
             if resp != Gtk.ResponseType.APPLY:
                 dlg.destroy()
                 break
         del dlg
-                
+    def get_fileprefix(self):
+        return self._fileprefix_combo.get_active_text()
+    def get_ndigits(self):
+        return self._digits_sb.get_value_as_int()
             
         

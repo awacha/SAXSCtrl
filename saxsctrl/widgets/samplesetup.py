@@ -17,7 +17,7 @@ class SampleSetup(Gtk.Dialog):
         vb.pack_start(tab, False, True, 0)
         self.set_resizable(False)
         row = 0
-        
+
         l = Gtk.Label(label='Sample name:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.samplename_entry = Gtk.Entry()
@@ -46,14 +46,14 @@ class SampleSetup(Gtk.Dialog):
         tab.attach(self.positiony_entry, 1, 2, row, row + 1)
         self.positiony_entry.connect('value-changed', self.on_change_entry, 'positiony')
         row += 1
-        
+
         l = Gtk.Label(label='Distance decrease:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.distminus_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1000, 1000, 0.1, 1), digits=4)
         tab.attach(self.distminus_entry, 1, 2, row, row + 1)
         self.distminus_entry.connect('value-changed', self.on_change_entry, 'distminus')
         row += 1
-        
+
         l = Gtk.Label(label=u'Transmission:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.transmission_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.5, 0, 1, 0.1, 1), digits=4)
@@ -67,7 +67,7 @@ class SampleSetup(Gtk.Dialog):
         tab.attach(self.preparedby_entry, 1, 2, row, row + 1)
         self.preparedby_entry.connect('changed', self.on_change_entry, 'preparedby')
         row += 1
-        
+
         l = Gtk.Label(label=u'Preparation time:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.preparetime_entry = Gtk.Calendar()
@@ -80,8 +80,8 @@ class SampleSetup(Gtk.Dialog):
         self.preparetime_entry.connect('month-changed', self.on_change_entry, 'preparetime')
         tab.attach(self.preparetime_entry, 1, 2, row, row + 1)
         row += 1
-        
-        
+
+
         self.connect('delete-event', self.hide_on_delete)
         vb.show_all()
         self._changelist = []
@@ -122,17 +122,17 @@ class SampleSetup(Gtk.Dialog):
                 sam.__setattr__(attr, datetime.datetime(widget.get_date()[0], widget.get_date()[1] + 1, widget.get_date()[2]))
         self._changelist = []
         return sam
-        
+
 class SampleListDialog(ToolDialog):
     __gsignals__ = {'response':'override'}
     def __init__(self, credo, title='Sample configuration'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY))
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         vb = self.get_content_area()
-        
+
         tbar = Gtk.Toolbar()
         vb.pack_start(tbar, False, True, 0)
-        
+        tbar.set_style(Gtk.ToolbarStyle.BOTH)
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_NEW)
         tbar.add(tb)
         tb.connect('clicked', lambda tb:self.add_sample())
@@ -157,11 +157,11 @@ class SampleListDialog(ToolDialog):
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_REFRESH)
         tbar.add(tb)
         tb.connect('clicked', lambda tb:self._tool_refresh())
-        
+
         sw = Gtk.ScrolledWindow()
         sw.set_size_request(400, 300)
         vb.pack_start(sw, True, True, 0)
-        self.sampleliststore = Gtk.ListStore(GObject.TYPE_STRING,  # title 
+        self.sampleliststore = Gtk.ListStore(GObject.TYPE_STRING,  # title
                                              GObject.TYPE_STRING,  # prepared by
                                              GObject.TYPE_STRING,  # preparation time
                                              GObject.TYPE_DOUBLE,  # thickness
@@ -193,7 +193,7 @@ class SampleListDialog(ToolDialog):
         self.sampletreeview.set_headers_visible(True)
         self.sampletreeview.set_rules_hint(True)
         self.sampletreeview.connect('row-activated', lambda tv, path, column:self._tool_edit())
-        
+
         self.from_credo()
     def _changed(self):
         self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
@@ -228,7 +228,7 @@ class SampleListDialog(ToolDialog):
             sam = sample.SAXSSample(sam)
             sam.title = 'Copy of ' + sam.title
             self.add_sample(sam, it)
-    def _tool_load(self):                
+    def _tool_load(self):
         self.credo.subsystems['Samples'].load()
         self.from_credo()
     def _tool_save(self):
@@ -238,7 +238,7 @@ class SampleListDialog(ToolDialog):
         md.run()
         md.destroy()
         del md
-        
+
     def _tool_clear(self):
         self.sampleliststore.clear()
         self._changed()
@@ -255,7 +255,7 @@ class SampleListDialog(ToolDialog):
                 self.update_liststore()
             ssd.destroy()
             self._changed()
-        
+
     def do_response(self, respid):
         if respid in(Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_sensitive():
@@ -277,7 +277,7 @@ class SampleListDialog(ToolDialog):
         for sam in self.credo.subsystems['Samples']:
             self.add_sample(sam)
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
-            
+
 class SampleSelector(Gtk.ComboBoxText):
     __gsignals__ = {'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                   }
@@ -321,7 +321,7 @@ class SampleSelector(Gtk.ComboBoxText):
                     return
         elif isinstance(sam, basestring):
             for i, row in enumerate(self.samplelist):
-                if ((str(row[-1]) == sam) or (row[0] == sam) or 
+                if ((str(row[-1]) == sam) or (row[0] == sam) or
                     (isinstance(row[-1], sample.SAXSSample) and row[-1].title == sam)):
                     self.set_active(i)
                     self.emit('sample-changed', row[-1])

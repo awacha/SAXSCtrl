@@ -32,26 +32,26 @@ class TMCMModule(Instrument_TCP):
                     'motor-limit':(GObject.SignalFlags.RUN_FIRST, None, (object, bool, bool)),
                     'motor-settings-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
                     }
-    _considered_idle = [TMCMModuleStatus.Disconnected, TMCMModuleStatus.Idle]    
+    _considered_idle = [TMCMModuleStatus.Disconnected, TMCMModuleStatus.Idle]
     send_recv_retries = GObject.property(type=int, minimum=1, default=3, blurb='Number of retries on communication failure')
     savesettings_delay = GObject.property(type=float, minimum=0, default=0.5, blurb='Delay for saving settings')
     _motor_counter = 1
     _max_motors_in_motion = 1
-    def __init__(self, offline=True):
+    def __init__(self, name='motordriver', offline=True):
         self.motors = {}
         self.f_clk = 16000000
         self._adjust_hwtype()
-        Instrument_TCP.__init__(self, offline)
+        Instrument_TCP.__init__(self, name, offline)
         self.timeout = 0.1
         self.timeout2 = 0.1
         self.recvbufsize = 8
         self.port = 2001
         self.cmdqueue = multiprocessing.queues.Queue()
         self._motorsemaphore = multiprocessing.Semaphore(self._max_motors_in_motion)
-        
+
     def _adjust_hwtype(self):
         raise NotImplementedError('Cannot instantiate TMCMModule directly!')
-    
+
     def _post_connect(self):
         try:
             major, minor, hwtype = self.get_version()
@@ -63,14 +63,14 @@ class TMCMModule(Instrument_TCP):
             raise
         logger.debug('TCP and RS232 both OK.')
         self.load_settings()
-        
+
     def motorstop(self, flushqueues=True):
         if flushqueues:
             for m in self:
                 m.flush_queue()
         for m in self.moving():
             m.stop()
-            
+
     def __del__(self):
         for m in self.motors.keys():
             del self.motors[m]
@@ -79,7 +79,7 @@ class TMCMModule(Instrument_TCP):
         if hasattr(self, '_savesettings_delayed_handle'):
             return False
         self._savesettings_delayed_handle = GLib.timeout_add(int(self.savesettings_delay * 1000), lambda : (self.save_settings() and False))
-            
+
     def save_settings(self, filename=None):
         if hasattr(self, '_savesettings_delayed_handle'):
             del self._savesettings_delayed_handle
@@ -104,7 +104,7 @@ class TMCMModule(Instrument_TCP):
             return True
         finally:
             del self._settingsfile_in_use
-            
+
     def load_settings(self, filename=None):
         if hasattr(self, '_settingsfile_in_use'):
             return
@@ -123,10 +123,10 @@ class TMCMModule(Instrument_TCP):
             self.settingsfile = filename
         finally:
             del self._settingsfile_in_use
-            
+
     def do_communication(self, cmd):
         raise NotImplementedError
-    
+
     def interpret_message(self, message, command=None):
         if command is None:
             logger.warning('Asynchronous messages not supported for TMCM modules! (got message of length ' + str(len(message)))
@@ -154,7 +154,7 @@ class TMCMModule(Instrument_TCP):
         if status != 100:
             raise MotorError('Status not OK! TMCM response: ' + ''.join('%x' % ord(m) for m in message))
         return value
-    
+
     def execute(self, instruction, type_=0, mot_bank=0, value=0):
         if instruction is not None:
             cmd = (1, instruction, type_, mot_bank) + struct.unpack('4B', struct.pack('>i', int(value)))
@@ -179,12 +179,12 @@ class TMCMModule(Instrument_TCP):
             except Exception as exc:
                 logger.error('Instrument error on module %s: ' % self.hwtype + str(exc))
                 raise MotorError('Instrument error: ' + str(exc))
-            
+
         # logger.debug('Got message from TMCM module: 0x' + ''.join('%x' % ord(x) for x in result) + '; interpreted value: ' + str(value))
         # logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
         # validate checksum, but only if the command is not the get version command.
         return value
-    
+
     def get_version(self):
         ver = self.execute(136, 1)
         if ver / 0x10000 == 0x015f:
@@ -197,11 +197,11 @@ class TMCMModule(Instrument_TCP):
         major = ver / 0x100
         minor = ver % 0x100
         return major, minor, hwtype
-    
+
     def add_motor(self, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf'))):
         if (mot_idx < 0) or (mot_idx >= self.n_axes):
             raise MotorError('Cannot add motor with index %d: only %d axes are supported by the controller module.' % (mot_idx, self.n_axes))
-            
+
         mot = StepperMotor(self, mot_idx, name, alias, step_to_cal, softlimits, self.f_clk)
         mot.connect('motor-start', lambda m:self.emit('motor-start', m))
         mot.connect('motor-report', lambda m, pos, speed, load: self.emit('motor-report', m, pos, speed, load))
@@ -212,11 +212,11 @@ class TMCMModule(Instrument_TCP):
             self.motors[mot.name] = mot
         self.emit('motors-changed')
         return mot
-    
+
     def moving(self):
         """Return currently moving motors"""
         return [m for m in self if m.is_moving()]
-    
+
     def get_motor(self, idx):
         if isinstance(idx, numbers.Number):
             return [m for m in self if m.mot_idx == idx][0]
@@ -224,10 +224,10 @@ class TMCMModule(Instrument_TCP):
             return [m for m in self if (m.name == idx) or (m.alias == idx) or (str(m) == idx) ][0]
         else:
             raise NotImplementedError('Invalid type for parameter idx: ', type(idx))
-        
+
     def do_motor_start(self, mot):
         self.status = TMCMModuleStatus.Moving
-        
+
     def do_motor_stop(self, mot):
         # a motor movement is finished. Check if the motor has more motion commands
         # in queue. If yes, execute the next of them and return. If not, check
@@ -247,13 +247,13 @@ class TMCMModule(Instrument_TCP):
         else:
             # a motion is started already by mot._start_move().
             pass
-        
+
     def get_current_parameters(self):
         dic = {}
         for m in self:
             dic[m.alias] = m.get_parameter('Current_position', raw=False)
         return dic
-    
+
     def do_notify(self, prop):
         Instrument_TCP.do_notify(self, prop)
         if prop.name == 'configfile':
@@ -292,7 +292,7 @@ class MotorParameter(object):
             return value
         else:
             return self._toraw(value, allparameters)
-        return 
+        return
     def to_phys(self, value, allparameters):
         if self._tophys is None:
             return value
@@ -305,7 +305,7 @@ class MotorParameter(object):
         if callable(self._validatephys):
             valid &= self._validatephys(value, allparameters)
         return valid
-    
+
 conv_speed_to_raw = lambda x, ap:int(x * 2 ** ap['Pulse_div'] * 2 ** ap['Ustep_resol'] * 2048 * 32 / ap['f_clk'] / ap['step_to_cal'])
 conv_speed_to_phys = lambda x, ap: ap['f_clk'] * x / (2 ** ap['Pulse_div'] * 2 ** ap['Ustep_resol'] * 2048 * 32.0) * ap['step_to_cal']
 
@@ -356,11 +356,11 @@ COMMON_MOTOR_PARAMETERS = [
                                             depends=['f_clk', 'Pulse_div', 'Ustep_resol', 'step_to_cal'],
                                            rawminimum=0, rawmaximum=2047, isinteger=False,
                                             ),
-                             MotorParameter('Current_position', 1,  # _validatephys=lambda x, ap: (ap['soft_left'] <= x) & (x <= ap['soft_right']),
+                             MotorParameter('Current_position', 1, _validateraw=lambda x, ap: (ap['soft_left'] <= x) & (x <= ap['soft_right']),
                                             _tophys=conv_pos_to_phys,
                                             _toraw=conv_pos_to_raw,
                                             depends=['soft_left', 'soft_right', 'step_to_cal', 'Ustep_resol']),
-                             MotorParameter('Target_position', 0, _validatephys=lambda x, ap: (ap['soft_left'] <= x) & (x <= ap['soft_right']),
+                             MotorParameter('Target_position', 0, _validateraw=lambda x, ap: (ap['soft_left'] <= x) & (x <= ap['soft_right']),
                                             _tophys=conv_pos_to_phys,
                                             _toraw=conv_pos_to_raw,
                                             depends=['soft_left', 'soft_right', 'step_to_cal', 'Ustep_resol']),
@@ -369,6 +369,7 @@ COMMON_MOTOR_PARAMETERS = [
                              MotorParameter('f_clk', None, readonly=True, raw_is_phys=True, rawminimum=0),
                              MotorParameter('soft_left', None, _tophys=conv_pos_to_phys, _toraw=conv_pos_to_raw),
                              MotorParameter('soft_right', None, _tophys=conv_pos_to_phys, _toraw=conv_pos_to_raw),
+                             MotorParameter('backlash', None, _tophys=conv_pos_to_phys, _toraw=conv_pos_to_raw),
                              MotorParameter('top_rms_current', None, readonly=True),
                              MotorParameter('Left_limit_status', 11, _validateraw=lambda x, ap: isinstance(x, bool), readonly=True, raw_is_phys=True, rawminimum=0, rawmaximum=1, isinteger=True),
                              MotorParameter('Right_limit_status', 10, _validateraw=lambda x, ap: isinstance(x, bool), readonly=True, raw_is_phys=True, rawminimum=0, rawmaximum=1, isinteger=True),
@@ -417,7 +418,7 @@ class TMCM6110(TMCMModule):
         self.max_ustepresol = 8
         self.motor_params = [MotorParameter('Ustep_resol', 140, _validatephys=lambda x, ap:(0 <= x) & (x <= 8), raw_is_phys=True,
                                           rawminimum=0, rawmaximum=8, isinteger=True, storable=True), ] + COMMON_MOTOR_PARAMETERS
-    
+
 class StepperMotor(GObject.GObject):
     __gsignals__ = {'motor-start':(GObject.SignalFlags.RUN_FIRST, None, ()),
                     'motor-report':(GObject.SignalFlags.RUN_FIRST, None, (float, float, float)),
@@ -434,7 +435,8 @@ class StepperMotor(GObject.GObject):
     f_clk = GObject.property(type=int, default=16000000, blurb='TMCM clock frequency')
     softlimits = GObject.property(type=object, blurb='Software limits')
     status = GObject.property(type=str, default=StepperStatus.Disconnected, blurb='Status')
-    def __init__(self, driver, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf')), f_clk=16000000):
+    backlash = GObject.property(type=float, default=0.2, blurb='Motor backlash')
+    def __init__(self, driver, mot_idx, name=None, alias=None, step_to_cal=1 / 200.0, softlimits=(-float('inf'), float('inf')), f_clk=16000000, backlash=0.2):
         GObject.GObject.__init__(self)
         self._movequeue = []
         self.driver = weakref.ref(driver)
@@ -448,6 +450,7 @@ class StepperMotor(GObject.GObject):
         self._stateparams = {}
         self._stateparams['top_rms_current'] = self.driver().max_rms_current
         self._stateparams['f_clk'] = f_clk
+        self.backlash = backlash
         self.f_clk = f_clk
         self._stateparams['step_to_cal'] = step_to_cal
         self.step_to_cal = step_to_cal
@@ -457,7 +460,7 @@ class StepperMotor(GObject.GObject):
         self._limitdata = None
         self.next_idle_position = None
         self.status = StepperStatus.Idle
-        
+
     def get_parameter(self, name, raw=False, force_refresh=False):
         if (name not in self._stateparams) or force_refresh:
             self.reload_parameters(name)
@@ -468,8 +471,9 @@ class StepperMotor(GObject.GObject):
             for missing_dep in [p for p in motpar.depends if ((p not in self._stateparams) or force_refresh)]:
                 self.reload_parameters(missing_dep)
             return motpar.to_phys(self._stateparams[name], self._stateparams)
-        
+
     def set_parameter(self, name, value, raw=False):
+        logger.debug('Motor '+self.alias+' set_parameter: '+name)
         motpar = [m for m in self.driver().motor_params if m.name == name][0]
         if motpar.readonly:
             raise MotorError('Attempted to set read-only parameter %s.' % name)
@@ -481,25 +485,30 @@ class StepperMotor(GObject.GObject):
         else:
             physval = value
             rawval = motpar.to_raw(value, self._stateparams)
-        
+
         if not motpar.validate(physval, self._stateparams):
+            logger.warning('Validation failed while setting parameter %s to %s.' % (motpar.name, str(value)))
             raise MotorError('Validation failed while setting parameter %s to %s.' % (motpar.name, str(value)))
         if motpar.axisparameter_idx is None:
             self._stateparams[name] = rawval
         else:
             self._stateparams[name] = self.driver().execute(5, motpar.axisparameter_idx, self.mot_idx, rawval)
         if name == 'soft_left':
+            logger.debug('Motor '+self.alias+' Updating soft left limit to '+str(rawval)+' (raw)')
             self.softlimits = (rawval, max(self.softlimits))
         if name == 'soft_right':
+            logger.debug('Motor '+self.alias+' Updating soft right limit to '+str(rawval)+' (raw)')
             self.softlimits = (min(self.softlimits), rawval)
         if name == 'step_to_cal':
             self.step_to_cal = value
-            
+        if name == 'backlash':
+            self.backlash = value
+
     def do_notify(self, prop):
-        if prop.name in ['step_to_cal', 'f_clk']:
+        logger.debug('Motor'+self.alias+' notify::'+prop.name)
+        if prop.name in ['step_to_cal', 'f_clk', 'backlash']:
             self._stateparams[prop.name] = self.get_property(prop.name)
         elif prop.name == 'softlimits':
-            logger.debug('Notify::softlimits')
             self._stateparams['soft_left'] = min(self.softlimits)
             self._stateparams['soft_right'] = max(self.softlimits)
         if prop.name not in ['status']:
@@ -511,10 +520,10 @@ class StepperMotor(GObject.GObject):
                 self.emit('idle')
     def do_settings_changed(self):
         self.driver().save_settings_delayed()
-    
+
     def flush_queue(self):
         self._movequeue = []
-    
+
     def _start_move(self):
         logger.debug(str(self) + ': _start_move()')
         if self.status == StepperStatus.Moving:
@@ -532,7 +541,7 @@ class StepperMotor(GObject.GObject):
             # if no motion commands are queued, return.
             self.driver()._motorsemaphore.release()
             logger.debug('_movequeue empty!')
-            return False 
+            return False
         try:
             # Actually start the move.
             self.status = StepperStatus.Moving
@@ -548,7 +557,7 @@ class StepperMotor(GObject.GObject):
                 self.status = StepperStatus.Idle
             raise
         return True
-    
+
     def __del__(self):
         driver = self.driver()
         if driver is not None:
@@ -556,7 +565,7 @@ class StepperMotor(GObject.GObject):
                 del driver.motors[self.name]
             except KeyError:
                 pass
-            
+
     def check_limits(self):
         newlims = (self.get_parameter('Left_limit_status', force_refresh=True),
                    self.get_parameter('Right_limit_status', force_refresh=True))
@@ -564,10 +573,10 @@ class StepperMotor(GObject.GObject):
             self._limitdata = newlims
             self.emit('motor-limit', *self._limitdata)
         return True
-    
+
     def do_motor_start(self):
         GLib.idle_add(self.motor_monitor)
-        
+
     def do_motor_stop(self):
         self.driver()._motorsemaphore.release()
         self.driver().save_settings()
@@ -575,6 +584,9 @@ class StepperMotor(GObject.GObject):
             self.status = StepperStatus.Idle
         else:
             self.status = StepperStatus.Queued
+
+    def get_softlimits_phys(self):
+        return tuple(conv_pos_to_phys(x,self._stateparams) for x in self.softlimits)
 
     def motor_monitor(self):
         try:
@@ -593,7 +605,7 @@ class StepperMotor(GObject.GObject):
         except Exception as exc:
             logger.critical('Exception swallowed in StepperMotor.motor_monitor(): ' + str(exc))
             return True
-        
+
     def save_to_configparser(self, cp):
         if not self.driver().connected():
             return cp
@@ -610,7 +622,7 @@ class StepperMotor(GObject.GObject):
         cp.set(self.name, 'Soft_right', self.softlimits[1])
         cp.set(self.name, 'Settings_changed_timeout', self.settingschanged_timeout)
         return cp
-    
+
     def load_from_configparser(self, cp):
         if not cp.has_section(self.name):
             return
@@ -625,15 +637,19 @@ class StepperMotor(GObject.GObject):
         if cp.has_option(self.name, 'Soft_left'):
             logger.debug('Loading softlimits.left from configparser')
             self.softlimits = (cp.getfloat(self.name, 'Soft_left'), self.softlimits[1])
+            logger.debug('Motor '+self.alias+' soft limits are now: '+str(self.softlimits))
+            logger.debug('Motor '+self.alias+' soft limits in _stateparams: '+str(self._stateparams['soft_left'])+', '+str(self._stateparams['soft_right']))
         if cp.has_option(self.name, 'Soft_right'):
             logger.debug('Loading softlimits.right from configparser')
             self.softlimits = (self.softlimits[0], cp.getfloat(self.name, 'Soft_right'))
+            logger.debug('Motor '+self.alias+' soft limits are now: '+str(self.softlimits))
+            logger.debug('Motor '+self.alias+' soft limits in _stateparams: '+str(self._stateparams['soft_left'])+', '+str(self._stateparams['soft_right']))
         if cp.has_option(self.name, 'Pos_raw'):
             if self.driver().connected():
                 self.calibrate_pos(cp.getint(self.name, 'Pos_raw'), raw=True);
         if cp.has_option(self.name, 'Settings_changed_timeout'):
             self.settingschanged_timeout = cp.getfloat(self.name, 'Settings_changed_timeout')
-            
+
     def reload_parameters(self, paramname=None):
         if paramname is not None:
             params = [p for p in self.driver().motor_params if p.name == paramname]
@@ -651,11 +667,11 @@ class StepperMotor(GObject.GObject):
             self.emit('settings-changed')
 
     def is_moving(self):
-        return self.status in [ StepperStatus.Busy, StepperStatus.Moving] 
-    
+        return self.status in [ StepperStatus.Busy, StepperStatus.Moving]
+
     def stop(self):
         self.driver().execute(3, 0, self.mot_idx, 0)
-        
+
     def moveto(self, pos, raw=False, relative=False):
         if not raw:
             pos = conv_pos_to_raw(pos, self._stateparams)
@@ -680,11 +696,12 @@ class StepperMotor(GObject.GObject):
         # try to start the motion. If this cannot be accomplished (another motor is running),
         # the driver will call this again for us when we are on turn.
         self._start_move()
-        
+
     def moverel(self, pos, raw=False):
         return self.moveto(self, pos, raw, True)
-    
+
     def calibrate_pos(self, pos=0, raw=False):
+        logger.debug('Motor '+self.alias+' calibrating.')
         if not raw:
             pos = conv_pos_to_raw(pos, self._stateparams)
         if (self.get_parameter('soft_left', raw=True) > pos) or (self.get_parameter('soft_right', raw=True) < pos):
@@ -695,6 +712,9 @@ class StepperMotor(GObject.GObject):
         # target position will move the motor.
         self.set_parameter('Ramp_mode', 2)
         self.set_parameter('Current_position', pos, raw=True)
+        logger.debug('Motor '+self.alias+' soft limits are now: '+str(self.softlimits))
+        logger.debug('Motor '+self.alias+' soft limits in _stateparams: '+str(self._stateparams['soft_left'])+', '+str(self._stateparams['soft_right']))
+        logger.debug('Setting target position to: %g <= %g <= %g'%(self._stateparams['soft_left'],pos,self._stateparams['soft_right']))
         self.set_parameter('Target_position', pos, raw=True)
         self.emit('settings-changed')
 
@@ -702,7 +722,7 @@ class StepperMotor(GObject.GObject):
         for motpar in [x for x in self.driver().motor_params if (x.axisparameter_idx is not None) and (x.storable)]:
             logger.debug('Storing axis parameter %s (# %d) to EEPROM.' % (motpar.name, motpar.axisparameter_idx))
             self.driver().execute(7, motpar.axisparameter_idx, self.mot_idx)
-            
+
     def __str__(self):
         return self.name + ' (' + self.alias + ')'
 

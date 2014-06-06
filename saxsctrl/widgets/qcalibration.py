@@ -24,7 +24,7 @@ class QCalibrationDialog(sasgui.QCalibrator):
         f.add(es)
         f.set_expanded(True)
         
-        self.wavelength = 1.5418
+        self.wavelength = 0.15418
         self.pixelsize = 0.172
         self.alpha = np.pi / 2
         self.beampos = 0

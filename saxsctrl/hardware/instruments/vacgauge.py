@@ -13,10 +13,10 @@ class VacuumGaugeError(InstrumentError):
 class VacuumGauge(Instrument_TCP):
     send_recv_retries = GObject.property(type=int, minimum=1, default=3, blurb='Number of retries on communication failure')
     pressure = InstrumentProperty(name='pressure', type=float, refreshinterval=1, timeout=1)
-    def __init__(self, offline=True):
+    def __init__(self, name='vacuumgauge', offline=True):
         self._OWG_init_lists()
         self._OWG_entrytypes['logfile'] = objwithgui.OWG_Param_Type.File
-        Instrument_TCP.__init__(self, offline)
+        Instrument_TCP.__init__(self, name, offline)
         self.timeout = 0.1
         self.timeout2 = 0.1
         self.port = 2002

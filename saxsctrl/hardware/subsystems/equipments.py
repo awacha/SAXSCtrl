@@ -26,17 +26,18 @@ class SubSystemEquipments(SubSystem):
                    }
     __equipments__ = {'genix':Genix,
                       'pilatus':Pilatus,
-                      'tmcm351':TMCM351,
+                      'tmcm351_a':TMCM351,
                       'tmcm6110':TMCM6110,
+                      'tmcm351_b':TMCM351,
                       'vacgauge':VacuumGauge,
                       'haakephoenix':HaakePhoenix,
                       }
-    _motor_drivers = ['tmcm351', 'tmcm6110']
+    _motor_drivers = ['tmcm351_a', 'tmcm6110','tmcm351_b']
     def __init__(self, credo, offline=True):
         SubSystem.__init__(self, credo, offline)
         if not self.configfile:
             self.configfile = 'equipments.conf'
-        self._list = dict([(n, self.__equipments__[n](offline=self.offline)) for n in self.__equipments__])
+        self._list = dict([(n, self.__equipments__[n](name=n,offline=self.offline)) for n in self.__equipments__])
         self._equipment_connections = {}
         for eq in self._list:
             equip = self._list[eq]

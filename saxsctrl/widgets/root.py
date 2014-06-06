@@ -1,6 +1,7 @@
 from gi.repository import Gtk
 from gi.repository import Gdk
 from gi.repository import GLib
+from gi.repository import Notify
 
 import logging
 import time
@@ -135,13 +136,13 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Scan', 'Scan', scan.Scan, 'Scan', ['genix', 'pilatus'], True),
                             Tool(self.credo, 'Imaging', 'Imaging', imaging.Imaging, 'Scan', ['genix', 'pilatus'], True),
                             Tool(self.credo, 'Single exposure', 'Single exposure', singleexposure.SingleExposure, 'Expose', ['genix', 'pilatus'], True),
-                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351'], True),
-                            Tool(self.credo, 'Transmission (multi)', 'Measure multiple transmission', transmission.TransmissionMeasurementMulti, 'Expose', ['genix', 'pilatus', 'tmcm351'], True),
+                            Tool(self.credo, 'Transmission', 'Measure transmission', transmission.TransmissionMeasurement, 'Expose', ['genix', 'pilatus', 'tmcm351_a'], True),
+                            Tool(self.credo, 'Transmission (multi)', 'Measure multiple transmission', transmission.TransmissionMeasurementMulti, 'Expose', ['genix', 'pilatus', 'tmcm351_a'], True),
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View', [], False),
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View', [], False),
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration', [], False),
-                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', ['tmcm351'], True),
+                            Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', [], True),
                             Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose', [], True),
                             Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge'], True),
                             Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix'], True),
@@ -163,6 +164,9 @@ class RootWindow(Gtk.Window):
         mi = Gtk.ImageMenuItem(label='Save settings')
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:self.credo.savestate())
+        mi = Gtk.CheckMenuItem(label='Dark theme')
+        menus['File'].append(mi)
+        mi.connect('toggled', lambda menuitem:Gtk.Settings.get_default().set_property('gtk-application-prefer-dark-theme', menuitem.get_active()))
         mi = Gtk.ImageMenuItem.new_from_stock(Gtk.STOCK_QUIT, None)
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:Gtk.main_quit())
@@ -248,6 +252,7 @@ class RootWindow(Gtk.Window):
     def _after_start(self):
         for equipment in self.credo.subsystems['Equipments']:
             equipment.set_enable_instrumentproperty_signals(True)
+        Notify.init('SAXSCtrl')
         return False
     def _run_subsystem_setup(self, ssname):
         dia = self.credo.subsystems[ssname].create_setup_dialog(title='Set-up %s subsystem' % ssname)
