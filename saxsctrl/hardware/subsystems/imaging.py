@@ -8,7 +8,7 @@ from ..instruments.genix import GenixError
 import logging
 import sastool
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 __all__ = ['SubSystemImaging']
 

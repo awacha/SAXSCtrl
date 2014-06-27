@@ -21,7 +21,13 @@ for dir_, subdirs, files in os.walk('saxsctrl'):
 
 ext_modules = [Extension(p.replace('/', '.')[:-4], [p], include_dirs=incdirs) for p in pyxfiles]
 
-setup(name='saxsctrl', version='0.0.1', author='Andras Wacha',
+with open('.version_last','rt') as f:
+    version_last=int(f.read())
+    version_last+=1
+with open('.version_last', 'wt') as f:
+    f.write('%d'%version_last)
+
+setup(name='saxsctrl', version='0.0.%d'%version_last, author='Andras Wacha',
       author_email='awacha@gmail.com', url='http://github.com/awacha/SAXSCtrl',
       description='SAXS instrument control',
       packages=find_packages(),

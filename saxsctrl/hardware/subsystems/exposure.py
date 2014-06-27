@@ -10,6 +10,7 @@ from ...utils import objwithgui
 import nxs
 import numpy as np
 import scipy
+import traceback
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -61,7 +62,7 @@ class SubSystemExposure(SubSystem):
                 except IOError:
                     logger.error('Cannot load default mask from file: ' + self.default_mask)
                 else:
-                    logger.info('Loaded default mask from file: ' + self.default_mask)
+                    logger.debug('Loaded default mask from file: ' + self.default_mask)
         else:
             logger.debug('Other parameter modified: ' + param.name)
     def get_mask(self):
@@ -118,7 +119,7 @@ class SubSystemExposure(SubSystem):
             header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
         GLib.idle_add(self._check_if_exposure_finished)
-        logger.info('Starting exposure of %s. Files will be named like: %s' % (str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
+        logger.debug('Starting exposure of %s. Files will be named like: %s' % (str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
         self._stopswitch.clear()
         pilatus.prepare_exposure(self.exptime, self.nimages, self.dwelltime)
         self._thread = threading.Thread(target=self._thread_worker, args=(os.path.join(self.credo().subsystems['Files'].imagespath, exposureformat),
@@ -166,7 +167,7 @@ class SubSystemExposure(SubSystem):
     def do_exposure_end(self, endstatus):
         # this is the last signal emitted during an exposure. The _check_if_exposure_finished() idle handler
         # has already deregistered itself.
-        logger.info('Exposure ended.')
+        logger.debug('Exposure ended.')
     def do_exposure_image(self, ex):
         pass
     def _process_exposure(self, exposurename, headername, stopswitch, queue, headertemplate, cbf_file_timeout, mask, write_nexus):
@@ -427,7 +428,7 @@ class SubSystemExposure(SubSystem):
                 header_template['StartDate'] += datetime.timedelta(seconds=exptime + dwelltime)
         except Exception, exc:
             # catch all exceptions and put an error state in the output queue, then re-raise.
-            outqueue.put((ExposureMessageType.Failure, str(exc)))
+            outqueue.put((ExposureMessageType.Failure, traceback.format_exc()))
             outqueue.put((ExposureMessageType.End, False))
             raise
         outqueue.put((ExposureMessageType.End, True))

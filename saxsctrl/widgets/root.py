@@ -10,7 +10,7 @@ import sys
 import weakref
 
 from ..hardware import credo
-from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer
+from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer, pinholecalculator
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -96,7 +96,7 @@ class RootWindow(Gtk.Window):
     __gsignals__ = {'destroy':'override',
                     }
     def __init__(self):
-        Gtk.Window.__init__(self, Gtk.WindowType.TOPLEVEL)
+        Gtk.Window.__init__(self, type=Gtk.WindowType.TOPLEVEL)
         self._connections = []
         self.logdisplay = logdisplay.LogDisplay()
         self.logdisplay.set_size_request(600, 400)
@@ -143,11 +143,12 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', [], True),
-                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose', [], True),
+                            Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose', [], False),
                             Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge'], True),
                             Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix'], True),
                             Tool(self.credo, 'Find capillary position & thickness', 'Find capillary positions and thickness', capilsizer.CapilSizer, 'Utilities', [], False),
                             Tool(self.credo, 'Hardware logs', 'Hardware log viewer', hwlogviewer.HWLogViewer, 'Utilities', [], False),
+                            Tool(self.credo, 'Pinhole calculator', 'Pinhole calculator', pinholecalculator.PinHoleCalculator, 'Utilities', [], False)
                             ]
         
         if self.credo.offline:
@@ -241,8 +242,10 @@ class RootWindow(Gtk.Window):
         md.set_default_response(Gtk.ResponseType.NO)
         yesbutton = md.get_widget_for_response(Gtk.ResponseType.YES)
         nobutton = md.get_widget_for_response(Gtk.ResponseType.NO)
-        yesbutton.connect('enter-notify-event', lambda yesb, ev, nob: bool((yesb.set_label(Gtk.STOCK_NO), nob.set_label(Gtk.STOCK_YES))) and False, nobutton)
-        yesbutton.connect('leave-notify-event', lambda yesb, ev, nob: bool((yesb.set_label(Gtk.STOCK_YES), nob.set_label(Gtk.STOCK_NO))) and False, nobutton)
+        yesbutton.connect('enter-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-no',Gtk.IconSize.BUTTON)), 
+                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-yes',Gtk.IconSize.BUTTON)))) and False, nobutton)
+        yesbutton.connect('leave-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-yes',Gtk.IconSize.BUTTON)), 
+                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-no',Gtk.IconSize.BUTTON)))) and False, nobutton)
         result = md.run()
         md.destroy()
         del md

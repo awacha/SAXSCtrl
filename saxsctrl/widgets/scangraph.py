@@ -289,7 +289,9 @@ class ScanGraph(ToolDialog):
                 self._cursors[col].set_xdata(x[self._cursor_at])
                 self._cursors[col].set_ydata(self.scan[col][self._cursor_at] * scale)
             self.xlabel(self.xname)
-            self.fig.gca().axis('tight')
+#            self.fig.gca().axis('tight')
+            self.fig.gca().relim()
+            self.fig.gca().autoscale(True,tight=True)
         else:
             miny = np.inf
             maxy = -np.inf
@@ -317,7 +319,9 @@ class ScanGraph(ToolDialog):
             dy = abs(maxy - miny)
             if dy == 0:
                 dy = 0.5
-            self.fig.gca().axis('tight')
+            #self.fig.gca().axis('tight')
+            self.fig.gca().relim()
+            self.fig.gca().autoscale(True,tight=True)
         if self._show2d_check.get_active() and ('FSN' in self.scan.columns()):
             ssf = self.credo.subsystems['Files']
             exposure = sastool.classes.SASExposure(ssf.get_exposureformat('scn') % self.scan['FSN'][self._cursor_at], dirs=[ssf.scanpath, ssf.imagespath, ssf.parampath] + sastool.misc.find_subdirs(ssf.maskpath))

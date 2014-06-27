@@ -8,12 +8,13 @@ from gi.repository import Gdk
 from gi.repository import GLib
 import time
 import re
+import os
 
 import logging
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
 RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
@@ -66,7 +67,10 @@ class KillException(Exception):
 
 class SeqCommand(GObject.GObject):
     __gsignals__ = {'progress':(GObject.SignalFlags.RUN_FIRST, None, (str, float)),
-                    'pulse':(GObject.SignalFlags.RUN_FIRST, None, (str,))}
+                    'pulse':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'return':(GObject.SignalFlags.RUN_FIRST, None, (object, str, object)), # object, return status, aux return parameters (jump to label etc.)
+                    }
+    command=None
     cmd_regex = ''
     signal_intervals = {'progress':1, 'pulse':0.5}
     _signal_lastemit = None
@@ -82,12 +86,38 @@ class SeqCommand(GObject.GObject):
         for prop in m.groupdict():
             self.__setattr__(prop, m.groupdict()[prop])
         return True
+    
     def execute(self, credo, prevval, variables):
         """Execute the command. Return only if the execution finished either normally or by a break.
         
         Should return True or raise an exception.
+        
         """
         pass
+    
+    def simulate(self, credo, prevval, variables):
+        pass
+    
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        """ Wrapper for the execute() method.
+        
+        Should emit the 'return' signal with the return value as an argument to it. If an error occurs
+        (exception raised), 'fail' signal is emitted with the exception object. In this case, 'return'
+        should not be emitted.
+        """
+        try:
+            if simulate:
+                result=self.simulate(credo,prevval,variables)
+            else:
+                result=self.execute(credo, prevval, variables)
+            self.emit('return',result,'OK',None)
+        except KillException as ke:
+            self.emit('return',None, 'KILL', ke.args)
+        except JumpException as je:
+            self.emit('return', je.args[0], 'JUMP', je.setstack)
+        except Exception as ex:
+            self.emit('return', ex, 'FAIL', None)
+        return False # we return False, because we will be an idle routine. Returning false ensures that we won't get rescheduled.
     def _parse_expressions(self, credo, prevval, variables):
         for a in self._arguments:
             value = self.__getattribute__(a)
@@ -111,11 +141,13 @@ class SeqCommand(GObject.GObject):
             return self.emit(signalname, *args)
     
 class SeqCommandComment(SeqCommand):
+    command='<comment>'
     cmd_regex = '#.*'
     def execute(self, credo, prevval, variables):
         return prevval
 
 class SeqCommandEmpty(SeqCommand):
+    command='<empty>'
     cmd_regex = ''
     def execute(self, credo, prevval, variables):
         return prevval
@@ -345,35 +377,53 @@ class SeqCommandReturn(SeqCommand):
     def execute(self, credo, prevval, variables):
         raise JumpException(None)
     
-class SeqCommandWait(SeqCommand):
+class SeqCommandWithWait(SeqCommand):
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        self._parse_expressions(credo, prevval, variables)
+        if simulate:
+            result=self.simulate(credo,prevval,variables)
+            self.emit('return',result,'OK',None)
+        else:
+            self._prepare(credo, prevval, variables)
+    def _prepare(self, credo, prevval, variables):
+        pass
+    def _start_waiting(self, delay, interval=500):
+        self._kill=False
+        self._starttime=time.time()
+        self._endtime=self._starttime+float(delay)
+        GLib.timeout_add(interval, self._idle_func)
+    def _end_of_waiting(self):
+        self.emit('return',None,'OK',None)
+    def _idle_worker(self):
+        pass
+    def _idle_func(self):
+        if self._kill:
+            self.emit('return',None,'KILL',None)
+            return False
+        if (time.time()>self._endtime):
+            self._end_of_waiting()
+            return False
+        else:
+            self._idle_worker()
+            return True
+    
+class SeqCommandWait(SeqCommandWithWait):
     command = 'sleep'
     cmd_regex = r'sleep\s+(?P<timeout>' + RE_FLOAT_OR_EXPRESSION + ')'
     timeout = 1
     _arguments = ['timeout']
-    def execute(self, credo, prevval, variables):
-        self._parse_expressions(credo, prevval, variables)
-        self._kill = False
-        t0 = time.time()
-        while not (self._kill or (time.time() > (t0 + float(self.timeout)))):
-            self.limited_emit('progress', 'Waiting. Time left: %.2f sec.' % (float(self.timeout) - (time.time() - t0)), (time.time() - t0) / float(self.timeout))
-            for i in range(100):
-                GLib.main_context_default().iteration(False)
-                if not GLib.main_context_default().pending():
-                    break
-        if self._kill:
-            raise KillException()
     def simulate(self, credo, prevval, variables):
-        self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: waiting ' + str(self.timeout) + ' seconds')
+    def _prepare(self, credo, prevval, variables):
+        self._start_waiting(self.timeout, 500)
 
-class SeqCommandExpose(SeqCommand):
+class SeqCommandExpose(SeqCommandWithWait):
     command = 'expose'
     cmd_regex = r'expose\s+(?P<exptime>' + RE_FLOAT_OR_EXPRESSION + ')\s+(?P<do_datareduction>' + RE_BOOL + '?)'
     exptime = 1
     do_datareduction = False
     _arguments = ['exptime', 'do_datareduction']
-    def execute(self, credo, prevval, variables):
-        self._parse_expressions(credo, prevval, variables)
+    def _prepare(self, credo, prevval, variables):
         self.do_datareduction = _parse_bool(self.do_datareduction)
         self._kill = None
         self.credo = credo
@@ -384,15 +434,9 @@ class SeqCommandExpose(SeqCommand):
         sse.exptime = float(self.exptime)
         sse.nimages = 1
         sse.start(write_nexus=True)
-        t0 = time.time()
-        while self._kill is None:
-            self.limited_emit('progress', 'Exposing. Time left: %.2f sec.' % (float(self.exptime) - (time.time() - t0)), (time.time() - t0) / float(self.exptime))
-            for i in range(100):
-                GLib.main_context_default().iteration(False)
-                if not GLib.main_context_default().pending():
-                    break
-        if self._kill:
-            raise KillException()
+        self._start_waiting(sse.exptime, 500)
+    def _idle_worker(self):
+        self.limited_emit('progress', 'Exposing. Time left: %.2f sec.' % (float(self.exptime) - (time.time() - self._starttime)), (time.time() - self._starttime) / float(self.exptime))
     def break_execution(self):
         self._kill = True
         self.credo.subsystems['Exposure'].kill()
@@ -407,7 +451,9 @@ class SeqCommandExpose(SeqCommand):
     def simulate(self, credo, prevval, variables):
         self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: exposing for ' + str(self.exptime) + ' seconds')
-
+    def _end_of_waiting(self):
+        self.emit('return',None,'OK',None)
+        
 class SeqCommandSet(SeqCommand):
     command = 'set'
     cmd_regex = r'set\s+(?P<varname>\w+)\s+(?P<expression>.*)'
@@ -450,8 +496,14 @@ class SeqCommandBreakpoint(SeqCommand):
     command = 'breakpoint'
     cmd_regex = r'breakpoint'
     def execute(self, credo, prevval, variables):
-        raise KillException()
-        
+        raise KillException('breakpoint')
+
+class SeqCommandBreakOnFlag(SeqCommand):
+    command = 'breakonflag'
+    cmd_regex = r'breakonflag\s+(?P<flag>.+)?'
+    def execute(self, credo, prevval, variables):
+        raise KillException('breakonflag', self.flag)
+    
 class SeqCommandEnd(SeqCommand):
     command = 'end'
     cmd_regex = r'end'
@@ -523,12 +575,24 @@ class SequenceInterpreter(GObject.GObject):
     __gsignals__ = {'line':(GObject.SignalFlags.RUN_FIRST, None, (int,)),
                     'cmdprogress':(GObject.SignalFlags.RUN_FIRST, None, (str, float)),
                     'cmdpulse':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
+                    'fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     }
     respect_breakpoints = GObject.property(type=bool, default=False, blurb='Break at breakpoints')
+    break_on_flags= GObject.property(type=object, blurb='Break when these flags are set')
+    pause = GObject.property(type=bool, default=False, blurb='Pause execution: do not start next command if this flag is set.')
     def __init__(self, credo, script):
         GObject.GObject.__init__(self)
+        self.break_on_flags=set()
         self.credo = credo
-        self._commands = [cls() for cls in SeqCommand.__subclasses__()]
+        cmd_classes=[cls for cls in SeqCommand.__subclasses__()]
+        newclasses=cmd_classes
+        while newclasses:
+            print [k.__subclasses__() for k in cmd_classes]
+            newclasses = [cls for cls in reduce(lambda a,b:a+b, [k.__subclasses__() for k in cmd_classes]) if cls not in cmd_classes]
+            cmd_classes.extend(newclasses)
+        self._commands = [cls() for cls in cmd_classes if cls.command is not None]
+        logger.debug('Known sequence commands: '+', '.join(c.command for c in self._commands))
         self._script = [x.strip() for x in script.split('\n')]
         self._init_exec()
     def _init_exec(self):
@@ -539,67 +603,90 @@ class SequenceInterpreter(GObject.GObject):
         self._cmdconn = []
         self._currentcommand = None
         self._break = False
+        self._simulation = False
     def stop(self):
         if self._currentcommand is not None:
             self._currentcommand.break_execution()
         self._break = True
+    def do_end(self, endstatus):
+        if endstatus:
+            logger.info('Sequence ended normally.')
+        else:
+            logger.info('Sequence ended on user break.')
+    def do_fail(self, status):
+        logger.error('Sequence failed: %s'%status)
+    def _command_return(self, command, result, status, auxresult):
+        for c in self._cmdconn:
+            command.disconnect(c)
+        self._cmdconn=[]
+        if status=='KILL':
+            if isinstance(auxresult, tuple):
+                if not auxresult:
+                    self.emit('end',False)
+                elif auxresult[0] == 'breakpoint' and self.respect_breakpoints:
+                    self.emit('end',False)
+                elif auxresult[0] == 'breakonflag' and auxresult[1] in self.break_on_flags:
+                    self.emit('end', False)
+                else:
+                    status='OK'
+                    result=self._prevval
+            else:
+                self.emit('end',False)
+        if status=='OK':
+            self._prevval=result
+            logger.debug('Command returned: ' + str(self._prevval))
+            logger.debug('Variables: ' + str(self._vars))
+            # command finished OK, we need to start the next command.
+            self._idx+=1
+            self.execute_next_command(result)
+        elif status=='FAIL':
+            # a failure happened, end of sequence
+            self.emit('fail', 'Command '+command.command+' failed with: '+str(result))
+        elif status=='JUMP':
+            # we need to jump. The label to jump is in 'result', while 'auxresult' is a boolean, controlling if we have to save the stack.
+            logger.debug('Jump requested to label: ' + str(result))
+            logger.debug('Call stack before jump is: ' + str(self._callstack))
+            if result is None:
+                try:
+                    # return to the previous point.
+                    self._idx = self._callstack.pop() + 1
+                    logger.debug('Going back to line ' + str(self._idx))
+                except:
+                    self.emit('fail','Stack underflow on line %d: %s' % (self._idx + 1, self._script[self._idx]))
+            else:
+                if auxresult:
+                    logger.debug('saving line #%d to call stack.'%self._idx)
+                    self._callstack.append(self._idx)
+                self._idx = self._findlabel(result)
+                logger.debug('Label is at line: ' + str(self._idx))
+            logger.debug('Call stack after jump is: ' + str(self._callstack))
+            self._prevval = None
+            self.execute_next_command(self._prevval)
+    def execute_next_command(self, prevval=None):
+        if self._idx >=len(self._script):
+            self.emit('end',True)
+            return
+        if self._break:
+            self.emit('end',False)
+            return
+        self.emit('line', self._idx)
+        # find the command to execute.
+        clis = [c for c in self._commands if c.match(self._script[self._idx])]
+        if not clis:
+            self.emit('fail', 'Unknown command in line %d: %s' % (self._idx + 1, self._script[self._idx]))
+        elif len(clis) > 1:
+            self.emit('Ambiguous command in line %d: %s' % (self._idx + 1, self._script[self._idx]))
+        else:
+            logger.debug('Command is: ' + clis[0].__class__.__name__)
+            self._currentcommand = clis[0]
+            self._cmdconn = [self._currentcommand.connect('pulse', lambda cmd, text: self.emit('cmdpulse', text)),
+                             self._currentcommand.connect('progress', lambda cmd, text, proportion: self.emit('cmdprogress', text, proportion)),
+                             self._currentcommand.connect('return', self._command_return),]
+            GLib.idle_add(self._currentcommand.execute_command, self.credo, prevval, self._vars, self._simulation)
     def execute(self, simulation=False):
         self._init_exec()
-        logger.debug('Starting execution of program.')
-        while self._idx < len(self._script):
-            if self._break:
-                break
-            self.emit('line', self._idx)
-            clis = [c for c in self._commands if c.match(self._script[self._idx])]
-            if not clis:
-                raise SequenceSyntaxError('Unknown command in line %d: %s' % (self._idx + 1, self._script[self._idx]))
-            elif len(clis) > 1:
-                raise SequenceSyntaxError('Ambiguous command in line %d: %s' % (self._idx + 1, self._script[self._idx]))
-            else:
-                logger.debug('Command is: ' + clis[0].__class__.__name__)
-                self._currentcommand = clis[0]
-                try:
-                    for i in range(100):
-                        GLib.main_context_default().iteration(False)
-                        if not GLib.main_context_default().pending():
-                            break
-                    try:
-                        self._cmdconn = [self._currentcommand.connect('pulse', lambda cmd, text: self.emit('cmdpulse', text)),
-                                         self._currentcommand.connect('progress', lambda cmd, text, proportion: self.emit('cmdprogress', text, proportion))]
-                        if simulation and hasattr(self._currentcommand, 'simulate'):
-                            self._prevval = self._currentcommand.simulate(self.credo, self._prevval, self._vars)
-                        else:
-                            self._prevval = self._currentcommand.execute(self.credo, self._prevval, self._vars)
-                    except KillException as ke:
-                        if isinstance(self._currentcommand, SeqCommandBreakpoint) and not self.respect_breakpoints:
-                            pass
-                        else:
-                            raise ke
-                    finally:
-                        for c in self._cmdconn:
-                            self._currentcommand.disconnect(c)
-                        self._cmdconn = []
-                    logger.debug('Command returned: ' + str(self._prevval))
-                    logger.debug('Variables: ' + str(self._vars))
-                    self._idx += 1
-                except JumpException as je:
-                    logger.debug('Jump requested to label: ' + str(je))
-                    logger.debug('Call stack before jump is: ' + str(self._callstack))
-                    if je.args[0] is None:
-                        try:
-                            # return to the previous point.
-                            self._idx = self._callstack.pop() + 1
-                            logger.debug('Going back to line ' + str(self._idx))
-                        except:
-                            raise SequenceSyntaxError('Stack underflow on line %d: %s' % (self._idx + 1, self._script[self._idx]))
-                    else:
-                        if je.setstack:
-                            self._callstack.append(self._idx)
-                        self._idx = self._findlabel(je.args[0])
-                        logger.debug('Label is at line: ' + str(self._idx))
-                    logger.debug('Call stack after jump is: ' + str(self._callstack))
-                    self._prevval = None
-        logger.info('End of program.')
+        logger.info('Starting execution of program.')
+        self.execute_next_command(None)
     def _findlabel(self, labelname):
         scl = SeqCommandLabel()
         labels = [i for i in range(len(self._script)) if (scl.match(self._script[i]) and (scl.label == labelname))]
@@ -610,18 +697,81 @@ class SequenceInterpreter(GObject.GObject):
         else:
             return labels[0]
     def do_line(self, lineno):
-        # logger.info('Executing line %d: %s' % (lineno, self._script[lineno]))
+        logger.debug('Executing line %d: %s' % (lineno, self._script[lineno]))
         pass
 
 class SAXSSequence(ToolDialog):
-    RESPONSE_SAVE = 1
-    RESPONSE_OPEN = 2
+    _filename='untitled.aseq'
+    _changed=False
     def __init__(self, credo, title='SAXS Sequence'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_SAVE, self.RESPONSE_SAVE, Gtk.STOCK_OPEN, self.RESPONSE_OPEN, Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        #ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_SAVE, self.RESPONSE_SAVE, Gtk.STOCK_OPEN, self.RESPONSE_OPEN, Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        
         self.sequence = Gtk.ListStore(GObject.TYPE_STRING,  # element string
                                       GObject.TYPE_OBJECT,  # element object
                                       )
         vb = self.get_content_area()
+        self._main_toolbar=Gtk.Toolbar()
+        vb.pack_start(self._main_toolbar,False,False,0)
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('document-new',Gtk.IconSize.SMALL_TOOLBAR),label='New sequence')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._new_sequence)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('document-open',Gtk.IconSize.SMALL_TOOLBAR),label='Open sequence')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._open_sequence)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('document-save',Gtk.IconSize.SMALL_TOOLBAR),label='Save sequence')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._save_sequence)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('document-save-as',Gtk.IconSize.SMALL_TOOLBAR),label='Save sequence as')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._saveas_sequence)
+        
+        sep=Gtk.SeparatorToolItem()
+        self._main_toolbar.insert(sep,-1)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('edit-cut',Gtk.IconSize.SMALL_TOOLBAR),label='Cut')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._cut_selection)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('edit-copy',Gtk.IconSize.SMALL_TOOLBAR),label='Copy')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._copy_selection)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('edit-paste',Gtk.IconSize.SMALL_TOOLBAR),label='Paste')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._paste_selection)
+        
+        sep=Gtk.SeparatorToolItem()
+        self._main_toolbar.insert(sep,-1)
+
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('edit-undo',Gtk.IconSize.SMALL_TOOLBAR),label='Undo')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._undo_changes)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('edit-redo',Gtk.IconSize.SMALL_TOOLBAR),label='Redo')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._redo_changes)
+
+        sep=Gtk.SeparatorToolItem()
+        self._main_toolbar.insert(sep,-1)
+
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('media-playback-start',Gtk.IconSize.SMALL_TOOLBAR),label='Execute sequence')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._start_sequence)
+        
+        tb=Gtk.ToolButton(icon_widget=Gtk.Image.new_from_icon_name('media-playback-stop',Gtk.IconSize.SMALL_TOOLBAR),label='Stop sequence')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._stop_sequence)
+        
+        tb=Gtk.ToggleToolButton()
+        tb.set_icon_widget(Gtk.Image.new_from_icon_name('media-playback-pause',Gtk.IconSize.SMALL_TOOLBAR))
+        tb.set_label('Pause after next command')
+        self._main_toolbar.insert(tb,-1)
+        tb.connect('clicked',self._pause_sequence)
+        
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, True, True, 0)
         sw = Gtk.ScrolledWindow()
@@ -653,15 +803,32 @@ class SAXSSequence(ToolDialog):
         self.get_action_area().add(self._breakpointcb)
         self._simulatecb = Gtk.CheckButton(label='Just simulate')
         self.get_action_area().add(self._simulatecb)
+        self._sourcebuffer_start_tracking_changes()
+    def _sourcebuffer_restart_tracking_changes(self):
+        self._sourcebuffer_stop_tracking_changes()
+        self._sourcebuffer_start_tracking_changes()
+    def _sourcebuffer_start_tracking_changes(self):
+        self._sbchangeconn=self._sourcebuffer.connect('changed', self._sourcebuffer_stop_tracking_changes)
+        self.set_title('Automatic sequence -- '+os.path.split(self._filename)[-1])
+        self._changed=False
+    def _sourcebuffer_stop_tracking_changes(self, sb=None):
+        self._changed=True
+        self.set_title('Automatic sequence -- '+os.path.split(self._filename)[-1]+'*')
+        self._sourcebuffer.disconnect(self._sbchangeconn)
     def on_saveorload(self, what):
-        if not hasattr(self, '_fcd'):
+        if self._filename == 'untitled.aseq' and what=='save':
+            what='saveas'
+        if what=='save':
+            self.save_to(self._filename)
+            return
+        if (not hasattr(self, '_fcd')) and (what in ['saveas','load']):
             self._fcd = Gtk.FileChooserDialog('Save automatic sequence to...', self, Gtk.FileChooserAction.SAVE, (Gtk.STOCK_SAVE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
             ff = Gtk.FileFilter(); ff.set_name('All files (*)'); ff.add_pattern('*'); self._fcd.add_filter(ff)
             ff = Gtk.FileFilter(); ff.set_name('Automatic sequence files (*.aseq)'); ff.add_pattern('*.aseq'); self._fcd.add_filter(ff)
             self._fcd.set_filter(ff)
-            if what == 'save':
-                self._fcd.set_current_name('untitled.aseq')
-        if what == 'save':
+            if what == 'saveas':
+                self._fcd.set_current_name(self._filename)
+        if what == 'saveas':
             self._fcd.set_title('Save automatic sequence to...')
             self._fcd.set_action(Gtk.FileChooserAction.SAVE)
             self._fcd.set_do_overwrite_confirmation(True)
@@ -672,7 +839,7 @@ class SAXSSequence(ToolDialog):
             self._fcd.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_OPEN)
         if self._fcd.run() == Gtk.ResponseType.OK:
             filename = self._fcd.get_filename()
-            if what == 'save':
+            if what in ['save', 'saveas']:
                 self.save_to(filename)
             elif what == 'load':
                 self.load_from(filename)
@@ -683,6 +850,8 @@ class SAXSSequence(ToolDialog):
         try:
             with open(filename, 'wt') as f:
                 f.write(self.get_script())
+            self._filename=filename
+            self._sourcebuffer_restart_tracking_changes()
         except IOError as ioe:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Could not save program to file ' + filename + '.')
             md.format_secondary_text('Reason: ' + str(ioe))
@@ -693,6 +862,8 @@ class SAXSSequence(ToolDialog):
         try:
             with open(filename, 'rt') as f:
                 self._sourcebuffer.set_text(f.read())
+            self._filename=filename
+            self._sourcebuffer_restart_tracking_changes()
         except (IOError, ValueError) as err:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Could not load program from file ' + filename + '.')
             md.format_secondary_text('Reason: ' + str(err))
@@ -714,53 +885,87 @@ class SAXSSequence(ToolDialog):
             self._progressbar.pulse()
         else:
             self._progressbar.set_fraction(fraction)
-                
+    def _new_sequence(self, toolbutton):
+        pass
+    def _open_sequence(self, toolbutton):
+        self.on_saveorload('load')
+    def _save_sequence(self, toolbutton):
+        self.on_saveorload('save')
+    def _saveas_sequence(self, toolbutton):
+        self.on_saveorload('saveas')
+    def _cut_selection(self, toolbutton):
+        pass
+    def _copy_selection(self, toolbutton):
+        pass
+    def _paste_selection(self, toolbutton):
+        pass
+    def _undo_changes(self, toolbutton):
+        pass
+    def _redo_changes(self, toolbutton):
+        pass
+    def _cleanup_after_sequence(self):
+        for c in self._interpreter_conns:
+            self._interpreter.disconnect(c)
+        self._interpreter_conns=[]
+        self._progressbar.hide()
+        self.get_action_area().foreach(lambda b, state:b.set_sensitive(state), True)
+        self._sourcebuffer.remove_source_marks(self._sourcebuffer.get_start_iter(), self._sourcebuffer.get_end_iter(), 'Executing')
+        self._sourceview.set_editable(True)
+        self._sourceview.set_cursor_visible(True)
+        del self._interpreter
+        self._interpreter = None
+    def _do_end(self, interpreter, endstatus):
+        if endstatus:
+            endmsg='Sequence finished normally.'
+        else:
+            endmsg='User break!'
+        md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, endmsg)
+        md.run()
+        md.destroy()
+        del md
+        self._cleanup_after_sequence()
+    def _do_fail(self, interpreter, errormsg):
+        md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error while running sequence.')
+        md.format_secondary_text('Reason: ' + str(errormsg))
+        md.run()
+        md.destroy()
+        del md
+        self._cleanup_after_sequence()
+    def _start_sequence(self, toolbutton):
+        if self._interpreter is not None:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Sequence is already running.')
+            md.run()
+            md.destroy()
+            del md
+            return
+        self._interpreter = SequenceInterpreter(self.credo, self.get_script())
+        self._interpreter_conns = [self._interpreter.connect('line', self._do_line),
+                                   self._interpreter.connect('cmdpulse', self._do_progress),
+                                   self._interpreter.connect('cmdprogress', self._do_progress),
+                                   self._interpreter.connect('end', self._do_end),
+                                   self._interpreter.connect('fail', self._do_fail),
+                                   ]
+        self._sourceview.set_editable(False)
+        self._sourceview.set_cursor_visible(False)
+        self.get_action_area().foreach(lambda b, state:b.set_sensitive(state), False)
+        #self._main_toolbar.foreach(lambda b: b.set_sensitive(False))
+        
+        self._breakpointcb.set_sensitive(True)
+        self._interpreter.set_property('respect-breakpoints',self._breakpointcb.get_active())
+        self._interpreter.execute(self._simulatecb.get_active())
+    def _pause_sequence(self, toolbutton):
+        pass
+    def _stop_sequence(self, toolbutton):
+        if self._interpreter is None:
+            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Sequence is not running.')
+            md.run()
+            md.destroy()
+            del md
+            return
+        self._interpreter.stop()
+    
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             self.destroy()
-        elif respid == Gtk.ResponseType.OK:
-            # execute or break execution
-            if self._interpreter is None:
-                self._interpreter = SequenceInterpreter(self.credo, self.get_script())
-                conn = [self._interpreter.connect('line', self._do_line),
-                        self._interpreter.connect('cmdpulse', self._do_progress),
-                        self._interpreter.connect('cmdprogress', self._do_progress),
-                        ]
-                self._sourceview.set_editable(False)
-                self._sourceview.set_cursor_visible(False)
-                try:
-                    self.get_action_area().foreach(lambda b, state:b.set_sensitive(state), False)
-                    self.set_response_sensitive(Gtk.ResponseType.OK, True)
-                    self._breakpointcb.set_sensitive(True)
-                    self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
-                    self._interpreter.execute(self._simulatecb.get_active())
-                except KillException:
-                    md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, 'User break!')
-                    md.run()
-                    md.destroy()
-                    del md
-                except Exception as exc:
-                    md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error while running program.')
-                    md.format_secondary_text('Reason: ' + str(exc))
-                    md.run()
-                    md.destroy()
-                    del md
-                self._progressbar.hide()
-                self.get_action_area().foreach(lambda b, state:b.set_sensitive(state), True)
-                self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
-                for c in conn:
-                    self._interpreter.disconnect(c)
-                conn = []
-                self._sourcebuffer.remove_source_marks(self._sourcebuffer.get_start_iter(), self._sourcebuffer.get_end_iter(), 'Executing')
-                self._sourceview.set_editable(True)
-                self._sourceview.set_cursor_visible(True)
-                del self._interpreter
-                self._interpreter = None
-            else:
-                self._interpreter.stop()
-        elif respid == self.RESPONSE_SAVE:
-            self.on_saveorload('save')
-        elif respid == self.RESPONSE_OPEN:
-            self.on_saveorload('load') 
         else:
             raise NotImplementedError()

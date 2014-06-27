@@ -113,7 +113,8 @@ class ExposureFrame(Gtk.Frame):
                        self.credo.subsystems['Exposure'].connect('exposure-end', lambda sse, state: self.emit('end', state)), ]
         self._images_remaining = self._nimages_entry.get_value_as_int()
         try:
-            self.credo.expose(self._exptime_entry.get_value(), self._nimages_entry.get_value_as_int(), self._dwelltime_entry.get_value(), self._maskfile_entry.get_mask(), header_template=header_template, write_nexus=write_nexus)
+            fsn=self.credo.expose(self._exptime_entry.get_value(), self._nimages_entry.get_value_as_int(), self._dwelltime_entry.get_value(), self._maskfile_entry.get_mask(), header_template=header_template, write_nexus=write_nexus)
+            logger.info('Started exposure for %g seconds at %s (%d images requested).'%(self._exptime_entry.get_value(), self.credo.subsystems['Files'].get_fileformat()%fsn,self._nimages_entry.get_value_as_int()))
             self._starttime = time.time()
         except Exception as exc:
             md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error starting exposure')

@@ -8,7 +8,7 @@ import datetime
 import time
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class ScanDeviceSelector(Gtk.ComboBoxText):
     def __init__(self, credo):
