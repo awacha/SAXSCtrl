@@ -108,10 +108,10 @@ class RootWindow(Gtk.Window):
         self._entrychanged_delayhandlers = {}
         self.set_title('SAXS Control -- ROOT')
         # self.set_resizable(False)
-        if 'ONLINE' in [x.upper() for x in sys.argv]:
-            self.credo = credo.Credo(offline=False)
-        else:
-            self.credo = credo.Credo(offline=True)
+        credo_kwargs = {}
+        credo_kwargs['offline'] = ('ONLINE' not in [x.upper() for x in sys.argv])
+        credo_kwargs['createdirsifnotpresent'] = ('CREATEDIRS' in [x.upper() for x in sys.argv])
+        self.credo = credo.Credo(**credo_kwargs)
         self._connections.append((self.credo.subsystems['Equipments'],
                                   self.credo.subsystems['Equipments'].connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())))
         
@@ -242,10 +242,10 @@ class RootWindow(Gtk.Window):
         md.set_default_response(Gtk.ResponseType.NO)
         yesbutton = md.get_widget_for_response(Gtk.ResponseType.YES)
         nobutton = md.get_widget_for_response(Gtk.ResponseType.NO)
-        yesbutton.connect('enter-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-no',Gtk.IconSize.BUTTON)), 
-                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-yes',Gtk.IconSize.BUTTON)))) and False, nobutton)
-        yesbutton.connect('leave-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-yes',Gtk.IconSize.BUTTON)), 
-                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-no',Gtk.IconSize.BUTTON)))) and False, nobutton)
+        yesbutton.connect('enter-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-no', Gtk.IconSize.BUTTON)),
+                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-yes', Gtk.IconSize.BUTTON)))) and False, nobutton)
+        yesbutton.connect('leave-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-yes', Gtk.IconSize.BUTTON)),
+                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-no', Gtk.IconSize.BUTTON)))) and False, nobutton)
         result = md.run()
         md.destroy()
         del md

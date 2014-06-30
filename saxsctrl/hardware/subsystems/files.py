@@ -13,7 +13,7 @@ __all__ = ['SubSystemFiles']
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-DEFAULT_FILEPREFIXES=['crd','tst','scn','tra']
+DEFAULT_FILEPREFIXES = ['crd', 'tst', 'scn', 'tra']
 
 class SubSystemFiles(SubSystem):
     __gsignals__ = {'changed':(GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever properties filebegin or ndigits, or the list of watched folders change
@@ -25,11 +25,11 @@ class SubSystemFiles(SubSystem):
     ndigits = GObject.property(type=int, default=5, minimum=1, blurb='Number of digits in exposure names')
     rootpath = ''
     scanfilename = GObject.property(type=str, default='credoscan.spec', blurb='Scan file')
-    def __init__(self, credo, offline=True):
+    def __init__(self, credo, offline=True, createdirsifnotpresent=False):
         self.rootpath = os.getcwd()
         SubSystem.__init__(self, credo, offline)
         self.monitors = []
-        self.create_subdirs()
+        self.create_subdirs(createdirsifnotpresent)
         self._setup(self.rootpath)
         self.scanfile = None
         self.scanfilename = 'credoscan.spec'
@@ -234,7 +234,7 @@ class SubSystemFiles(SubSystem):
             return re.compile(filebegin + '_' + '(?P<fsn>\d+)')
     def writeheader(self, header, raw=True, override=False, headerformat=None):
         if headerformat is None:
-            headerformat=self.get_headerformat()
+            headerformat = self.get_headerformat()
         if raw and override:
             path = self.param_overridepath
         elif raw:
@@ -255,7 +255,7 @@ class SubSystemFiles(SubSystem):
             Nq = int(Npix / float(pixels_per_qbin))
             rad = exposure.radial_average(np.linspace(qrange.min(), qrange.max(), Nq))
         rad.save(os.path.join(self.eval1dpath, 'crd_%d.txt' % exposure['FSN']))
-    def create_subdirs(self):
+    def create_subdirs(self, do_create=False):
         for subdir in ['config', 'eval1d', 'eval2d', 'mask', 'movie', 'param', 'param_override', 'png', 'processing', 'scan', 'sequences', 'user', 'log', 'nexus']:
             if os.path.exists(subdir) and os.path.isdir(subdir):
                 continue  # nothing to do
@@ -268,4 +268,8 @@ class SubSystemFiles(SubSystem):
                     raise SubSystemError('Subfolder %s is not valid (broken symlink or symlink to a non-directory).' % subdir)
             else:
                 # subdir does not exist: we must create it
-                os.mkdir(subdir)
+                if do_create:
+                    logger.info('Creating subdirectory ' + subdir)
+                    os.mkdir(subdir)
+                else:
+                    raise SubSystemError('Cannot create subdirectory, please run program with the "createdirs" command-line option!')

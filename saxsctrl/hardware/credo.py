@@ -79,7 +79,7 @@ class Credo(objwithgui.ObjWithGUI):
     # event.
     path_properties = ['filepath', 'imagepath']
 
-    def __init__(self, offline=True):
+    def __init__(self, offline=True, createdirsifnotpresent=False):
         objwithgui.ObjWithGUI.__init__(self)
         self._OWG_nogui_props.append('offline')
         self._OWG_nosave_props.append('offline')
@@ -120,7 +120,7 @@ class Credo(objwithgui.ObjWithGUI):
         logger.debug('Initializing subsystems of Credo')
         self.subsystems = {}
         self.subsystems['Files'] = subsystems.SubSystemFiles(
-            self, offline=self.offline)
+            self, offline=self.offline, createdirsifnotpresent)
         self.subsystems['Samples'] = subsystems.SubSystemSamples(
             self, offline=self.offline)
         self.subsystems['Equipments'] = subsystems.SubSystemEquipments(
