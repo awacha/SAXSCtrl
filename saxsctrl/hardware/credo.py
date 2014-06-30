@@ -120,7 +120,7 @@ class Credo(objwithgui.ObjWithGUI):
         logger.debug('Initializing subsystems of Credo')
         self.subsystems = {}
         self.subsystems['Files'] = subsystems.SubSystemFiles(
-            self, offline=self.offline, createdirsifnotpresent)
+            self, offline=self.offline, createdirsifnotpresent=createdirsifnotpresent)
         self.subsystems['Samples'] = subsystems.SubSystemSamples(
             self, offline=self.offline)
         self.subsystems['Equipments'] = subsystems.SubSystemEquipments(
