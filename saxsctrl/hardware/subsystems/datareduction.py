@@ -9,12 +9,13 @@ import weakref
 from gi.repository import GLib
 import matplotlib.figure
 import matplotlib.backends.backend_agg
+import time
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class DataReductionError(SubSystemError):
@@ -164,19 +165,19 @@ class AbsoluteCalibration(DataReductionStep):
                     'Cannot open reference data file: ' + self.reference_datafile)
             try:
                 logger.debug('Doing radial average from measured GC data.')
-                logger.debug('Exposure.min(): %g'%exposure.Intensity.min())
-                logger.debug('Exposure.max(): %g'%exposure.Intensity.max())
+                logger.debug('Exposure.min(): %g' % exposure.Intensity.min())
+                logger.debug('Exposure.max(): %g' % exposure.Intensity.max())
                 measdata = exposure.radial_average(
                     refdata.q).sanitize(minval=1e-100, fieldname='q')
-                logger.debug('Measdata len: %d'%len(measdata))
-                logger.debug('measdata qmin: %g'%measdata.q.min())
-                logger.debug('measdata qmax: %g'%measdata.q.max())
+                logger.debug('Measdata len: %d' % len(measdata))
+                logger.debug('measdata qmin: %g' % measdata.q.min())
+                logger.debug('measdata qmax: %g' % measdata.q.max())
             except sastool.SASExposureException as see:
                 raise DataReductionError(
                     'Could not make a radial average from the reference measurement: ' + str(see))
             logger.debug('Interpolating refdata to measdata.q')
             refdata = refdata.interpolate(measdata.q)
-            logger.debug('Interpolation done. Refdata len: %d'%len(refdata))
+            logger.debug('Interpolation done. Refdata len: %d' % len(refdata))
             self.message(exposure, 'Common q-range: %.4f to %.4f (%d points)' %
                          (refdata.q.min(), refdata.q.max(), len(refdata.q)))
             logger.debug('Determining scalefactor')
@@ -246,11 +247,11 @@ class CorrectGeometry(DataReductionStep):
         type=bool, default=True, blurb='Solid-angle correction')
     angle_dependent_self_absorption = GObject.property(
         type=bool, default=True, blurb='Angle-dependence of self-absorption')
-    angle_dependent_air_absorption=GObject.property(
+    angle_dependent_air_absorption = GObject.property(
         type=bool, default=True,
         blurb='Angle-dependent air absorption in the flight path')
-    angle_dependent_air_absorption_mu0=GObject.property(
-        type=float, default=1/88.349, minimum=0,
+    angle_dependent_air_absorption_mu0 = GObject.property(
+        type=float, default=1 / 88.349, minimum=0,
         blurb='Absorption coefficient of flight path gas at 1000 mbar (1/cm)')
     def __init__(self, chain):
         DataReductionStep.__init__(self, chain)
@@ -272,7 +273,7 @@ class CorrectGeometry(DataReductionStep):
             if 'Vacuum' not in exposure.header:
                 exposure.header.add_history('Could not carry out angle dependent air absorption correction: Vacuum value not known in header.')
             else:
-                mu=self.angle_dependent_air_absorption_mu0/1000.0*exposure['Vacuum']*0.1
+                mu = self.angle_dependent_air_absorption_mu0 / 1000.0 * exposure['Vacuum'] * 0.1
                 exposure *= sastool.utils2d.corrections.angledependentairtransmission(
                     exposure.tth, mu, exposure['DistCalibrated'])
                 exposure.header.add_history('Flight-path air absorption correction done.')
@@ -420,25 +421,22 @@ class SubSystemDataReduction(SubSystem):
     __gsignals__ = {
         'message': (GObject.SignalFlags.RUN_FIRST, None, (long, str)),
         'done': (GObject.SignalFlags.RUN_FIRST, None, (long, object)),
-        'idle': (GObject.SignalFlags.RUN_FIRST, None, ())}
+        'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),
+        'notify': 'override'}
     filebegin = GObject.property(
         type=str, nick='IO::File_begin', blurb='Filename prefix', default='crd')
     ndigits = GObject.property(
         type=int, nick='IO::Number_digits', blurb='Number of digits in FSN', default=5, minimum=1)
+    rawheaders_cache = GObject.property(type=str, nick='IO::Raw_cache', blurb='Cache file for raw headers', default='raw.paramcache')
+    reducedheaders_cache = GObject.property(type=str, nick='IO::Reduced_cache', blurb='Cache file for reduced headers', default='reduced.paramcache')
     __propvalues__ = None
     _reduction_thread = None
-
     def __init__(self, credo, offline=True):
         SubSystem.__init__(self, credo, offline)
         ssf = self.credo().subsystems['Files']
-        self.beamtimeraw = sastool.classes.SASBeamTime(
-            ssf.rawloadpath, ssf.get_exposureformat(
-                self.filebegin, self.ndigits),
-            ssf.get_headerformat(self.filebegin, self.ndigits))
-        self.beamtimereduced = sastool.classes.SASBeamTime(
-            ssf.reducedloadpath, ssf.get_eval2dformat(
-                self.filebegin, self.ndigits),
-            ssf.get_evalheaderformat(self.filebegin, self.ndigits))
+        t0 = time.time()
+        self._reload_beamtimes(True)
+        self._reload_beamtimes(False)
         ssf.connect('new-nextfsn', self._on_new_nextfsn)
         self._reduction_thread = ReductionThread(
             self.beamtimeraw, self.beamtimereduced, ssf)
@@ -464,6 +462,42 @@ class SubSystemDataReduction(SubSystem):
             self._reduction_thread.connect(
                 'message', self._on_message),
             self._reduction_thread.connect('done', self._on_done)]
+
+    def _reload_beamtimes(self, raw=True):
+        print "Loading %s headers for data reduction..." % ['reduced', 'raw'][int(raw)]
+        ssf = self.credo().subsystems['Files']
+        t0 = time.time()
+        if raw:
+            self.beamtimeraw = sastool.classes.SASBeamTime(
+                ssf.rawloadpath, ssf.get_exposureformat(
+                    self.filebegin, self.ndigits),
+                ssf.get_headerformat(self.filebegin, self.ndigits), cachefile=self.rawheaders_cache)
+        else:
+            self.beamtimereduced = sastool.classes.SASBeamTime(
+                ssf.reducedloadpath, ssf.get_eval2dformat(
+                    self.filebegin, self.ndigits),
+                ssf.get_evalheaderformat(self.filebegin, self.ndigits), cachefile=self.reducedheaders_cache)
+
+        print "Elapsed time: ", time.time() - t0, 'seconds'
+
+
+    def do_notify(self, prop):
+        if prop.name == 'rawheaders-cache':
+            if not os.path.isabs(self.rawheaders_cache):
+                self.rawheaders_cache = os.path.join(self.credo().subsystems['Files'].configpath, self.rawheaders_cache)
+                logger.debug('Made rawheaders_cache path absolute: ' + self.rawheaders_cache)
+                return
+            del self.beamtimeraw
+            self._reload_beamtimes(True)
+            logger.debug('Reloaded raw beamtime because the cache file property changed.')
+        if prop.name == 'reducedheaders-cache':
+            if not os.path.isabs(self.reducedheaders_cache):
+                self.reducedheaders_cache = os.path.join(self.credo().subsystems['Files'].configpath, self.reducedheaders_cache)
+                logger.debug('Made reducedheaders_cache path absolute: ' + self.reducedheaders_cache)
+                return
+            del self.beamtimereduced
+            self._reload_beamtimes(False)
+            logger.debug('Reloaded reduced beamtime because the cache file property changed.')
 
     def _on_new_nextfsn(self, ssf, nextfsn, filebegin):
         if filebegin.startswith(self.filebegin):

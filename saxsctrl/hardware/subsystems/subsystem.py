@@ -12,7 +12,7 @@ class SubSystemException(Exception):
     pass
 
 class SubSystem(objwithgui.ObjWithGUI):
-    configfile = GObject.property(type=str, default='', blurb='Configuration file')
+    configfile = GObject.property(type=str, default='dataredrc', blurb='Configuration file')
     offline = GObject.property(type=bool, default=True, blurb='Offline mode')
     def __init__(self, credo, offline=True):
         logger.debug('Initializing subsystem ' + self._get_classname())
