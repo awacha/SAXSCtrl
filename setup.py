@@ -23,9 +23,6 @@ ext_modules = [Extension(p.replace('/', '.')[:-4], [p], include_dirs=incdirs) fo
 
 with open('.version_last','rt') as f:
     version_last=int(f.read())
-    version_last+=1
-with open('.version_last', 'wt') as f:
-    f.write('%d'%version_last)
 
 setup(name='saxsctrl', version='0.0.%d'%version_last, author='Andras Wacha',
       author_email='awacha@gmail.com', url='http://github.com/awacha/SAXSCtrl',
