@@ -18,7 +18,7 @@ class DataReduction(ToolDialog):
         tab = Gtk.Table()
         f.add(tab)
         row = 0
-        
+
         self._startfsn_check = Gtk.CheckButton(label='Starting FSN:')
         self._startfsn_check.set_alignment(0, 0.5)
         tab.attach(self._startfsn_check, 0, 1, row, row + 1)
@@ -28,7 +28,7 @@ class DataReduction(ToolDialog):
         self._startfsn_check.set_active(False)
         self._startfsn_spin.set_sensitive(False)
         row += 1
-        
+
         self._endfsn_check = Gtk.CheckButton(label='Ending FSN:')
         self._endfsn_check.set_alignment(0, 0.5)
         tab.attach(self._endfsn_check, 0, 1, row, row + 1)
@@ -39,7 +39,7 @@ class DataReduction(ToolDialog):
         self._endfsn_spin.set_sensitive(False)
         row += 1
 
-        self._headerlist = Gtk.ListStore(GObject.TYPE_PYOBJECT,  # the header instance 
+        self._headerlist = Gtk.ListStore(GObject.TYPE_PYOBJECT,  # the header instance
                                          GObject.TYPE_BOOLEAN,  # spinner active
                                          GObject.TYPE_INT,  # FSN
                                          GObject.TYPE_STRING,  # title
@@ -49,14 +49,14 @@ class DataReduction(ToolDialog):
                                          GObject.TYPE_STRING,  # beam position X
                                          GObject.TYPE_STRING,  # beam position y
                                          GObject.TYPE_STRING,  # transmission
-                                         GObject.TYPE_STRING,  # thickness 
+                                         GObject.TYPE_STRING,  # thickness
                                          GObject.TYPE_UINT,  # spinner pulse
                                          )
         self._overlay = Gtk.Overlay()
         vb.pack_start(self._overlay, True, True, 0)
         sw = Gtk.ScrolledWindow()
         sw.set_size_request(700, 300)
-        
+
         self._overlay.add(sw)
         self._headerview = Gtk.TreeView(self._headerlist)
         sw.add(self._headerview)
@@ -97,11 +97,11 @@ class DataReduction(ToolDialog):
         self._headerview.append_column(Gtk.TreeViewColumn('Thickness (cm)', Gtk.CellRendererText(), text=10))
         self._headerview.grab_focus()
         GLib.idle_add(lambda :self._reload_beamtimes() and False)
-        
+
         self._resultsfrm = Gtk.Frame(label='Data reduction running...')
         self._resultsfrm.set_no_show_all(True)
         vb.pack_start(self._resultsfrm, False, False, 0)
-        
+
         self._resultsprogress = Gtk.ProgressBar(orientation=Gtk.Orientation.HORIZONTAL)
         self._resultsfrm.add(self._resultsprogress)
         self._resultsprogress.show()
@@ -154,7 +154,7 @@ class DataReduction(ToolDialog):
         self._headerlist[path][1] ^= 1
     def reload_list(self):
         self._headerlist.clear()
-        for h in self.credo.subsystems['DataReduction'].beamtimeraw:
+        for h in sorted(self.credo.subsystems['DataReduction'].beamtimeraw, key=lambda h:h['FSN']):
             if self._startfsn_check.get_active():
                 try:
                     if h['FSN'] < self._startfsn_spin.get_value_as_int():
@@ -168,7 +168,7 @@ class DataReduction(ToolDialog):
                 except KeyError:
                     logger.warning('No FSN in header!')
             self._headerlist.append([h, False, 0, '', '', '', '', '', '', '', '', 0])
-        
+
         self.refresh_view()
     def refresh_view(self, row=None):
         if row is None:
@@ -251,4 +251,4 @@ class DataReduction(ToolDialog):
         self._headerview.set_sensitive(True)
         self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_EXECUTE)
         logger.info('Data reduction sequence finished.')
-    
+

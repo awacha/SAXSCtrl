@@ -150,7 +150,6 @@ class Credo(objwithgui.ObjWithGUI):
                 self.subsystems['Equipments'].connect_to_all()
             except subsystems.SubSystemError as err:
                 logger.warning(str(err))
-
     def _get_classname(self):
         return 'CREDO'
 

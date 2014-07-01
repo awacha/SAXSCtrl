@@ -427,20 +427,43 @@ class SubSystemDataReduction(SubSystem):
         type=str, nick='IO::File_begin', blurb='Filename prefix', default='crd')
     ndigits = GObject.property(
         type=int, nick='IO::Number_digits', blurb='Number of digits in FSN', default=5, minimum=1)
-    rawheaders_cache = GObject.property(type=str, nick='IO::Raw_cache', blurb='Cache file for raw headers', default='raw.paramcache')
-    reducedheaders_cache = GObject.property(type=str, nick='IO::Reduced_cache', blurb='Cache file for reduced headers', default='reduced.paramcache')
+    rawheaders_cache = GObject.property(type=str, nick='IO::Raw_cache', blurb='Cache file for raw headers', default='')
+    reducedheaders_cache = GObject.property(type=str, nick='IO::Reduced_cache', blurb='Cache file for reduced headers', default='')
     __propvalues__ = None
     _reduction_thread = None
     def __init__(self, credo, offline=True):
         SubSystem.__init__(self, credo, offline)
         ssf = self.credo().subsystems['Files']
         t0 = time.time()
-        self._reload_beamtimes(True)
-        self._reload_beamtimes(False)
         ssf.connect('new-nextfsn', self._on_new_nextfsn)
-        self._reduction_thread = ReductionThread(
-            self.beamtimeraw, self.beamtimereduced, ssf)
+        self._reduction_thread = None
         self._OWG_init_lists()
+
+        self._OWG_nogui_props.append('configfile')
+        self._OWG_hints['filebegin'] = {
+            objwithgui.OWG_Hint_Type.OrderPriority: 0}
+        self._OWG_hints['ndigits'] = {
+            objwithgui.OWG_Hint_Type.OrderPriority: 1}
+
+        self.beamtimeraw = None
+        self.beamtimereduced = None
+
+    def _restart_reductionthread(self):
+        if self._reduction_thread is not None:
+            for c in self._thread_connections:
+                self._reduction_thread.disconnect(c)
+            self._thread_connections = []
+            self._reduction_thread.kill()
+            self._reduction_thread = None
+        self._reduction_thread = ReductionThread(
+            self.beamtimeraw, self.beamtimereduced, self.credo().subsystems['Files'])
+        self._thread_connections = [self._reduction_thread.connect(
+            'endthread', self._on_endthread),
+            self._reduction_thread.connect(
+                'idle', self._on_idle),
+            self._reduction_thread.connect(
+                'message', self._on_message),
+            self._reduction_thread.connect('done', self._on_done)]
         self._OWG_parts = self._reduction_thread.chain
         self.add_step(PreScaling)
         self.add_step(BackgroundSubtraction)
@@ -449,37 +472,24 @@ class SubSystemDataReduction(SubSystem):
         self.add_step(AbsoluteCalibration)
         self.add_step(Saving)
 
-        self._OWG_nogui_props.append('configfile')
-        self._OWG_hints['filebegin'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 0}
-        self._OWG_hints['ndigits'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 1}
-
-        self._thread_connections = [self._reduction_thread.connect(
-            'endthread', self._on_endthread),
-            self._reduction_thread.connect(
-                'idle', self._on_idle),
-            self._reduction_thread.connect(
-                'message', self._on_message),
-            self._reduction_thread.connect('done', self._on_done)]
-
     def _reload_beamtimes(self, raw=True):
-        print "Loading %s headers for data reduction..." % ['reduced', 'raw'][int(raw)]
         ssf = self.credo().subsystems['Files']
         t0 = time.time()
         if raw:
+            if self.rawheaders_cache == '':
+                return
             self.beamtimeraw = sastool.classes.SASBeamTime(
                 ssf.rawloadpath, ssf.get_exposureformat(
                     self.filebegin, self.ndigits),
                 ssf.get_headerformat(self.filebegin, self.ndigits), cachefile=self.rawheaders_cache)
         else:
+            if self.reducedheaders_cache == '':
+                return
             self.beamtimereduced = sastool.classes.SASBeamTime(
                 ssf.reducedloadpath, ssf.get_eval2dformat(
                     self.filebegin, self.ndigits),
                 ssf.get_evalheaderformat(self.filebegin, self.ndigits), cachefile=self.reducedheaders_cache)
-
-        print "Elapsed time: ", time.time() - t0, 'seconds'
-
+        self._restart_reductionthread()
 
     def do_notify(self, prop):
         if prop.name == 'rawheaders-cache':
@@ -502,7 +512,7 @@ class SubSystemDataReduction(SubSystem):
     def _on_new_nextfsn(self, ssf, nextfsn, filebegin):
         if filebegin.startswith(self.filebegin):
             logger.debug('Updating beamtimeraw up to %d' % nextfsn)
-            self.beamtimeraw.update_cache_up_to(nextfsn)
+            self.beamtimeraw.update_cache_up_to(nextfsn - 1)
         else:
             logger.debug('New nextfsn, but not updating beamtimeraw: %s does not start with %s' %
                          (filebegin, self.filebegin))
@@ -511,6 +521,8 @@ class SubSystemDataReduction(SubSystem):
         self._reduction_thread.add_step(step)
 
     def reduce(self, fsn, force=False):
+        if self._reduction_thread is None:
+            self._restart_reductionthread()
         self._reduction_thread.reduce(fsn, force)
 
     def _on_endthread(self, thread):
@@ -520,12 +532,15 @@ class SubSystemDataReduction(SubSystem):
         self._reduction_thread = None
 
     def _on_message(self, thread, fsn, message):
+        logger.debug('Processing FSN #%d: %s' % (fsn, message))
         self.emit('message', fsn, message)
 
     def _on_idle(self, thread):
         self.emit('idle')
 
     def _on_done(self, thread, fsn, exposure):
+        self.beamtimeraw.reload_header_for_fsn(fsn)
+        self.beamtimereduced.reload_header_for_fsn(fsn)
         self.emit('done', fsn, exposure)
 
     def __del__(self):

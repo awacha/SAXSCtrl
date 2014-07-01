@@ -603,7 +603,6 @@ class SequenceInterpreter(GObject.GObject):
         cmd_classes = [cls for cls in SeqCommand.__subclasses__()]
         newclasses = cmd_classes
         while newclasses:
-            print [k.__subclasses__() for k in cmd_classes]
             newclasses = [cls for cls in reduce(lambda a, b:a + b, [k.__subclasses__() for k in cmd_classes]) if cls not in cmd_classes]
             cmd_classes.extend(newclasses)
         self._commands = [cls() for cls in cmd_classes if cls.command is not None]

@@ -75,7 +75,7 @@ class SubSystemFiles(SubSystem):
         formats = set(DEFAULT_FILEPREFIXES)
         for pth in self.exposureloadpath:
             formats.update({m.groupdict()['begin'] for m in [regex.match(f) for f in os.listdir(pth)] if (m is not None)})
-        return sorted(list(formats))
+        return list(sorted(set(formats)))
     def _known_regexes(self):
         return set(self._nextfsn_cache.keys()).union(set(self._firstfsn_cache.keys()))
     def formats(self):

@@ -301,9 +301,11 @@ class SampleSelector(Gtk.ComboBoxText):
             sam_before = None
         self.samplelist.clear()
         self.samplelist.append(('-- UNKNOWN --', None))
+        current_credo_sample = self.credo.subsystems['Samples'].get()
         for i, sam in enumerate(self.credo.subsystems['Samples']):
-            if sam.title == self.credo.subsystems['Samples'].get().title:
-                self.set_active(i+1)
+            if current_credo_sample is not None:
+                if sam.title == current_credo_sample.title:
+                    self.set_active(i + 1)
             if self.shortnames:
                 self.samplelist.append((sam.title, sam))
             else:
