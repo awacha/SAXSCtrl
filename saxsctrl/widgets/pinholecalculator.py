@@ -3,6 +3,9 @@ from gi.repository import GObject
 from .widgets import ToolDialog
 import numpy as np
 from collections import OrderedDict
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
 
 class Inventory(GObject.GObject):
     _items = None
@@ -144,64 +147,83 @@ calc_beta_geo = lambda R2, R3, L2: np.arctan((R2 + R3) / L2)
 
 def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nrays, beam_exit_width, beam_exit_height, beam_hwhm_divergence):
     results = OrderedDict()
-    photons = np.zeros(Nrays, dtype={'names':['x', 'y', 'vx', 'vy'], 'formats':[np.double] * 4})
+    photons = np.zeros(Nrays, dtype={'names':['x', 'y', 'vx', 'vy', 'dead'], 'formats':[np.double] * 4 + [np.int8]})
     photons['x'] = np.random.randn(Nrays) * beam_exit_width / 4
     photons['y'] = np.random.randn(Nrays) * beam_exit_height / 4
     phi = np.random.rand(Nrays) * 2 * np.pi
     theta = np.random.randn(Nrays) * beam_hwhm_divergence
-    photons['vx'] = np.sin(theta) * np.cos(phi)
-    photons['vy'] = np.sin(theta) * np.sin(phi)
+    # using tan(theta) in vx and vy, thus we get dx/dz and dy/dz, respectively, instead of dx/dt and dy/dt.
+    photons['vx'] = np.tan(theta) * np.cos(phi)
+    photons['vy'] = np.tan(theta) * np.sin(phi)
     results['Nrays'] = Nrays
+    photons['dead'] = 0
+    alive = (photons['dead'] == 0)
+
+    x = photons['x']
+    y = photons['y']
     # count photons which pass through R1 and kill the rest.
-    passing = (photons['x'] ** 2 + photons['y'] ** 2 <= R1 ** 2)
-    results['flux_after_R1'] = passing.sum()
-    photons = photons[passing]
+    beamradius = ((x ** 2 + y ** 2) ** 0.5)
+    # count photons which pass through R1 and kill the rest.
+    photons['dead'][alive & (beamradius > R1)] = 1
+    alive = (photons['dead'] == 0)
+    results['flux_after_R1'] = alive.sum()
+    results['flux_rel_after_R1'] = alive.sum() / float(Nrays)
 
     # propagate to R2
-    photons['x'] += photons['vx'] * L1
-    photons['y'] += photons['vy'] * L1
+    x = photons['x'] + photons['vx'] * L1
+    y = photons['y'] + photons['vy'] * L1
 
     # measure beam radius at R2
-    results['R2_max_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).max()
-    results['R2_mean_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).mean()
+    beamradius = ((x ** 2 + y ** 2) ** 0.5)
+    results['R2_max_radius'] = beamradius[alive].max()
+    results['R2_mean_radius'] = beamradius[alive].mean()
     # count photons which pass through R2 and kill the rest.
-    passing = (photons['x'] ** 2 + photons['y'] ** 2 <= R2 ** 2)
-    results['flux_after_R2'] = passing.sum()
-    photons = photons[passing]
+    photons['dead'][alive & (beamradius > R2)] = 2
+    alive = (photons['dead'] == 0)
+    results['flux_after_R2'] = alive.sum()
+    results['flux_rel_after_R2'] = alive.sum() / float(Nrays)
 
     # propagate to R3
-    photons['x'] += photons['vx'] * L2
-    photons['y'] += photons['vy'] * L2
+    x = photons['x'] + photons['vx'] * (L1 + L2)
+    y = photons['y'] + photons['vy'] * (L1 + L2)
 
     # measure beam radius at R3
-    results['R3_max_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).max()
-    results['R3_mean_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).mean()
+    beamradius = ((x ** 2 + y ** 2) ** 0.5)
+    results['R3_max_radius'] = beamradius[alive].max()
+    results['R3_mean_radius'] = beamradius[alive].mean()
     # count photons which pass through R3 and kill the rest.
-    passing = (photons['x'] ** 2 + photons['y'] ** 2 <= R3 ** 2)
-    results['flux_after_R3'] = passing.sum()
-    photons = photons[passing]
+    photons['dead'][alive & (beamradius > R3)] = 3
+    alive = (photons['dead'] == 0)
+    results['flux_after_R3'] = alive.sum()
+    results['flux_rel_after_R3'] = alive.sum() / float(Nrays)
 
     # propagate to the sample
-    photons['x'] += photons['vx'] * deltaL
-    photons['y'] += photons['vy'] * deltaL
+    x = photons['x'] + photons['vx'] * (L1 + L2 + deltaL)
+    y = photons['y'] + photons['vy'] * (L1 + L2 + deltaL)
     # measure beam radius at sample
-    results['sample_max_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).max()
-    results['sample_mean_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).mean()
+    beamradius = ((x ** 2 + y ** 2) ** 0.5)
+    results['sample_max_radius'] = beamradius[alive].max()
+    results['sample_mean_radius'] = beamradius[alive].mean()
 
     # propagate to the beamstop
-    photons['x'] += photons['vx'] * (-deltaL + L3 - deltaLprime)
-    photons['y'] += photons['vy'] * (-deltaL + L3 - deltaLprime)
+    x = photons['x'] + photons['vx'] * (L1 + L2 + L3 - deltaLprime)
+    y = photons['y'] + photons['vy'] * (L1 + L2 + L3 - deltaLprime)
     # measure beam radius at beamstop
-    results['beamstop_max_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).max()
-    results['beamstop_mean_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).mean()
+    beamradius = ((x ** 2 + y ** 2) ** 0.5)
+    results['beamstop_max_radius'] = beamradius[alive].max()
+    results['beamstop_mean_radius'] = beamradius[alive].mean()
 
     # propagate to the detector
-    photons['x'] += photons['vx'] * (deltaLprime)
-    photons['y'] += photons['vy'] * (deltaLprime)
+    x = photons['x'] + photons['vx'] * (L1 + L2 + L3)
+    y = photons['y'] + photons['vy'] * (L1 + L2 + L3)
     # measure beam radius at detector
-    results['detector_max_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).max()
-    results['detector_mean_radius'] = ((photons['x'] ** 2 + photons['y'] ** 2) ** 0.5).mean()
+    beamradius = ((x ** 2 + y ** 2) ** 0.5)
+    results['detector_max_radius'] = beamradius[alive].max()
+    results['detector_mean_radius'] = beamradius[alive].mean()
 
+
+    photons['dead'][alive] = 10000
+    results['_rays_'] = photons
     return results
 
 class PinHoleCalculator(ToolDialog):
@@ -213,7 +235,8 @@ class PinHoleCalculator(ToolDialog):
     _beamheight = 1.5
     _beamwidth = 1
     _beamdiv = (-0.4 ** 2 / np.log(0.20) * 0.5) ** 0.5  # in mrad. GeniX has an output divergence <0.4 mrad HW20%M
-    _Nrays = 100000
+    _Nrays = 1000000
+    _last_results = None
     def __init__(self, credo, title='Pin-hole calculator'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
         self._distelement_inventory = Inventory([str(x) for x in self._distelement_inventory])
@@ -342,7 +365,7 @@ class PinHoleCalculator(ToolDialog):
         l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
-        self._beamdiv_entry = Gtk.SpinButton(digits=2)
+        self._beamdiv_entry = Gtk.SpinButton(digits=4)
         self._beamdiv_entry.set_range(0, 10000)
         self._beamdiv_entry.set_increments(1, 10)
         self._beamdiv_entry.set_value(self._beamdiv)
@@ -365,14 +388,108 @@ class PinHoleCalculator(ToolDialog):
         self._calc_button.set_label('Calculate')
         self._calc_button.connect('clicked', self._on_calc)
         grid.attach(self._calc_button, 0, row, 2, 1)
-        row += 1
-        f = Gtk.Frame(label='Results')
-        f.set_vexpand(True)
-        grid.attach(f, 0, row, 2, 1)
-        self._results_label = Gtk.Label()
-        self._results_label.set_alignment(0, 0.5)
-        f.add(self._results_label)
+
+        stackcontainer = Gtk.Stack()
+        stackswitcher = Gtk.StackSwitcher()
+        stackswitcher.set_stack(stackcontainer)
+        grid.attach(stackswitcher, 2, 0, 1, 1)
+        grid.attach(stackcontainer, 2, 1, 1, row - 1)
+        stackcontainer.set_hexpand(True)
+        stackcontainer.set_vexpand(True)
+        stackswitcher.set_hexpand(True)
+
+        sw = Gtk.ScrolledWindow()
+        sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        stackcontainer.add_titled(sw, 'results', 'Numeric results')
+        stackcontainer.set_visible_child_name('results')
+        self._results_model = Gtk.ListStore(GObject.TYPE_BOOLEAN, GObject.TYPE_STRING, GObject.TYPE_STRING)
+        self._results_view = Gtk.TreeView(self._results_model)
+        self._results_view.set_rules_hint(True)
+        cr = Gtk.CellRendererToggle()
+        cr.connect('toggled', self._on_resultline_toggled)
+        self._results_view.append_column(Gtk.TreeViewColumn('', cr, active=0))
+        cr.set_radio(True)
+        self._results_view.append_column(Gtk.TreeViewColumn('Name', Gtk.CellRendererText(), text=1))
+        self._results_view.append_column(Gtk.TreeViewColumn('Value', Gtk.CellRendererText(), text=2))
+        sw.add(self._results_view)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        stackcontainer.add_titled(vbox, 'beamprofile' , 'Radial beam profile')
+        stackcontainer.set_transition_duration(1000)
+        stackcontainer.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vbox.pack_start(hbox, False, False, 0)
+        l = Gtk.Label(label='Distance along beam:')
+        l.set_alignment(0, 0.5)
+        hbox.pack_start(l, False, False, 0)
+        self._beampathlength_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=None)
+        hbox.pack_start(self._beampathlength_scale, True, True, 0)
+        self._beampathlength_scale.set_value_pos(Gtk.PositionType.RIGHT)
+
+        self._beamprofile_plottype = Gtk.CheckButton(label='Beam map instead of radial profile')
+        self._beamprofile_plottype.set_alignment(0, 0.5)
+        vbox.pack_start(self._beamprofile_plottype, False, False, 0)
+        self._beamprofile_plottype.connect('toggled', self._on_beampathlength_scale_value_changed)
+
+        self._beammap_plotwidth_cb = Gtk.CheckButton(label='Width of beam map graph (mm)')
+        self._beammap_plotwidth_entry = Gtk.SpinButton(digits=4)
+        self._beammap_plotwidth_entry.set_range(0, 10)
+        self._beammap_plotwidth_entry.set_increments(1, 10)
+        self._beammap_plotwidth_entry.set_value(1)
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vbox.pack_start(hbox, False, False, 0)
+        hbox.pack_start(self._beammap_plotwidth_cb, False, False, 0)
+        hbox.pack_start(self._beammap_plotwidth_entry, True, True, 0)
+        self._beammap_plotwidth_cb.connect('toggled', lambda cb: self._beammap_plotwidth_entry.set_sensitive(cb.get_active()) and self._on_beampathlength_scale_value_changed(cb))
+        self._beammap_plotwidth_entry.connect('value-changed', self._on_beampathlength_scale_value_changed)
+        self._beammap_plotwidth_cb.set_active(False)
+        self._beammap_plotwidth_entry.set_sensitive(False)
+
+        self._beamprofile_fig = Figure(figsize=(3.75, 2.5), dpi=80)
+        self._beamprofile_fig_canvas = FigureCanvasGTK3Agg(self._beamprofile_fig)
+        vbox.pack_start(self._beamprofile_fig_canvas, True, True, 0)
+        self._beamprofile_fig_toolbar = NavigationToolbar2GTK3(self._beamprofile_fig_canvas, None)
+        vbox.pack_start(self._beamprofile_fig_toolbar, False, True, 0)
+        self._beamprofile_axes = self._beamprofile_fig.add_subplot(111)
+
+        self._beampathlength_scale.connect('value-changed', self._on_beampathlength_scale_value_changed)
         self.show_all()
+    def _on_beampathlength_scale_value_changed(self, widget):
+        if self._last_results is None:
+            return False
+        pos = self._beampathlength_scale.get_value()
+        rays = self._last_results['_rays_']
+        if pos < 0:
+            # before 1st pin-hole
+            pos = 0
+            alive = np.ones_like(rays['dead'], dtype=np.bool)
+        elif pos < self._last_results['L1']:
+            # before 2nd pin-hole (and after 1st)
+            alive = rays['dead'] > 1
+        elif pos < self._last_results['L2']:
+            # before 3rd pin-hole (and after 2nd)
+            alive = rays['dead'] > 2
+        else:
+            # after 3rd pin-hole
+            alive = rays['dead'] > 3
+        r = (((rays['x'] + pos * rays['vx']) ** 2 + (rays['y'] + pos * rays['vy']) ** 2) ** 0.5)[alive]
+        if not len(r):
+            return
+        self._beamprofile_axes.cla()
+        if self._beamprofile_plottype.get_active():
+            self._beamprofile_axes.plot((rays['x'] + pos * rays['vx'])[alive], (rays['y'] + pos * rays['vy'])[alive], ',')
+            if self._beammap_plotwidth_cb.get_active():
+                width = self._beammap_plotwidth_entry.get_value()
+                self._beamprofile_axes.axis(xmin= -0.5 * width, xmax=0.5 * width, ymin= -0.5 * width, ymax=0.5 * width)
+            self._beamprofile_axes.set_aspect('equal')
+        else:
+            self._beamprofile_axes.hist(r, 100, weights=r ** (-1))
+            self._beamprofile_axes.set_aspect('auto')
+        self._beamprofile_fig_canvas.draw()
+    def _on_resultline_toggled(self, resultline, treepath):
+        for row in self._results_model:
+            row[0] = False
+        self._results_model[treepath][0] = True
     def _on_calc(self, button):
         R1 = float(self._ph1_aperture_entry.get_active_text()) * 0.0005
         R2 = float(self._ph2_aperture_entry.get_active_text()) * 0.0005
@@ -391,8 +508,8 @@ class PinHoleCalculator(ToolDialog):
         BSradius_geo = calc_Delta_geo(R1, R2, R3_geo, L1, L2, L3)
         BSshadowradius_geo = calc_Delta_geo(R1, R2, R3_geo, L1, L2, L3 + deltaLprime)
         Rsample_geo = calc_Rsample_geo(R1, R2, L1, L2, deltaL)
-        alpha_geo = calc_alpha_geo(R1, R2, L1)
-        beta_geo = calc_beta_geo(R2, R3_geo, L2)
+        alpha_geo = calc_alpha_geo(R1, R2, L1) * 1e3
+        beta_geo = calc_beta_geo(R2, R3_geo, L2) * 1e3
         qmin = 4 * np.pi * np.sin(0.5 * np.arctan(BSshadowradius_geo / sddist)) / 0.15418
         dmax = 2 * np.pi / qmin
         phi = 1 - 2 * R2 * L3 / (L1 + L2 + L3) / (R1 + R2)
@@ -416,12 +533,29 @@ class PinHoleCalculator(ToolDialog):
         results = init_parameters
         results.update(results_GEO)
         results.update(results_MC)
+        self._results_model.clear()
         resultstrings = []
         for r in results:
+            if r.startswith('_'):
+                continue
             if r.startswith('R') and r.endswith('_radius'):
-                resultstrings.append('PH' + r[1:].rsplit('_', 1)[0] + '_diameter: ' + str(results[r] * 2000) + ' um')
+                name = 'PH' + r[1:].rsplit('_', 1)[0] + '_diameter'
+                value = str(results[r] * 2000) + ' um'
             elif r.endswith('_radius'):
-                resultstrings.append(r[0:].rsplit('_', 1)[0] + '_diameter: ' + str(results[r] * 2) + ' mm')
+                name = r[0:].rsplit('_', 1)[0] + '_diameter'
+                value = str(results[r] * 2) + ' mm'
             else:
-                resultstrings.append(r + ': ' + str(results[r]))
-        self._results_label.set_label('\n'.join(resultstrings))
+                name = r
+                value = str(results[r])
+            self._results_model.append((False, name, value))
+        self._last_results = results
+        self._beampathlength_scale.set_range(-1, L1 + L2 + L3)
+        self._beampathlength_scale.clear_marks()
+        self._beampathlength_scale.add_mark(0, Gtk.PositionType.BOTTOM, 'PH#1')
+        self._beampathlength_scale.add_mark(L1, Gtk.PositionType.TOP, 'PH#2')
+        self._beampathlength_scale.add_mark(L1 + L2, Gtk.PositionType.BOTTOM, 'PH#3')
+        self._beampathlength_scale.add_mark(L1 + L2 + deltaL, Gtk.PositionType.TOP, 'Sample')
+        self._beampathlength_scale.add_mark(L1 + L2 + L3 - deltaLprime, Gtk.PositionType.BOTTOM, 'BS')
+        self._beampathlength_scale.add_mark(L1 + L2 + L3, Gtk.PositionType.TOP, 'Det')
+        self._beampathlength_scale.set_increments(1, 10)
+        self._beampathlength_scale.set_value(-1)

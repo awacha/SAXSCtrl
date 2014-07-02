@@ -19,7 +19,7 @@ class MotorMonitorFrame(Gtk.Frame):
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(vb)
         vb.pack_start(Gtk.Label('To move a motor, double-click on the corresponding row.'), False, False, 0)
-        
+
         self.credo = credo
         self.credo.subsystems['Motors'].connect('motor-report', self.on_motor_move)
         self.credo.subsystems['Motors'].connect('motors-changed', self.on_motors_changed)
@@ -95,7 +95,7 @@ class SaveMotorsDialog(Gtk.Dialog):
         cr = Gtk.CellRendererSpin()
         tvc = Gtk.TreeViewColumn('Position', cr, text=3, adjustment=4)
         tvc.set_min_width(50)
-        tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)     
+        tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)
         self._treeview.append_column(tvc)
         cr.set_property('editable', True)
         cr.connect('edited', self._position_changed)
@@ -125,7 +125,7 @@ class SaveMotorsDialog(Gtk.Dialog):
             if row[0]:
                 configparser.set(name, row[1], row[3])
         return True
-        
+
 class MotorMonitor(ToolDialog):
     def __init__(self, credo, title='Motor positions'):
         ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, 1))
@@ -147,7 +147,7 @@ class MotorMonitor(ToolDialog):
         self._savedmotorstates_view.append_column(Gtk.TreeViewColumn('Motors saved', Gtk.CellRendererText(), text=1))
         cr = Gtk.CellRendererSpinner()
         self._savedmotorstates_view.append_column(Gtk.TreeViewColumn('', cr, active=2, pulse=3))
-        
+
         self._savedmotorstates_view.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self._savedmotorstates_view.set_rules_hint(True)
         self._savedmotorstates_view.set_headers_visible(True)
@@ -195,7 +195,7 @@ class MotorMonitor(ToolDialog):
     def _on_execute(self, button):
         it = self._savedmotorstates_view.get_selection().get_selected()[1]
         return self._on_row_activated(self._savedmotorstates_view, it, None)
-        
+
     def _movement_finished(self, ssm, it):
         ssm.disconnect(self._movetostoredconfig_conn)
         del self._movetostoredconfig_conn
@@ -261,7 +261,7 @@ class EntryPair(GObject.GObject):
             max_ = 1e12
         else:
             max_ = self._motpar.rawmaximum
-        
+
         self.rawentry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, min_, max_, 1, 10), digits=[4, 0][self._motpar.isinteger])
         self.rawentry.set_numeric(True)
         self.physentry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e6, 1e6, 1, 10), digits=[4, 0][self._motpar.isinteger])
@@ -351,7 +351,7 @@ class MotorParamSpinButton(Gtk.SpinButton):
         self.update()
     def todevice(self):
         self._stateholder.set_parameter(self._motpar.name, self.get_value(), raw=True)
-        
+
 
 class MotorDriver(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_MotorDriver'
@@ -372,7 +372,7 @@ class MotorDriver(ToolDialog):
         grid = Gtk.Grid()
         f.add(grid)
         row = 0
-        
+
         l = Gtk.Label('Move ' + motorname + ' to:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -385,12 +385,12 @@ class MotorDriver(ToolDialog):
         self._motion_spinner.set_no_show_all(True)
         hb.pack_start(self._motion_spinner, False, False, 0)
         row += 1
-        
+
         self._relative_cb = Gtk.CheckButton(label='Relative move');
         self._relative_cb.set_alignment(0, 0.5)
         grid.attach(self._relative_cb, 0, row, 2, 1)
         row += 1
-        
+
         hbb = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
         grid.attach(hbb, 0, row, 2, 1)
         b = Gtk.Button(label='Move')
@@ -406,7 +406,7 @@ class MotorDriver(ToolDialog):
 
         vbadvanced = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         ex.add(vbadvanced)
-        
+
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vbadvanced.pack_start(hb, False, False, 0)
         hb.set_hexpand(True)
@@ -420,9 +420,9 @@ class MotorDriver(ToolDialog):
         eb.set_border_width(5)
         eb.override_background_color(Gtk.StateType.NORMAL, Gdk.RGBA(1, 0, 0, 1))
         hb.pack_start(eb, True, True, 0)
-        
-        
-        
+
+
+
         # Expander to provide set-up interface to currents
         ex = Gtk.Expander()
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -435,13 +435,13 @@ class MotorDriver(ToolDialog):
         grid = Gtk.Grid()
         ex.add(grid)
         row = 0
-        
+
         l = Gtk.Label('Driver units'); l.set_alignment(0.5, 0.5)
         grid.attach(l, 1, row, 1, 1)
         l = Gtk.Label('Physical units'); l.set_alignment(0.5, 0.5)
         grid.attach(l, 2, row, 1, 1)
         row += 1
-        
+
         l = Gtk.Label('Max RMS current (A):'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Max_RMS_current'][0])
@@ -449,7 +449,7 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.rawentry, 1, row, 1, 1)
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
-        
+
         l = Gtk.Label('Standby RMS current (A):'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Standby_RMS_current'][0])
@@ -457,15 +457,15 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.rawentry, 1, row, 1, 1)
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
-        
+
         l = Gtk.Label('Freewheeling delay (msec):'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Freewheeling_delay'][0])
         self._entries.append(sb)
         grid.attach(sb, 1, row, 2, 1)
-        
+
         # Expander to provide setup interface to position & limits
-        
+
         ex = Gtk.Expander(label='Position & limits')
         vbadvanced.pack_start(ex, False, False, 0)
         grid = Gtk.Grid()
@@ -475,15 +475,15 @@ class MotorDriver(ToolDialog):
         l = Gtk.Label('Physical units'); l.set_alignment(0.5, 0.5)
         grid.attach(l, 2, row, 1, 1)
         row += 1
-        
+
         l = Gtk.Button('Calibrate pos to:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Current_position'][0])
         grid.attach(ep.rawentry, 1, row, 1, 1)
         grid.attach(ep.physentry, 2, row, 1, 1)
         l.connect('clicked', lambda b, sb:self.calibrate_pos(sb), ep.rawentry)
-        
-        
+
+
         row += 1
 
         l = Gtk.Label('Left software limit:'); l.set_alignment(0, 0.5)
@@ -493,7 +493,7 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.rawentry, 1, row, 1, 1)
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
-         
+
         l = Gtk.Label('Right software limit:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'soft_right'][0])
@@ -506,7 +506,7 @@ class MotorDriver(ToolDialog):
         grid.attach(cb, 0, row, 3, 1)
         self._entries.append(cb)
         row += 1
-        
+
         cb = MotorParamCheckButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Right_limit_disable'][0], label='Disable right limit switch')
         grid.attach(cb, 0, row, 3, 1)
         self._entries.append(cb)
@@ -552,7 +552,7 @@ class MotorDriver(ToolDialog):
         self._entries.append(sb)
         grid.attach(sb, 1, row, 2, 1)
         row += 1
-        
+
         l = Gtk.Label('Logarithmic pulse divisor:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Pulse_div'][0])
@@ -579,7 +579,7 @@ class MotorDriver(ToolDialog):
             logger.debug('Recalculating %s because %s changed.' % (e._motpar.name, motpar.name))
             e._raw_changed(e.rawentry)
         logger.debug('Done recalculating.')
-    
+
     def on_motor_report(self, motor, pos, speed, load):
         self._moveto_entry.set_value(pos)
         return False
@@ -591,15 +591,15 @@ class MotorDriver(ToolDialog):
         self._motion_spinner.stop()
         self._motion_spinner.hide()
         self._moveto_entry.set_sensitive(True)
-        
+
     def on_motor_settings_changed(self, ssmot, motor):
         if motor != self.motor:
             return False
         else:
             self.refresh_settings()
             return False
-        
-            
+
+
     def refresh_settings(self):
         try:
             logger.debug("Refreshing settings of motor driver for %s" % str(self.motor))
@@ -620,7 +620,7 @@ class MotorDriver(ToolDialog):
         else:
             motpar = [m for m in self.motor.driver().motor_params if m.name == name][0]
             return motpar.to_phys(self._stateparams[name], self._stateparams)
-        
+
     def set_parameter(self, name, value, raw=False):
         motpar = [m for m in self.motor.driver().motor_params if m.name == name][0]
         if motpar.readonly:
@@ -631,13 +631,13 @@ class MotorDriver(ToolDialog):
         else:
             physval = value
             rawval = motpar.to_raw(value, self._stateparams)
-        
+
         if not motpar.validate(physval, self._stateparams):
             raise MotorError('Validation failed while setting parameter %s to %s.' % (motpar.name, str(value)))
         self._stateparams[name] = rawval
-    
+
     def apply_settings(self, eeprom=False):
-                
+
         self.refresh_settings()
     def on_moveto(self, widget):
         self._moveto_entry.update()
@@ -670,11 +670,11 @@ class MotorDriver(ToolDialog):
             del md
     def get_changes(self):
         return [k for k in self._stateparams if (self.motor._stateparams[k] != self._stateparams[k]) and not [mp for mp in self.motor.driver().motor_params if mp.name == k][0].readonly and (k not in self._noupdate_parameters)]
-    
+
     def do_response(self, respid):
         if respid == 1:
             self.refresh_settings()
-            return 
+            return
         elif respid == 2:
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.QUESTION, Gtk.ButtonsType.YES_NO, 'Do you really want to save the current motor state to the driver\'s EEPROM?')
             md.set_title('%s: save state to EEPROM' % str(self.motor))
@@ -685,7 +685,7 @@ class MotorDriver(ToolDialog):
             return
         elif respid == Gtk.ResponseType.APPLY:
             changes = self.get_changes()
-            if not changes: return 
+            if not changes: return
             md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.QUESTION, Gtk.ButtonsType.YES_NO, 'Do you really want to apply the following changes?')
             md.set_title('%s: apply changes' % str(self.motor))
             md.format_secondary_markup('Changed parameters:\n' + '\n'.join(['  - ' + k for k in changes]) + '\n\n<big><b>Please understand that wrong values can cause fatal damages to the driver, the motor or both.</b></big>')
