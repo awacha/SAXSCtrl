@@ -145,6 +145,9 @@ calc_alpha_geo = lambda R1, R2, L1: np.arctan((R1 + R2) / L1)
 # maximum divergence defined by the last two pin-holes
 calc_beta_geo = lambda R2, R3, L2: np.arctan((R2 + R3) / L2)
 
+def _avg_radius_weighted(r):
+    return len(r) / (1 / r).sum()
+
 def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nrays, beam_exit_width, beam_exit_height, beam_hwhm_divergence):
     results = OrderedDict()
     photons = np.zeros(Nrays, dtype={'names':['x', 'y', 'vx', 'vy', 'dead'], 'formats':[np.double] * 4 + [np.int8]})
@@ -177,6 +180,7 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
     beamradius = ((x ** 2 + y ** 2) ** 0.5)
     results['R2_max_radius'] = beamradius[alive].max()
     results['R2_mean_radius'] = beamradius[alive].mean()
+    results['R2_wtavg_radius'] = _avg_radius_weighted(beamradius[alive])
     # count photons which pass through R2 and kill the rest.
     photons['dead'][alive & (beamradius > R2)] = 2
     alive = (photons['dead'] == 0)
@@ -191,6 +195,7 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
     beamradius = ((x ** 2 + y ** 2) ** 0.5)
     results['R3_max_radius'] = beamradius[alive].max()
     results['R3_mean_radius'] = beamradius[alive].mean()
+    results['R3_wtavg_radius'] = _avg_radius_weighted(beamradius[alive])
     # count photons which pass through R3 and kill the rest.
     photons['dead'][alive & (beamradius > R3)] = 3
     alive = (photons['dead'] == 0)
@@ -204,6 +209,7 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
     beamradius = ((x ** 2 + y ** 2) ** 0.5)
     results['sample_max_radius'] = beamradius[alive].max()
     results['sample_mean_radius'] = beamradius[alive].mean()
+    results['sample_wtavg_radius'] = _avg_radius_weighted(beamradius[alive])
 
     # propagate to the beamstop
     x = photons['x'] + photons['vx'] * (L1 + L2 + L3 - deltaLprime)
@@ -212,6 +218,7 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
     beamradius = ((x ** 2 + y ** 2) ** 0.5)
     results['beamstop_max_radius'] = beamradius[alive].max()
     results['beamstop_mean_radius'] = beamradius[alive].mean()
+    results['beamstop_wtavg_radius'] = _avg_radius_weighted(beamradius[alive])
 
     # propagate to the detector
     x = photons['x'] + photons['vx'] * (L1 + L2 + L3)
@@ -220,6 +227,7 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
     beamradius = ((x ** 2 + y ** 2) ** 0.5)
     results['detector_max_radius'] = beamradius[alive].max()
     results['detector_mean_radius'] = beamradius[alive].mean()
+    results['detector_wtavg_radius'] = _avg_radius_weighted(beamradius[alive])
 
 
     photons['dead'][alive] = 10000
@@ -445,6 +453,17 @@ class PinHoleCalculator(ToolDialog):
         self._beammap_plotwidth_cb.set_active(False)
         self._beammap_plotwidth_entry.set_sensitive(False)
 
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vbox.pack_start(hbox, False, False, 0)
+        l = Gtk.Label(label='Max. radius:'); l.set_alignment(0, 0.5)
+        hbox.pack_start(l, False, False, 0)
+        self._photonradius_max_label = Gtk.Label(label='--')
+        hbox.pack_start(self._photonradius_max_label, True, True, 5)
+        l = Gtk.Label(label='Mean radius:'); l.set_alignment(0, 0.5)
+        hbox.pack_start(l, False, False, 0)
+        self._photonradius_mean_label = Gtk.Label(label='--')
+        hbox.pack_start(self._photonradius_mean_label, True, True, 5)
+
         self._beamprofile_fig = Figure(figsize=(3.75, 2.5), dpi=80)
         self._beamprofile_fig_canvas = FigureCanvasGTK3Agg(self._beamprofile_fig)
         vbox.pack_start(self._beamprofile_fig_canvas, True, True, 0)
@@ -454,6 +473,7 @@ class PinHoleCalculator(ToolDialog):
 
         self._beampathlength_scale.connect('value-changed', self._on_beampathlength_scale_value_changed)
         self.show_all()
+
     def _on_beampathlength_scale_value_changed(self, widget):
         if self._last_results is None:
             return False
@@ -485,11 +505,15 @@ class PinHoleCalculator(ToolDialog):
         else:
             self._beamprofile_axes.hist(r, 100, weights=r ** (-1))
             self._beamprofile_axes.set_aspect('auto')
+        self._photonradius_max_label.set_label(str(r.max()) + ' mm')
+        self._photonradius_mean_label.set_label(str(_avg_radius_weighted(r)) + ' mm')
         self._beamprofile_fig_canvas.draw()
+
     def _on_resultline_toggled(self, resultline, treepath):
         for row in self._results_model:
             row[0] = False
         self._results_model[treepath][0] = True
+
     def _on_calc(self, button):
         R1 = float(self._ph1_aperture_entry.get_active_text()) * 0.0005
         R2 = float(self._ph2_aperture_entry.get_active_text()) * 0.0005
