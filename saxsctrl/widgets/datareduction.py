@@ -7,7 +7,7 @@ from .widgets import ToolDialog
 from ..hardware.subsystems.datareduction import DataReductionError
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class DataReduction(ToolDialog):
     def __init__(self, credo, title='Data reduction'):
@@ -110,7 +110,7 @@ class DataReduction(ToolDialog):
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         spinner = Gtk.Spinner()
         vb.pack_start(spinner, True, True, 0)
-        l = Gtk.Label('Reloading, please wait...')
+        l = Gtk.Label(label='Reloading, please wait...')
         vb.pack_start(l, False, False, 10)
         vb.set_property('halign', Gtk.Align.CENTER)
         vb.set_property('valign', Gtk.Align.CENTER)

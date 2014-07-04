@@ -14,7 +14,7 @@ import logging
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
 RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"

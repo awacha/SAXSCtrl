@@ -15,7 +15,7 @@ from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class DataReductionError(SubSystemError):
