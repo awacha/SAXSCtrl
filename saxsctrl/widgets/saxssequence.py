@@ -437,7 +437,8 @@ class SeqCommandExpose(SeqCommandWithWait):
         self._failconn = sse.connect('exposure-fail', self._on_fail)
         sse.exptime = float(self.exptime)
         sse.nimages = 1
-        sse.start(write_nexus=True)
+        fsn = sse.start(write_nexus=True)
+        logger.info('Started exposure of FSN #%d.' % fsn)
         self._start_waiting(sse.exptime, 500)
     def _idle_worker(self):
         self.limited_emit('progress', 'Exposing. Time left: %.2f sec.' % (float(self.exptime) - (time.time() - self._starttime)), (time.time() - self._starttime) / float(self.exptime))
