@@ -5,7 +5,7 @@ from gi.repository import GLib
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class VacuumGaugeError(InstrumentError):
     pass
@@ -53,7 +53,7 @@ class VacuumGauge(Instrument_TCP):
             except Exception as exc:
                 logger.error('Instrument error on module %s: ' % self.hwtype + str(exc))
                 raise VacuumGaugeError('Instrument error: ' + str(exc))
-            
+
         return message
     def interpret_message(self, message, command=None):
         if command is None:
@@ -81,7 +81,7 @@ class VacuumGauge(Instrument_TCP):
     def get_current_parameters(self):
         return {'Vacuum':self.pressure, 'VacuumGauge':self.get_version()}
     def wait_for_vacuum(self, pthreshold=1.0, alternative_breakfunc=lambda :False):
-        """Wait until the vacuum becomes better than pthreshold or alternative_breakfunc() returns True. 
+        """Wait until the vacuum becomes better than pthreshold or alternative_breakfunc() returns True.
         During the wait, this calls the default GObject main loop.
         """
         while not (self.pressure <= pthreshold or alternative_breakfunc()):

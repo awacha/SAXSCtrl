@@ -99,7 +99,7 @@ class Scan(ToolDialog):
 
         l = Gtk.Label(label='Step size:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.stepsize_label = Gtk.Label('--'); self.stepsize_label.set_alignment(0, 0.5)
+        self.stepsize_label = Gtk.Label(label='--'); self.stepsize_label.set_alignment(0, 0.5)
         self.entrytable.attach(self.stepsize_label, 1, 2, row, row + 1, xpadding=3)
         row += 1
 

@@ -1,9 +1,13 @@
 from gi.repository import Gtk
 from gi.repository import Gdk
 from ..hardware.instruments import InstrumentPropertyCategory, InstrumentError, InstrumentPropertyUnknown
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class InstrumentStatusLabel(Gtk.Box):
     __gtype_name__ = 'SAXSCtrl_InstrumentStatusLabel'
+    __gsignals__ = {'destroy':'override'}
     def __init__(self, instrument, propertyname, label=None, formatter=None, colourer=None):
         self._instrument = instrument
         self._propertyname = propertyname
@@ -18,11 +22,11 @@ class InstrumentStatusLabel(Gtk.Box):
             self._formatter = formatter
         self._labelname = label
         Gtk.Box.__init__(self, orientation=Gtk.Orientation.VERTICAL, homogeneous=True)
-        self._label = Gtk.Label(label)
+        self._label = Gtk.Label(label=label)
         self.pack_start(self._label, True, True, 0)
         self._eventbox = Gtk.EventBox()
         self.pack_start(self._eventbox, True, True, 0)
-        self._valuelabel = Gtk.Label('--')
+        self._valuelabel = Gtk.Label(label='--')
         self._eventbox.add(self._valuelabel)
         if self._instrument.is_instrumentproperty(self._propertyname):
             self._connection = self._instrument.connect('instrumentproperty-notify', self._on_instrumentproperty_notify)
@@ -71,6 +75,7 @@ class InstrumentStatusLabel(Gtk.Box):
             self._valuelabel.set_text(self._formatter(value))
         return True
     def do_destroy(self):
+        logger.debug('Destroying an InstrumentStatusLabel')
         if hasattr(self, '_valuelabel'):
             del self._valuelabel
         if hasattr(self, '_eventbox'):
@@ -81,12 +86,13 @@ class InstrumentStatusLabel(Gtk.Box):
             self._instrument.disconnect(self._connection)
             del self._connection
             del self._instrument
+        logger.debug('Destroyed an InstrumentStatusLabel')
     def refresh(self):
         if self._instrument.is_instrumentproperty(self._propertyname):
             self._on_instrumentproperty_notify(self._instrument, self._propertyname)
         else:
             self._on_property_notify(self._instrument, None)
-            
+
 class InstrumentStatus(Gtk.Frame):
     __gtype_name__ = 'SAXSCtrl_InstrumentStatus'
     def __init__(self, instrument, ncolumns=6, label='Instrument status'):
@@ -109,4 +115,6 @@ class InstrumentStatus(Gtk.Frame):
     def refresh_statuslabels(self):
         for statuslabel in self._grid.get_children():
             statuslabel.refresh()
-        
+    def do_destroy(self):
+        logger.debug('InstrumentStatus.destroy() signal was emitted.')
+

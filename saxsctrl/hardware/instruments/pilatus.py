@@ -1,4 +1,4 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, InstrumentProperty, InstrumentPropertyCategory
+from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, Command, CommandReply, InstrumentProperty, InstrumentPropertyCategory, InstrumentPropertyUnknown
 import dateutil.parser
 import logging
 import datetime
@@ -12,9 +12,9 @@ import numpy as np
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-TEMPERATURE_WARNING_LIMITS = [(20, 35), (20, 30), (20, 35)]
+TEMPERATURE_WARNING_LIMITS = [(20, 37), (20, 33), (20, 35)]
 TEMPERATURE_ERROR_LIMITS = [(15, 55), (15, 35), (15, 45)]
-HUMIDITY_WARNING_LIMITS = [30, 30, 20]
+HUMIDITY_WARNING_LIMITS = [45, 45, 10]
 HUMIDITY_ERROR_LIMITS = [80, 80, 30]
 
 
@@ -34,7 +34,7 @@ class CommandReplyPilatus(CommandReply):
         if (gd is not None) and int(gd['context']) != self.context:
             return None
         else:
-            return gd 
+            return gd
 
 reply_noaccess = CommandReplyPilatus(1, r'access denied')
 
@@ -143,9 +143,12 @@ class Pilatus(Instrument_TCP):
                                     ('temperature0', 'f4', '%.2f'), ('temperature1', 'f4', '%.2f'), ('temperature2', 'f4', '%.2f'),
                                     ('humidity0', 'f4', '%.1f'), ('humidity1', 'f4', '%.1f'), ('humidity2', 'f4', '%.1f'), ]
     def _logthread_worker(self):
-        self._update_instrumentproperties(None)
-        with self._status_lock:
-            Instrument_TCP._logthread_worker(self)
+        try:
+            self._update_instrumentproperties(None)
+            with self._status_lock:
+                Instrument_TCP._logthread_worker(self)
+        except InstrumentPropertyUnknown as ipu:
+            logger.warning('Skipping log line because of unknown instrument property: ' + str(ipu))
     def _update_instrumentproperties(self, propertyname=None):
         with self._status_lock:
             if propertyname is not None:
@@ -272,7 +275,7 @@ class Pilatus(Instrument_TCP):
                     type(self).imagesremaining._update(self, 0, InstrumentPropertyCategory.NORMAL)
                 else:
                     type(self).imagesremaining._update(self, None, InstrumentPropertyCategory.UNKNOWN)
-                    
+
     def _process_results(self, dic):
         with self._status_lock:
             if (dic['command'] == 'SetThreshold') and (self.status == PilatusStatus.Trimming):
@@ -283,7 +286,7 @@ class Pilatus(Instrument_TCP):
                 with self.freeze_notify():
                     self.status = PilatusStatus.Idle
                     self._update_instrumentproperties()
-                    
+
         if dic['status'] == 'ERR':
             logger.error('Command %s returned error!' % dic['command'])
     def interpret_message(self, message, command=None, putback_if_no_match=True):
@@ -309,8 +312,10 @@ class Pilatus(Instrument_TCP):
             else:
                 raise PilatusError('Cannot match message, putback disabled: ' + message)
             return None
-        
+
     def _post_connect(self):
+        with self._status_lock:
+            self._invalidate_instrumentproperties()
         if self.camsetup()['controllingPID'] != self.get_pid():
             raise PilatusError('Cannot establish read-write connection!')
         self._update_instrumentproperties()
@@ -435,7 +440,7 @@ class Pilatus(Instrument_TCP):
     def expose(self, exptime, filename, nimages=1, dwelltime=0.003):
         self.prepare_exposure(exptime, nimages, dwelltime)
         return self.execute_exposure(filename)
-    
+
     def stopexposure(self):
         with self._status_lock:
             if self.status == PilatusStatus.Exposing:
@@ -459,8 +464,8 @@ class Pilatus(Instrument_TCP):
     def get_timeleft(self):
         return self.camsetup()['timeleft']
 
-                
-        
-        
-        
-            
+
+
+
+
+

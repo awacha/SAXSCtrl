@@ -92,9 +92,9 @@ class Imaging(ToolDialog):
 
         l = Gtk.Label(label='Step size:'); l.set_alignment(0, 0.5)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.stepsize1_label = Gtk.Label('--'); self.stepsize1_label.set_alignment(0, 0.5)
+        self.stepsize1_label = Gtk.Label(label='--'); self.stepsize1_label.set_alignment(0, 0.5)
         self.entrytable.attach(self.stepsize1_label, 1, 2, row, row + 1, xpadding=3)
-        self.stepsize2_label = Gtk.Label('--'); self.stepsize2_label.set_alignment(0, 0.5)
+        self.stepsize2_label = Gtk.Label(label='--'); self.stepsize2_label.set_alignment(0, 0.5)
         self.entrytable.attach(self.stepsize2_label, 2, 3, row, row + 1, xpadding=3)
         row += 1
         

@@ -31,14 +31,14 @@ class CapilSizer(ToolDialog):
         vbox.pack_start(tab, False, False, 0)
         row = 0
         
-        l = Gtk.Label('Sample name:')
+        l = Gtk.Label(label='Sample name:')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._sampleselector = SampleSelector(self.credo, False, shortnames=True)
         tab.attach(self._sampleselector, 1, 2, row, row + 1)
         row += 1
         
-        l = Gtk.Label('Peak function:')
+        l = Gtk.Label(label='Peak function:')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._peakfunction_combo = Gtk.ComboBoxText()
@@ -48,7 +48,7 @@ class CapilSizer(ToolDialog):
         self._peakfunction_combo.set_active(0)
         row += 1
         
-        l = Gtk.Label('Scan number:')
+        l = Gtk.Label(label='Scan number:')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._scannumber_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 1e6, 1, 10), digits=0)
@@ -56,7 +56,7 @@ class CapilSizer(ToolDialog):
         self._scannumber_entry.connect('value-changed', self._on_scannumber_changed)
         row += 1
         
-        l = Gtk.Label('Signal name:')
+        l = Gtk.Label(label='Signal name:')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._signalname_combo = Gtk.ComboBoxText()
@@ -82,7 +82,7 @@ class CapilSizer(ToolDialog):
         vbox.pack_start(tab, False, False, 0)
         row = 0
 
-        l = Gtk.Label('Left inflexion point')
+        l = Gtk.Label(label='Left inflexion point')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._leftpoi_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e6, 1e6, 1, 10), digits=4)
@@ -93,7 +93,7 @@ class CapilSizer(ToolDialog):
         b.connect('clicked', lambda button, targetentry, name: self._fitpeak(targetentry, name), self._leftpoi_entry, 'left')
         row += 1
         
-        l = Gtk.Label('Right inflexion point')
+        l = Gtk.Label(label='Right inflexion point')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._rightpoi_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e6, 1e6, 1, 10), digits=4)
@@ -104,20 +104,20 @@ class CapilSizer(ToolDialog):
         b.connect('clicked', lambda button, targetentry, name: self._fitpeak(targetentry, name), self._rightpoi_entry, 'right')
         row += 1
 
-        l = Gtk.Label('Thickness (cm):')
+        l = Gtk.Label(label='Thickness (cm):')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._thickness_label = Gtk.Label('--')
+        self._thickness_label = Gtk.Label(label='--')
         tab.attach(self._thickness_label, 1, 2, row, row + 1)
         b = Gtk.Button(stock=Gtk.STOCK_SAVE)
         tab.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
         b.connect('clicked', lambda button:self.save_thickness())
         row += 1
         
-        l = Gtk.Label('Position (mm):')
+        l = Gtk.Label(label='Position (mm):')
         l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._position_label = Gtk.Label('--')
+        self._position_label = Gtk.Label(label='--')
         tab.attach(self._position_label, 1, 2, row, row + 1)
         b = Gtk.Button(stock=Gtk.STOCK_SAVE)
         tab.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)

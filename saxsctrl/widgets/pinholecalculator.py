@@ -145,6 +145,9 @@ calc_alpha_geo = lambda R1, R2, L1: np.arctan((R1 + R2) / L1)
 # maximum divergence defined by the last two pin-holes
 calc_beta_geo = lambda R2, R3, L2: np.arctan((R2 + R3) / L2)
 
+# radius of parasitic scattering from R2 transmitted through R3 on the detector surface
+calc_Rdirectbeam_geo = lambda R1, R2, L1, L2, L3: (L3 + L2) / (L1 * 1.0) * R1 + (L1 + L2 + L3) / (L1 * 1.0) * R2
+
 def _avg_radius_weighted(r):
     return len(r) / (1 / r).sum()
 
@@ -236,7 +239,7 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
 
 class PinHoleCalculator(ToolDialog):
     _pinhole_inventory = [150, 150, 200, 300, 300, 400, 400, 400, 500, 500, 500, 600, 600, 750, 750, 750, 1000, 1000, 1000, 1250]
-    _distelement_inventory = [100, 100, 200, 200, 500, 800]
+    _distelement_inventory = [65, 65, 100, 100, 200, 200, 500, 800]
     _sddist = {'Short tube':457.121, 'Long tube':1200, 'Both tubes':1494.336}
     _R3_to_sample = 50 + 4 + 30 + 110
     _bsfront_to_detector = 54
@@ -543,6 +546,8 @@ class PinHoleCalculator(ToolDialog):
                                    ('sample_radius', Rsample_geo),
                                    ('beamstop_radius', BSradius_geo),
                                    ('detector_radius', BSshadowradius_geo),
+                                   ('detector_directbeam_radius', calc_Rdirectbeam_geo(R1, R2, L1, L2, L3)),
+                                   ('beamstop_directbeam_radius', calc_Rdirectbeam_geo(R1, R2, L1, L2, L3 - deltaLprime)),
                                    ('alpha', alpha_geo), ('beta', beta_geo), ('qmin', qmin), ('dmax', dmax),
                                    ('L1_opt', L1_opt), ('L2_opt', L1 + L2 - L1_opt)])
         results_MC = Pinhole_MonteCarlo(R1, R2, R3_geo, L1, L2, L3, deltaL, deltaLprime, BSradius_geo,

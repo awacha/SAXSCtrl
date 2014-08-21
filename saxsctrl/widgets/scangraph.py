@@ -68,7 +68,7 @@ class ScanGraph(ToolDialog):
         self.xlabel(self.xname)
 
 
-        l = Gtk.Label('Move cursor')
+        l = Gtk.Label(label='Move cursor')
         self._hb_cursor.pack_start(l, False, False, 0)
         l.show()
         self._cursor_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=Gtk.Adjustment(0, 0, 1, 0, 1))
@@ -76,7 +76,7 @@ class ScanGraph(ToolDialog):
         self._cursor_scale.show()
         self._cursor_scale.set_draw_value(False)
         self._cursor_scale.connect('value-changed', lambda scale:self.move_cursor(scale.get_value()))
-        self._cursor_label = Gtk.Label('')
+        self._cursor_label = Gtk.Label(label='')
         self._hb_cursor.pack_start(self._cursor_label, False, False, 0)
         self._cursor_label.show()
         b = Gtk.Button('Go to min')
@@ -121,10 +121,10 @@ class ScanGraph(ToolDialog):
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
         vb0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self._logy_check = Gtk.CheckButton('Logarithmic y')
+        self._logy_check = Gtk.CheckButton(label='Logarithmic y')
         self._logy_check.connect('toggled', lambda cb:self.redraw_scan())
         vb0.pack_start(self._logy_check, False, False, 0)
-        self._show2d_check = Gtk.CheckButton('Show 2D image')
+        self._show2d_check = Gtk.CheckButton(label='Show 2D image')
         self._show2d_check.connect('toggled', lambda cb:self.redraw_scan())
         vb0.pack_start(self._show2d_check, False, False, 0)
 
@@ -146,7 +146,7 @@ class ScanGraph(ToolDialog):
         for col in self.scan.columns():
             f = Gtk.Frame(label=col)
             vb.pack_start(f, False, False, 0)
-            self.currvallabels[col] = Gtk.Label('--')
+            self.currvallabels[col] = Gtk.Label(label='--')
             f.add(self.currvallabels[col])
         self._initialize_cursors()
         self.set_scalers(None)
@@ -291,7 +291,7 @@ class ScanGraph(ToolDialog):
             self.xlabel(self.xname)
 #            self.fig.gca().axis('tight')
             self.fig.gca().relim()
-            self.fig.gca().autoscale(True,tight=True)
+            self.fig.gca().autoscale(True, tight=True)
         else:
             miny = np.inf
             maxy = -np.inf
@@ -315,13 +315,13 @@ class ScanGraph(ToolDialog):
             dx = abs(x.max() - x.min()) * 0.01
             if dx == 0:
                 dx = 0.5
-            #self.fig.gca().set_xlim(x.min() - dx, x.max() + dx)
+            # self.fig.gca().set_xlim(x.min() - dx, x.max() + dx)
             dy = abs(maxy - miny)
             if dy == 0:
                 dy = 0.5
-            #self.fig.gca().axis('tight')
+            # self.fig.gca().axis('tight')
             self.fig.gca().relim()
-            self.fig.gca().autoscale(True,tight=True)
+            self.fig.gca().autoscale(True, tight=True)
         if self._show2d_check.get_active() and ('FSN' in self.scan.columns()):
             ssf = self.credo.subsystems['Files']
             exposure = sastool.classes.SASExposure(ssf.get_exposureformat('scn') % self.scan['FSN'][self._cursor_at], dirs=[ssf.scanpath, ssf.imagespath, ssf.parampath] + sastool.misc.find_subdirs(ssf.maskpath))
@@ -455,7 +455,7 @@ class ImagingGraph(ToolDialog):
         vb.pack1(vb1, True, True)
         hb1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb1.pack_start(hb1, False, False, 0)
-        l = Gtk.Label('Number of columns:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Number of columns:'); l.set_alignment(0, 0.5)
         hb1.pack_start(l, False, False, 0)
         self._ncol_sb = Gtk.SpinButton(adjustment=Gtk.Adjustment(4, 1, 100, 1, 10), digits=0)
         self._ncol_sb.set_value(2)
@@ -474,7 +474,7 @@ class ImagingGraph(ToolDialog):
         for col in self.scan.columns():
             f = Gtk.Frame(label=col)
             vb.pack_start(f, False, False, 0)
-            self.currvallabels[col] = Gtk.Label('--')
+            self.currvallabels[col] = Gtk.Label(label='--')
             f.add(self.currvallabels[col])
         self.set_scalers(None)
     def do_response(self, respid):

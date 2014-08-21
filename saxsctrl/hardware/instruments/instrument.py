@@ -99,13 +99,13 @@ class InstrumentProperty(object):
                 return InstrumentPropertyCategory.WARNING
             else:
                 return InstrumentPropertyCategory.NORMAL
-        
+
 
 class Instrument(objwithgui.ObjWithGUI):
     __gsignals__ = {'controller-error':(GObject.SignalFlags.RUN_FIRST, None, (object,)),  # the instrument should emit this if a communication error occurs. The parameter is usually a string describing what went wrong.
                     'connect-equipment': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted when a successful connection to the instrument is done.
                     'disconnect-equipment': (GObject.SignalFlags.RUN_FIRST, None, (bool,)),  # emitted when the connection is broken either normally (bool argument is True) or because of an error (bool argument is false)
-                    'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever the instrument becomes idle, i.e. the status parameter changes to something considered as idle state (checked by the class attribute _considered_idle) 
+                    'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),  # emitted whenever the instrument becomes idle, i.e. the status parameter changes to something considered as idle state (checked by the class attribute _considered_idle)
                     'notify': 'override',
                     'instrumentproperty-error':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     'instrumentproperty-warning':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
@@ -118,13 +118,15 @@ class Instrument(objwithgui.ObjWithGUI):
     _considered_idle = [InstrumentStatus.Idle, InstrumentStatus.Disconnected]
     timeout = GObject.property(type=float, minimum=0, default=1.0, blurb='Timeout on wait-for-reply (sec)')  # communications timeout in seconds
     configfile = GObject.property(type=str, default='', blurb='Instrument configuration file')
+    reconnect_interval = GObject.property(type=float, minimum=0, default=1, blurb='Interval for reconnect attempts after a sudden connection breakage')
+    reconnect_attempts_number = GObject.property(type=int, minimum=0, default=3, blurb='Number of times reconnection is attempted after a sudden connection breakage')
     _enable_instrumentproperty_signals = None
     _logging_parameters = []
     def __init__(self, name=None, offline=True):
         self._instrumentproperties = {}
         if name is None:
-            name='Unnamed instrument'
-        self._name=name
+            name = 'Unnamed instrument'
+        self._name = name
         self._OWG_init_lists()
         self._OWG_nosave_props.append('status')
         self._OWG_nogui_props.append('status')
@@ -136,7 +138,7 @@ class Instrument(objwithgui.ObjWithGUI):
         self._logthread_stop = threading.Event()
         self._enable_instrumentproperty_signals = threading.Event()
     def _get_classname(self):
-        return objwithgui.ObjWithGUI._get_classname(self)+'__'+self._name
+        return objwithgui.ObjWithGUI._get_classname(self) + '__' + self._name
     def do_instrumentproperty_notify(self, propertyname):
         try:
             logger.debug('InstrumentProperty %s changed to: %s' % (propertyname, str(self.get_property(propertyname))))
@@ -149,7 +151,9 @@ class Instrument(objwithgui.ObjWithGUI):
     def is_instrumentproperty(self, propertyname):
         return isinstance(getattr(type(self), propertyname), InstrumentProperty)
     def is_instrumentproperty_expired(self, propertyname):
-        return (propertyname not in self._instrumentproperties) or (time.time() - self._instrumentproperties[propertyname][1]) > getattr(type(self), propertyname).timeout
+        return ((propertyname not in self._instrumentproperties) or
+                (time.time() - self._instrumentproperties[propertyname][1]) > getattr(type(self), propertyname).timeout or
+                self._instrumentproperties[propertyname][2] == InstrumentPropertyCategory.UNKNOWN)
     def _threadsafe_emit(self, signalname, *args):
         if self._enable_instrumentproperty_signals.is_set():
             GLib.idle_add(lambda signalname, args: self.emit(signalname, *args) and False, signalname, args)
@@ -183,7 +187,7 @@ class Instrument(objwithgui.ObjWithGUI):
         return [x for x in dir(type(self)) if isinstance(getattr(type(self), x), InstrumentProperty)]
     def _invalidate_instrumentproperties(self):
         for ip in self._get_instrumentproperties():
-            self._instrumentproperties[ip] = (None, time.time(), InstrumentPropertyCategory.UNKNOWN)
+            self._instrumentproperties[ip] = (None, 0, InstrumentPropertyCategory.UNKNOWN)
     def _restart_logger(self):
         self._stop_logger()
         self._logthread = threading.Thread(target=self._logger_thread, args=(self._logthread_stop,))
@@ -212,8 +216,9 @@ class Instrument(objwithgui.ObjWithGUI):
                     raise ex
                 except InstrumentError as ex:
                     logger.warn('Non-fatal exception in logger thread of instrument ' + self._get_classname() + ': ' + str(type(ex)) + str(str(ex)))
-                except:
-                    raise
+                except Exception as ex:
+                    logger.critical('Unhandleable exception in logger thread of instrument ' + self._get_classname() + ': ' + str(type(ex)) + str(str(ex)))
+                    raise ex
                 if stopswitch.wait(self.logtimeout):
                     logger.debug('Stopping logger thread')
                     break
@@ -231,34 +236,34 @@ class Instrument(objwithgui.ObjWithGUI):
     def load_log(self):
         return np.loadtxt(self.logfile, dtype=self._logdtype(), delimiter='\t')
     def connect_to_controller(self):
-        """Connect to the controller. The actual connection parameters (e.g. host, port etc.) 
+        """Connect to the controller. The actual connection parameters (e.g. host, port etc.)
         to be used should be implemented as GObject properties. This should work as follows:
-        
+
         1) establish connection (open socket, serial device etc.)
         2) call self._post_connect()
         3) set status to InstrumentStatus.Idle
         4) emit signal connect-equipment
-        
+
         If anything goes wrong during phases 1-3 of the above described procedure, the
-        connection should be torn down (not by calling disconnect_from_controller and not 
-        calling _pre_disconnect()), and no signal should be emitted. If the call to 
+        connection should be torn down (not by calling disconnect_from_controller and not
+        calling _pre_disconnect()), and no signal should be emitted. If the call to
         emit('connect-equipment) raises an exception, the connection is to be considered
         valid and successful, but the exception should be propagated.
         """
         raise NotImplementedError
-    def disconnect_from_controller(self, status=True):
+    def disconnect_from_controller(self, status=True, reconnect=False):
         """Disconnect from the controller. Status signifies the cause of disconnection: True
         if this was intentional and originated from our side, False means that the disconnection
         is due to an error from either our side or the other. The procedure is as follows:
-        
+
         1) call self._pre_disconnect() the bool status as the argument. Exceptions raised should be
         ignored.
         2) break down the connection (close socket, free the serial device etc.)
         3) emit disconnect-equipment with the bool status.
-        
+
         Exceptions during all phases should be re-raised at the end (or at least logged), but the
         disconnection should be carried out in every case.
-        
+
         """
         raise NotImplementedError
     def connected(self):
@@ -272,12 +277,12 @@ class Instrument(objwithgui.ObjWithGUI):
         """Do initialization tasks after a connection has been established. This is called from
         connect_to_controller() after the connection is established (e.g. socket opened). If an
         exception is raised, connect_controller() will catch it and close down the connection.
-        
+
         If you install timeout or idle handlers (a la GObject), you should not close them in the
         _pre_disconnect() method. Instead, put a check to self.connected() at the beginning of the
         handler, and return False if no connection exists. In other words, if you raise an
         exception, you should rely on _pre_disconnect() to be called at all.
-        
+
         If the communications involves a lock, this method is called with the lock already acquired.
         """
         pass
@@ -291,12 +296,12 @@ class Instrument(objwithgui.ObjWithGUI):
         """Do whatever it takes to send "command" (usually a string) to the controller. If "blocking"
         is True, you should wait for the reply (timeout is defined in the "timeout" property) and
         return it after calling interpret_message(replymessage, command). If "blocking" is False,
-        you should return None. 
+        you should return None.
         """
         raise NotImplementedError
     def interpret_message(self, message, command=None):
         """Interpret incoming message (e.g. validate checksum or do some processing). The argument
-        "command" can be a hint: it can (should) be the command to which "message" is a reply. 
+        "command" can be a hint: it can (should) be the command to which "message" is a reply.
         In case of an asynchronous message, "command" should be None. This is usually called
         by send_and_receive(), or by a collector thread collecting asynchronous messages."""
         raise NotImplementedError
@@ -312,17 +317,17 @@ class Instrument(objwithgui.ObjWithGUI):
             else:
                 if self.connected():
                     self._restart_logger()
-            
+
     def get_current_parameters(self):
         """Return a dictionary of the current status (characteristics) of the instrument. E.g. in
         case of an X-ray source, these can be the current high tension, current, shutter state etc.
-        
+
         The main intention to this is to be able to collect the status information of all instruments
         in order to save them (e.g. in the header file of a SAXS exposure).
         """
         return {}
     def wait_for_idle(self, alternative_breakfunc=lambda :False):
-        """Wait until the instrument becomes idle or alternative_breakfunc() returns True. 
+        """Wait until the instrument becomes idle or alternative_breakfunc() returns True.
         During the wait, this calls the default GObject main loop.
         """
         while not (self.is_idle() or alternative_breakfunc()):
@@ -332,7 +337,7 @@ class Instrument(objwithgui.ObjWithGUI):
                     break
         return (not alternative_breakfunc())
     def wait_for_status(self, desiredstatus, alternative_breakfunc=lambda :False):
-        """Wait until the instrument comes into the desired state or alternative_breakfunc() returns True. 
+        """Wait until the instrument comes into the desired state or alternative_breakfunc() returns True.
         During the wait, this calls the default GObject main loop.
         """
         while not (self.status == desiredstatus or alternative_breakfunc()):
@@ -350,7 +355,22 @@ class Instrument(objwithgui.ObjWithGUI):
     def __sa(self, address):
         return self._set_address(address)
     address = property(__ga, __sa, None, 'Address of the instrument')
-        
+    def reconnect_to_controller_after_error(self, remaining=0):
+        try:
+            self.connect_to_controller()
+        except:
+            logger.warning('Reconnect attempt %d/%d failed.' % (self.reconnect_attempts_number - remaining + 1, self.reconnect_attempts_number))
+            if remaining > 1:
+                GLib.timeout_add_seconds(self.reconnect_interval, self.reconnect_to_controller_after_error, remaining - 1)
+            else:
+                logger.error('Could not reconnect to controller.')
+        else:
+            logger.info('Successful reconnection to controller.')
+        return False  # deregister GLib timeout handler
+
+
+
+
 class CommunicationCollector(threading.Thread):
     def __init__(self, parent, queue, lock, sleep=0.1, mesgseparator=None):
         threading.Thread.__init__(self, name=self.__class__.__name__)
@@ -369,10 +389,10 @@ class CommunicationCollector(threading.Thread):
                 continue
             try:
                 mesg = self.do_read()
-            except ConnectionBrokenError:
-                logger.warning('Communication error in communicationcollector thread: shutting down socket.')
+            except ConnectionBrokenError as cbe:
+                logger.warning('Communication error in communicationcollector thread: shutting down socket. Error: %s' % str(cbe))
                 self.lock.release()
-                self.parent().disconnect_from_controller(False)
+                self.parent().disconnect_from_controller(False, reconnect=True)
                 break
             else:
                 self.lock.release()
@@ -383,8 +403,8 @@ class CommunicationCollector(threading.Thread):
                 else:
                     self.queue.put(mesg)
         logger.debug('Communication collector thread ending.')
-        
-        
+
+
 class Instrument_ModbusTCP(Instrument):
     host = GObject.property(type=str, default='', blurb='Host name')
     port = GObject.property(type=int, minimum=0, default=502, blurb='Port number')
@@ -413,8 +433,8 @@ class Instrument_ModbusTCP(Instrument):
                 raise InstrumentError('Cannot connect to instrument at %s:%d. Reason: %s' % (self.host, self.port, str(ex)))
         logger.info('Connected to instrument at %s:%d' % (self.host, self.port))
         self.emit('connect-equipment')
-            
-    def disconnect_from_controller(self, status):
+
+    def disconnect_from_controller(self, status=True, reconnect=False):
         if not self.connected():
             raise InstrumentError('Not connected')
         self._stop_logger()
@@ -425,10 +445,13 @@ class Instrument_ModbusTCP(Instrument):
             self.status = InstrumentStatus.Disconnected
             self._invalidate_instrumentproperties()
             self.emit('disconnect-equipment', status)
-            
+        if reconnect:
+            GLib.timeout_add_seconds(self.reconnect_interval,
+                                     self.reconnect_to_controller_after_error, self.reconnect_attempts_number)
+
     def do_controller_error(self, arg):
         if self.connected():
-            self.disconnect_from_controller(False)
+            self.disconnect_from_controller(False, reconnect=True)
     def _read_integer(self, regno):
         with self._communications_lock:
             try:
@@ -461,7 +484,7 @@ class Instrument_ModbusTCP(Instrument):
             self.port = port
         else:
             self.host = address
-            
+
 class Instrument_TCP(Instrument):
     host = GObject.property(type=str, default='', blurb='Host name')
     port = GObject.property(type=int, minimum=0, default=41234, blurb='Port number')
@@ -525,7 +548,7 @@ class Instrument_TCP(Instrument):
         self.emit('connect-equipment')
     def connected(self):
         return self._socket is not None
-    def disconnect_from_controller(self, status=True):
+    def disconnect_from_controller(self, status=True, reconnect=False):
         try:
             self._pre_disconnect(status)
         except:
@@ -548,6 +571,9 @@ class Instrument_TCP(Instrument):
         self._invalidate_instrumentproperties()
         self.status = InstrumentStatus.Disconnected
         self.emit('disconnect-equipment', status)
+        if reconnect:
+            GLib.timeout_add_seconds(self.reconnect_interval,
+                                     self.reconnect_to_controller_after_error, self.reconnect_attempts_number)
     def _read_from_socket(self, timeout=None):
         message = None
         try:
@@ -556,7 +582,7 @@ class Instrument_TCP(Instrument):
             # read the first character of the reply with the given timeout value.
             # if no message is waiting, this will raise an exception, which we will
             # catch. Otherwise we try to continue with the other characters.
-            logger.debug('_read_from_socket: select.select()') 
+            logger.debug('_read_from_socket: select.select()')
             rlist, wlist, xlist = select.select([self._socket], [], [self._socket], timeout)
             logger.debug('_read_from_socket: select.select() ended.')
             if xlist:
@@ -570,7 +596,7 @@ class Instrument_TCP(Instrument):
                 # socket closed.
                 raise ConnectionBrokenError('socket received empty message on reading first character => closed.')
             # read subsequent characters with zero timeout. We do this in order to
-            # avoid waiting too long after the end of each message, and to use 
+            # avoid waiting too long after the end of each message, and to use
             # the one-recv-per-char technique, which can be dead slow. This way we
             # can use a larger buffer size in recv(), and if fewer characters are
             # waiting in the input buffer, the zero timeout will ensure that we are
@@ -584,7 +610,7 @@ class Instrument_TCP(Instrument):
                 # if the input message ended, and nothing is to be read, an exception
                 # will be raised, which we will catch.
                 mesg = self._socket.recv(self.recvbufsize)
-                if mesg == '': 
+                if mesg == '':
                     # if no exception is raised and an empty string has been read, it
                     # signifies that the connection has been broken.
                     raise ConnectionBrokenError('empty string read from socket: other end hung up.')
@@ -602,15 +628,15 @@ class Instrument_TCP(Instrument):
             # this is a serious error, we tear down the connection on our side.
             # We call the disconnecting method in this funny way, since it needs locking
             # self._socket_lock, which is now locked.
-            GLib.idle_add(lambda :(self.disconnect_from_controller(False) and False))
+            logger.warning('Connection to instrument broken. Trying to reconnect. Error was: ' + str(cbe))
+            GLib.idle_add(lambda :(self.disconnect_from_controller(False, reconnect=True) and False))
             raise cbe
         except socket.error as se:
-            raise InstrumentError('Communication Error: ' + str(se)) 
+            raise InstrumentError('Communication Error: ' + str(se))
         finally:
             self._socket.settimeout(self.timeout)
         logger.debug('Returning with message: ' + message + '; length: %d' % len(message) + ' hex: ' + ''.join('%x' % ord(c) for c in message))
         return message
-    
     def send_and_receive(self, command, blocking=True):
         with self._socketlock:
             try:
@@ -665,7 +691,7 @@ class Instrument_TCP(Instrument):
             self.host = address
 
 
-            
+
 class CommunicationCollector_TCP(CommunicationCollector):
     # ## socket should have a reasonable timeout (e.g. 0.001, but not zero).
     def __init__(self, sock, parent, queue, lock, sleep=0.1, mesgseparator=None):
@@ -676,7 +702,7 @@ class CommunicationCollector_TCP(CommunicationCollector):
         while True:
             rlist, wlist, xlist = select.select([self.socket], [], [self.socket], 0.001)
             if xlist:
-                raise ConnectionBrokenError()
+                raise ConnectionBrokenError('Socket in exceptional state')
             if not rlist:
                 break
             try:
@@ -687,12 +713,12 @@ class CommunicationCollector_TCP(CommunicationCollector):
             message = message + mesg
             if mesg == '':
                 # this signifies that the other end of the connection broke.
-                raise ConnectionBrokenError
+                raise ConnectionBrokenError('Empty message received, the other end of the connection broke.')
         if message == '':
             # nothing has been read
             return None
         return message
-        
+
 
 class CommandReply(object):
     """This class implements a reply to a command. Each command can have multiple replies.
@@ -705,7 +731,7 @@ class CommandReply(object):
             self.defaults = {}
         else:
             self.defaults = defaults
-            
+
     def match(self, message):
         m = self.regex.match(message)
         if m is None:
@@ -726,10 +752,10 @@ class CommandReply(object):
             ret.update(gd)
             return ret
 
-        
+
 class Command(object):
     """This class represents a command to the Pilatus Camserver.
-    
+
     Attributes are:
         command: the command as a string.
         replies: a list of CommandReply objects matching the possible outcomes

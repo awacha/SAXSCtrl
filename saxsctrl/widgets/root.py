@@ -19,7 +19,7 @@ def my_excepthook(type_, value, traceback_):
         logger.critical('Unhandled exception', exc_info=(type_, value, traceback_))
     except:
         pass
-    
+
 sys.excepthook = my_excepthook
 
 class Tool(object):
@@ -44,8 +44,8 @@ class Tool(object):
                 self.window = None
                 raise
             else:
-                self._windowconn.append(self.window.connect('delete-event', self.on_delete))
-                self._windowconn.append(self.window.connect('destroy', self.on_delete))
+                self._windowconn.append(self.window.connect('delete-event', self.on_delete, 'delete-event'))
+                self._windowconn.append(self.window.connect('destroy', self.on_delete, 'destroy'))
                 self.window.show_all()
         if self.window is not None:
             self.window.present()
@@ -60,7 +60,7 @@ class Tool(object):
             self.menuitem = Gtk.MenuItem(self.buttonname)
             self.menuitem.connect('activate', self.createwindow)
         return self.menuitem
-    
+
     def set_sensitivity(self, equips_available):
         sensitivity = all(eq in equips_available for eq in self.equip_needed)
         if self.window is not None:
@@ -72,23 +72,26 @@ class Tool(object):
             self.button.set_sensitive(sensitivity)
         if self.menuitem is not None:
             self.menuitem.set_sensitive(sensitivity)
-    
-    def on_delete(self, *args):
+
+    def on_delete(self, widget, *args):
+        logger.debug('Tool.on_delete called. Args: ' + ', '.join(str(a) for a in args))
         for c in self._windowconn:
             self.window.disconnect(c)
         self._windowconn = []
         if not self.window.in_destruction():
+            logger.debug('Calling Tool.window.destroy()')
             self.window.destroy()
+            logger.debug('Returned from Tool.window.destroy()')
         else:
             logger.debug('Window for tool ' + self.toolsection + '::' + self.buttonname + ' is already being destroyed.')
-        del self.window
         self.window = None
-        
+
     def destroywindow(self):
         if self.window is not None:
-            logger.debug('Destroying tool: ' + self.buttonname)
+            logger.debug('Destroying window for tool: ' + self.buttonname)
             self.window.destroy()
-                
+            logger.debug('Destroyed window for tool: ' + self.buttonname)
+
 class RootWindow(Gtk.Window):
     _memusage = None
     _uptime = None
@@ -114,7 +117,7 @@ class RootWindow(Gtk.Window):
         self.credo = credo.Credo(**credo_kwargs)
         self._connections.append((self.credo.subsystems['Equipments'],
                                   self.credo.subsystems['Equipments'].connect('equipment-connection', lambda crd, name, state, equip: self.update_sensitivities())))
-        
+
         vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(vb)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -122,7 +125,7 @@ class RootWindow(Gtk.Window):
         menubar = Gtk.MenuBar()
         hb.pack_start(menubar, True, True, 0)
 
-        menus = {}     
+        menus = {}
 
         self.toolbuttons = [  # Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol.GenixControl, 'Hardware', ['genix']),
                             Tool(self.credo, 'GeniX', 'GeniX X-ray source controller', genixcontrol2.GenixControl, 'Hardware', ['genix'], True),
@@ -150,18 +153,17 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Hardware logs', 'Hardware log viewer', hwlogviewer.HWLogViewer, 'Utilities', [], False),
                             Tool(self.credo, 'Pinhole calculator', 'Pinhole calculator', pinholecalculator.PinHoleCalculator, 'Utilities', [], False)
                             ]
-        
         if self.credo.offline:
             self.toolbuttons = [t for t in self.toolbuttons if not t.online_needed]
-        
+
         for mname in ['File', 'Setup', 'Calibration', 'Hardware', 'Scan', 'Expose', 'View', 'Utilities']:
             if (not [t for t in self.toolbuttons if t.toolsection == mname]) and mname != 'File':
                 continue
             mi = Gtk.MenuItem(label='_' + mname, use_underline=True)
             menubar.append(mi)
             menus[mname] = Gtk.Menu()
-            mi.set_submenu(menus[mname])   
-        
+            mi.set_submenu(menus[mname])
+
         mi = Gtk.ImageMenuItem(label='Save settings')
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:self.credo.savestate())
@@ -171,7 +173,7 @@ class RootWindow(Gtk.Window):
         mi = Gtk.ImageMenuItem.new_from_stock(Gtk.STOCK_QUIT, None)
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:Gtk.main_quit())
-        
+
         self.statuslabel_memory = Gtk.Label(label=''); self.statuslabel_memory.set_alignment(0, 0.5)
         hb.pack_start(self.statuslabel_memory, False, False, 3)
         self.statuslabel_uptime = Gtk.Label(label=''); self.statuslabel_uptime.set_alignment(0, 0.5)
@@ -179,14 +181,14 @@ class RootWindow(Gtk.Window):
         eb = Gtk.EventBox()
         hb.pack_start(eb, False, False, 3)
         if self.credo.offline:
-            eb.add(Gtk.Label('OFFLINE'))
+            eb.add(Gtk.Label(label='OFFLINE'))
             eb.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(1.0, 0.5, 0, 1))
         else:
-            eb.add(Gtk.Label('ONLINE'))
+            eb.add(Gtk.Label(label='ONLINE'))
             eb.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0, 1.0, 0))
-            
-        
-        
+
+
+
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, True, 0)
         f = Gtk.Frame(label='Accounting')
@@ -194,7 +196,7 @@ class RootWindow(Gtk.Window):
         tab = Gtk.Table()
         f.add(tab)
         row = 0
-        
+
         l = Gtk.Label(label='User name:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.username_entry = Gtk.Entry()
@@ -202,7 +204,7 @@ class RootWindow(Gtk.Window):
         self._connections.append((self.username_entry, self.username_entry.connect('changed', self.on_entry_changed, 'username')))
         tab.attach(self.username_entry, 1, 3, row, row + 1)
         row += 1
-        
+
         l = Gtk.Label(label='Project name:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.projectname_entry = Gtk.Entry()
@@ -210,28 +212,28 @@ class RootWindow(Gtk.Window):
         self._connections.append((self.projectname_entry, self.projectname_entry.connect('changed', self.on_entry_changed, 'projectname')))
         tab.attach(self.projectname_entry, 1, 3, row, row + 1)
         row += 1
-        
+
         hb.pack_start(nextfsn_monitor.NextFSNMonitor(weakref.proxy(self.credo), 'Next exposure:'), False, True, 0)
-        
-        
+
+
         for t in self.toolbuttons:
             mi = t.createmenuitem()
             menus[t.toolsection].append(mi)
         self.update_sensitivities()
-        
+
         ssetupmenuitem = Gtk.MenuItem(label='Subsystems...')
         menus['Setup'].append(ssetupmenuitem)
         sm = Gtk.Menu()
         ssetupmenuitem.set_submenu(sm)
-        
+
         for ss in sorted(self.credo.subsystems):
             mi = Gtk.MenuItem(label=ss)
             sm.append(mi)
             mi.connect('activate', lambda menuitem, ssname:self._run_subsystem_setup(ssname), ss)
-        
+
         f = Gtk.Frame(label='Log')
         vb.pack_start(f, True, True, 0)
-        
+
         f.add(self.logdisplay)
         self.update_statuslabels()
         GLib.timeout_add_seconds(1, self.update_statuslabels)
@@ -276,7 +278,7 @@ class RootWindow(Gtk.Window):
         logger.debug('Destroying root window.')
         for tb in self.toolbuttons:
             tb.destroywindow()
-        
+
         for obj, c in self._connections:
             obj.disconnect(c)
         self._connections = []
@@ -291,4 +293,4 @@ class RootWindow(Gtk.Window):
         self._entrychanged_delayhandlers[entrytext] = GLib.timeout_add_seconds(1, self.on_entry_changed_finalize, entry, entrytext)
     def on_entry_changed_finalize(self, entry, entrytext):
         self.credo.__setattr__(entrytext, entry.get_text())
-        
+

@@ -35,7 +35,7 @@ class HaakePhoenix(ToolDialog):
         row = 0
         
         
-        l = Gtk.Label('Setpoint (C):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Setpoint (C):'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._setpoint_sb = Gtk.SpinButton(adjustment=Gtk.Adjustment(25, -50, 200, 1, 10), digits=2)
         tab.attach(self._setpoint_sb, 1, 2, row, row + 1)
@@ -48,16 +48,16 @@ class HaakePhoenix(ToolDialog):
         tab = Gtk.Table()
         f.add(tab)
         row = 0
-        l = Gtk.Label('Command:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Command:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._command_entry = Gtk.Entry();
         tab.attach(self._command_entry, 1, 2, row, row + 1, xpadding=3)
         row += 1
 
         
-        l = Gtk.Label('Reply:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Reply:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._result_label = Gtk.Label(''); self._result_label.set_alignment(0, 0.5)
+        self._result_label = Gtk.Label(label=''); self._result_label.set_alignment(0, 0.5)
         tab.attach(self._result_label, 1, 2, row, row + 1, xpadding=3)
         row += 1
         self._command_entry.connect('activate', lambda entry: self._result_label.set_text(self.credo.get_equipment('haakephoenix').execute(entry.get_text())))

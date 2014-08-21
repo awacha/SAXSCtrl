@@ -25,7 +25,7 @@ class HWLogViewer(ToolDialog):
         grid = Gtk.Grid()
         toolvb.pack_start(grid, False, False, 0)
         row = 0
-        l = Gtk.Label('Equipment:')
+        l = Gtk.Label(label='Equipment:')
         l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._equipment_selector = Gtk.ComboBoxText()
@@ -36,7 +36,7 @@ class HWLogViewer(ToolDialog):
         grid.attach(self._equipment_selector, 1, row, 1, 1)    
         row += 1
         
-        l = Gtk.Label('Parameter:')
+        l = Gtk.Label(label='Parameter:')
         l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._parameter_selector = Gtk.ComboBoxText()

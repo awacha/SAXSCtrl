@@ -94,7 +94,7 @@ class TransmissionMeasurement(ToolDialog):
                     l = Gtk.Label(how); l.set_alignment(0, 0.5)
                     self._resultstable.attach(l, column, column + 1, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
                 how = how.split()[0].lower()
-                self._resultlabels[what][how] = Gtk.Label('0')
+                self._resultlabels[what][how] = Gtk.Label(label='0')
                 self._resultstable.attach(self._resultlabels[what][how], column, column + 1, row, row + 1, xpadding=10)
 
 
@@ -198,7 +198,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         row = 0
 
         sst = self.credo.subsystems['Transmission']
-        l = Gtk.Label('Empty sample:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Empty sample:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._empty_combo = SampleSelector(self.credo, autorefresh=False)
         self._empty_combo.set_sample(sst.emptyname)
@@ -206,7 +206,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         self._empty_combo.set_hexpand(True)
         row += 1
 
-        l = Gtk.Label('Exposure time:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Exposure time:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.5, 0.0001, 1e10, 1, 10), digits=4)
         self._exptime_entry.set_value(sst.countingtime)
@@ -214,7 +214,7 @@ class TransmissionMeasurementMulti(ToolDialog):
         self._exptime_entry.set_hexpand(True)
         row += 1
 
-        l = Gtk.Label('Number of exposures:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Number of exposures:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(10, 1, 10000, 1, 10), digits=0)
         self._nimages_entry.set_value(sst.nimages)

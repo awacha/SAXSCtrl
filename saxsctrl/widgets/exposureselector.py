@@ -140,7 +140,7 @@ class ExposureSelector(Gtk.Frame):
         hb.pack_start(grid, True, True, 0)
         row = 0
         
-        l = Gtk.Label('Filename prefix:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Filename prefix:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._fileprefix_combo = Gtk.ComboBoxText.new_with_entry()
         for i, pf in enumerate(self.credo.subsystems['Files'].formats()):
@@ -153,7 +153,7 @@ class ExposureSelector(Gtk.Frame):
         self._fileprefix_combo.set_hexpand(True)
         row += 1
         
-        l = Gtk.Label('Digits in filename:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Digits in filename:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._digits_sb = Gtk.SpinButton(adjustment=Gtk.Adjustment(5, 1, 10, 1, 10), digits=0)
         self._digits_sb.set_value(self.credo.subsystems['Files'].ndigits)
@@ -161,7 +161,7 @@ class ExposureSelector(Gtk.Frame):
         self._digits_sb.set_hexpand(True)
         row += 1
         
-        l = Gtk.Label('File sequence number:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='File sequence number:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         self._fsn_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 9999999999, 1, 10), digits=0)
         self._fsn_entry.set_value(1)

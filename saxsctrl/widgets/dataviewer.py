@@ -39,16 +39,16 @@ class DataViewer(ToolDialog):
         for labeltext, labelname in [('FSN:', 'fsn'), ('Sample-detector distance:', 'dist'), ('Title:', 'title'), ('Owner:', 'owner'), ('Exposure time:', 'meastime'), ('Temperature', 'temperature')]:
             l = Gtk.Label(labeltext); l.set_alignment(0, 0.5)
             tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-            self._labels[labelname] = Gtk.Label('<none>')
+            self._labels[labelname] = Gtk.Label(label='<none>')
             self._labels[labelname].set_alignment(0, 0.5)
             tab.attach(self._labels[labelname], 1, 2, row, row + 1, xpadding=5)
             row += 1
         b = Gtk.Button(label='Data reduction...')
         tab.attach(b, 2, 3, 0, row, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         b.connect('clicked', self.do_data_reduction)
-        l = Gtk.Label('Mask:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Mask:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._labels['maskid'] = Gtk.Label('<none>')
+        self._labels['maskid'] = Gtk.Label(label='<none>')
         self._labels['maskid'].set_alignment(0, 0.5)
         tab.attach(self._labels['maskid'], 1, 2, row, row + 1, xpadding=5)
 
@@ -62,7 +62,7 @@ class DataViewer(ToolDialog):
         
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, False, 0)
-        l = Gtk.Label('Flags:')
+        l = Gtk.Label(label='Flags:')
         hb.pack_start(l, False, False, 0)
         self._flagbuttons = {}
         for flaglabel, flagname in _errorflags:

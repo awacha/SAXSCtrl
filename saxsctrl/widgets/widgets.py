@@ -2,13 +2,14 @@ from gi.repository import Gtk
 from gi.repository import GObject
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 import calendar
 import datetime
 import dateutil.parser
 
 
 class ToolDialog(Gtk.Window):
+    __gtype_name__ = "SAXSCtrl_ToolDialog"
     __gsignals__ = {'response':(GObject.SignalFlags.RUN_FIRST, None, (int,))}
     def __init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
         Gtk.Window.__init__(self)
@@ -39,9 +40,13 @@ class ToolDialog(Gtk.Window):
         return self._responsewidgets[respid]
     def do_response(self, respid):
         logger.debug('Destroying a ToolDialog.')
+        if self.in_destruction():
+            logger.warn('ToolDialog already being destroyed.')
         self.destroy()
         logger.debug('End of destroying a ToolDialog.')
-     
+    def do_destoy(self):
+        logger.debug('Called ToolDialog.do_destroy()')
+
 class DateEntry(Gtk.Box):
     __gtype_name__ = 'SAXSCtrl_DateEntry'
     __gsignals__ = {'changed':(GObject.SignalFlags.RUN_LAST, None, ())}
@@ -132,7 +137,7 @@ class DateEntry(Gtk.Box):
         elif self._monthspin.get_value_as_int() in [1, 3, 5, 7, 8, 10, 12]:
             self._dayspin.set_range(1, 31)
         else:
-            self._dayspin.set_range(1, 30) 
+            self._dayspin.set_range(1, 30)
     def get_datetime(self):
         return datetime.datetime(self._yearspin.get_value_as_int(),
                                  self._monthspin.get_value_as_int(),
@@ -157,4 +162,4 @@ class DateEntry(Gtk.Box):
         self._hourspin.set_value(dt.hour)
         self._minutespin.set_value(dt.minute)
         self._secondspin.set_value(dt.second)
-        
+
