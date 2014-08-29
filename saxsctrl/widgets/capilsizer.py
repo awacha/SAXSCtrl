@@ -167,12 +167,12 @@ class CapilSizer(ToolDialog):
     def recalculate(self):
         if not (('left' in self._poi) and ('right' in self._poi)):
             return True
-        self._thickness_label.set_label(str(0.1 * np.abs(self._poi['right'] - self._poi['left'])))
+        self._thickness_label.set_label(str(0.1 * (self._poi['right'] - self._poi['left']).abs()))
         self._position_label.set_label(str(0.5 * (self._poi['left'] + self._poi['right'])))
         return True
 
     def save_thickness(self):
-        self._sampleselector.get_sample().thickness = 0.1 * np.abs(self._poi['right'] - self._poi['left'])
+        self._sampleselector.get_sample().thickness = 0.1 * (self._poi['right'] - self._poi['left']).abs()
         self.credo.subsystems['Samples'].save()
         md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
                                Gtk.MessageType.INFO, Gtk.ButtonsType.OK,

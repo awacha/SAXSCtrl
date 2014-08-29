@@ -143,7 +143,8 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Transmission (multi)', 'Measure multiple transmission', transmission.TransmissionMeasurementMulti, 'Expose', ['genix', 'pilatus', 'tmcm351_a'], True),
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View', [], False),
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View', [], False),
-                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),
+#                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),
+                            Tool(self.credo, 'Distance calibration', 'Distance calibration', qcalibration.DistCalibrationDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', [], True),
                             Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose', [], False),
@@ -151,6 +152,7 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator', haakephoenix.HaakePhoenix, 'Hardware', ['haakephoenix'], True),
                             Tool(self.credo, 'Find capillary position & thickness', 'Find capillary positions and thickness', capilsizer.CapilSizer, 'Utilities', [], False),
                             Tool(self.credo, 'Hardware logs', 'Hardware log viewer', hwlogviewer.HWLogViewer, 'Utilities', [], False),
+                            Tool(self.credo, 'Pinhole distance calculator', 'Pinhole distance calculator', pinholecalculator.PinholeDistanceCalculator, 'Utilities', [], False),
                             Tool(self.credo, 'Pinhole calculator', 'Pinhole calculator', pinholecalculator.PinHoleCalculator, 'Utilities', [], False)
                             ]
         if self.credo.offline:

@@ -54,7 +54,11 @@ class Credo(objwithgui.ObjWithGUI):
     dist = GObject.property(
         type=float, default=1000, minimum=0,
         blurb='Sample-detector distance (mm)')
-    filter = GObject.property(type=str, default='No filter', blurb='Filters')
+    dist_error = GObject.property(
+        type=float, default=0, minimum=0,
+        blurb='Error of the sample-detector distance (mm)'
+    )
+    setup_description = GObject.property(type=str, default='<Description of the set-up>', blurb='Description of the current set-up')
     beamposx = GObject.property(
         type=float, default=348.38, blurb='Beam position X (vertical, pixels)')
     beamposy = GObject.property(
@@ -66,11 +70,10 @@ class Credo(objwithgui.ObjWithGUI):
         type=bool, default=True, blurb='Open/close shutter')
     motorcontrol = GObject.property(
         type=bool, default=True, blurb='Move motors')
-
     # changing any of the properties in this list will trigger a setup-changed
     # event.
     setup_properties = [
-        'username', 'projectname', 'pixelsize', 'dist', 'filter',
+        'username', 'projectname', 'pixelsize', 'dist', 'dist_error', 'setup_description',
         'beamposx', 'beamposy', 'wavelength', 'shuttercontrol',
         'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile',
                         'imagepath', 'filepath']
@@ -97,24 +100,27 @@ class Credo(objwithgui.ObjWithGUI):
         self._OWG_hints['dist'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 3,
             objwithgui.OWG_Hint_Type.Digits: 3}
+        self._OWG_hints['dist_error'] = {
+            objwithgui.OWG_Hint_Type.OrderPriority: 4,
+            objwithgui.OWG_Hint_Type.Digits: 3}
         self._OWG_hints['pixelsize'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 4}
+            objwithgui.OWG_Hint_Type.OrderPriority: 5}
         self._OWG_hints['wavelength'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 5,
+            objwithgui.OWG_Hint_Type.OrderPriority: 6,
             objwithgui.OWG_Hint_Type.Digits: 4}
         self._OWG_hints['default-mask'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 5,
+            objwithgui.OWG_Hint_Type.OrderPriority: 6,
             objwithgui.OWG_Hint_Type.Digits: 5}
         self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
         self._OWG_hints['shuttercontrol'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 6}
+            objwithgui.OWG_Hint_Type.OrderPriority: 7}
         self._OWG_hints['motorcontrol'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 6}
+            objwithgui.OWG_Hint_Type.OrderPriority: 7}
         self._OWG_hints['bs-in'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 7,
+            objwithgui.OWG_Hint_Type.OrderPriority: 8,
             objwithgui.OWG_Hint_Type.Digits: 3}
         self._OWG_hints['bs-out'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 8,
+            objwithgui.OWG_Hint_Type.OrderPriority: 9,
             objwithgui.OWG_Hint_Type.Digits: 3}
         # initialize subsystems
         logger.debug('Initializing subsystems of Credo')

@@ -1,13 +1,15 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 import sastool
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg 
 from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3
 import sasgui.libconfig
+from .widgets import ErrorValueEntry
 
 class PeakFinder(Gtk.Dialog):
-    __gsignals__ = {'peak-found':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object , object))}
+    __gsignals__ = {'peak-found':(GObject.SignalFlags.RUN_FIRST, None, (object, object, object, object , object, object))}
     lastfoundpeak = None
     def __init__(self, curve, title='Find peak by fitting...', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_ADD, Gtk.ResponseType.APPLY)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
@@ -90,30 +92,46 @@ class PeakFinder(Gtk.Dialog):
         self.on_checkbutton_entry_toggled(self.offset_cb, self.offset_entry)
         row += 1
         
-        b = Gtk.Button(stock=Gtk.STOCK_EXECUTE)
-        tab.attach(b, 0, 2, row, row + 1)
-        b.connect('clicked', self.do_findpeak)
-        
-        f = Gtk.Frame(label='Peak:')
+
+        f = Gtk.Frame(label='Peak position (calibrated):')
         vb1.pack_start(f, False, True, 0)
-        tab = Gtk.Table()
-        f.add(tab)
+        self._calpos_notebook=Gtk.Notebook()
+        f.add(self._calpos_notebook)
+        tab = Gtk.Grid()
+        self._calpos_notebook.append_page(tab,Gtk.Label(label='Lamellar periodicity'))
         row = 0
         
         l = Gtk.Label(label='Periodicity:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
-        self.d_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(58.402, 0, 1e5, 0.1, 1), digits=4)
-        self.d_entry.set_value(5.8402)
-        tab.attach(self.d_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
+        tab.attach(l, 0, row, 1,1)
+        self.d_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=5.83998954536, lower=0, upper=999, step_increment=0.1, page_increment=1, page_size=1),
+                                       adjustment_error=Gtk.Adjustment(value=0.00397400637755, lower=0, upper=999, step_increment=0.1, page_increment=1, page_size=1),
+                                       digits=4)
+        tab.attach(self.d_entry, 1, row, 1,1)
+        self.d_entry.set_hexpand(True)
         row += 1
         
         l = Gtk.Label(label='Order:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
+        tab.attach(l, 0, row, 1,1)
         self.n_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 0, 100, 1, 10), digits=0)
         self.n_entry.set_value(1.0)
-        tab.attach(self.n_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
+        tab.attach(self.n_entry, 1, row, 1,1)
+        self.n_entry.set_hexpand(True)
         row += 1
-        
+
+        tab=Gtk.Grid()
+        self._calpos_notebook.append_page(tab,Gtk.Label(label='Direct value for q'))
+        l = Gtk.Label(label='Q:'); l.set_alignment(0,0.5)
+        tab.attach(l,0,0,1,1)
+        self._directq_entry=ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=1,lower=0,upper=999,step_increment=0.1,page_increment=1),
+                                            adjustment_error=Gtk.Adjustment(value=0,lower=0,upper=999,step_increment=0.1,page_increment=1),
+                                            digits=5)
+        tab.attach(self._directq_entry,1,0,1,1)
+
+
+        b = Gtk.Button(label='Execute & Add',image=Gtk.Image.new_from_icon_name('system-run',Gtk.IconSize.BUTTON))
+        vb1.pack_start(b, False,False,0)
+        b.connect('clicked', self.do_findpeak)
+
         
         f = Gtk.Frame(label='Results:')
         vb1.pack_start(f, False, True, 0)
@@ -182,6 +200,8 @@ class PeakFinder(Gtk.Dialog):
         if not self.ampl_cb.get_active():
             self.ampl_entry.set_text(str(c.y.max() - float(self.offset_entry.get_text())))
         a, x0, sigma, y0, stat, fittedcurve = self.curve.trimzoomed().fit(fitfunc, [float(x.get_text()) for x in (self.ampl_entry, self.position_entry, self.sigma_entry, self.offset_entry)])
+        xfitted=np.linspace(fittedcurve.x.min(),fittedcurve.x.max(),1000)
+        fittedcurve=sastool.SASCurve(xfitted,fitfunc(xfitted,a,x0,sigma,y0))
         self.ampl_entry.set_text(str(float(a)))
         self.sigma_entry.set_text(str(float(sigma)))
         self.offset_entry.set_text(str(float(y0)))
@@ -213,4 +233,11 @@ class PeakFinder(Gtk.Dialog):
 
         fittedcurve.plot('r-', axes=self.fig.gca())
         self.lastfoundpeak = (a, x0, sigma, y0, stat)
-        self.emit('peak-found', a, x0, sigma, y0, stat)
+        self.fig.canvas.draw()
+        self.emit('peak-found', a, x0, sigma, y0, stat, self.get_current_q())
+
+    def get_current_q(self):
+        if self._calpos_notebook.get_current_page()==0:
+            return 2*np.pi*self.n_entry.get_value()/self.d_entry.get_value()
+        elif self._calpos_notebook.get_current_page()==1:
+            return self._directq_entry.get_value()

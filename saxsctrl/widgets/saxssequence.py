@@ -370,7 +370,6 @@ class SeqCommandJumpSubFalse(SeqCommand):
         else:
             return False
 
-
 class SeqCommandReturn(SeqCommand):
     command = 'return'
     cmd_regex = r'return'
@@ -514,6 +513,18 @@ class SeqCommandBreakpoint(SeqCommand):
     def execute(self, credo, prevval, variables):
         raise KillException('breakpoint')
 
+class SeqCommandJumpBreakpoint(SeqCommand):
+    command = 'goifbreakpoint'
+    cmd_regex = r'goifbreakpoint\s+(?P<label>\w+)'
+    label = ''
+    _arguments = ['label']
+    def execute(self, credo, prevval, variables):
+        if variables['__breakpoint__']:
+            raise JumpException(self.label, setstack=False)
+        else:
+            return False
+
+
 class SeqCommandBreakOnFlag(SeqCommand):
     command = 'breakonflag'
     cmd_regex = r'breakonflag\s+(?P<flag>.+)?'
@@ -593,6 +604,7 @@ class SequenceInterpreter(GObject.GObject):
                     'cmdpulse':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     'end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
                     'fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'notify':'override',
                     }
     respect_breakpoints = GObject.property(type=bool, default=False, blurb='Break at breakpoints')
     break_on_flags = GObject.property(type=object, blurb='Break when these flags are set')
@@ -612,7 +624,7 @@ class SequenceInterpreter(GObject.GObject):
         self._init_exec()
     def _init_exec(self):
         self._idx = 0
-        self._vars = {}
+        self._vars = {'__breakpoint__':False}
         self._prevval = None
         self._callstack = []
         self._cmdconn = []
@@ -630,6 +642,9 @@ class SequenceInterpreter(GObject.GObject):
             logger.info('Sequence ended on user break.')
     def do_fail(self, status):
         logger.error('Sequence failed: %s' % status)
+    def do_notify(self, prop):
+        if prop.name=='respect-breakpoints':
+            self._vars['__breakpoint__']=self.respect_breakpoints
     def _command_return(self, command, result, status, auxresult):
         for c in self._cmdconn:
             command.disconnect(c)
@@ -700,7 +715,11 @@ class SequenceInterpreter(GObject.GObject):
             GLib.idle_add(self._currentcommand.execute_command, self.credo, prevval, self._vars, self._simulation)
     def execute(self, simulation=False):
         self._init_exec()
-        logger.info('Starting execution of program.')
+        self._simulation=simulation
+        if simulation:
+            logger.info('Starting execution of program (just simulation).')
+        else:
+            logger.info('Starting execution of program.')
         self.execute_next_command(None)
     def _findlabel(self, labelname):
         scl = SeqCommandLabel()

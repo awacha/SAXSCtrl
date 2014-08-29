@@ -6,6 +6,7 @@ logger.setLevel(logging.DEBUG)
 import calendar
 import datetime
 import dateutil.parser
+import sastool
 
 
 class ToolDialog(Gtk.Window):
@@ -163,3 +164,46 @@ class DateEntry(Gtk.Box):
         self._minutespin.set_value(dt.minute)
         self._secondspin.set_value(dt.second)
 
+class ErrorValueEntry(Gtk.Box):
+    __gtype_name__='SAXSCtrl_ErrorValueEntry'
+    __gsignals__={'value-changed':(GObject.SignalFlags.RUN_LAST,None,()),
+                  'changed':(GObject.SignalFlags.RUN_LAST,None,())}
+    def __init__(self, adjustment_nominal=None, adjustment_error=None, climb_rate=None, digits=None):
+        Gtk.Box.__init__(self, orientation=Gtk.Orientation.HORIZONTAL)
+        kwargs={}
+        if climb_rate is not None:
+            kwargs['climb_rate']=climb_rate
+        if digits is not None:
+            kwargs['digits']=digits
+        self._valsb=Gtk.SpinButton(adjustment=adjustment_nominal, **kwargs)
+        self._errsb=Gtk.SpinButton(adjustment=adjustment_error, **kwargs)
+        self._valsb.set_value(adjustment_nominal.get_value())
+        self._errsb.set_value(adjustment_error.get_value())
+        self.pack_start(self._valsb, True, True, 0)
+        self.pack_start(Gtk.Label(label=u'\xb1'),False,False,2)
+        self.pack_start(self._errsb, True,True,0)
+        self._valsb.connect('value-changed',self._on_spinbutton_value_changed)
+        self._errsb.connect('value-changed',self._on_spinbutton_value_changed)
+        self._valsb.connect('changed',self._on_spinbutton_changed)
+        self._errsb.connect('changed',self._on_spinbutton_changed)
+
+    def _on_spinbutton_value_changed(self, spinbutton):
+        self.emit('value-changed')
+
+    def _on_spinbutton_changed(self, spinbutton):
+        self.emit('changed')
+
+    def set_digits(self, digits):
+        self._valsb.set_digits(digits)
+        self._Errsb.set_digits(digits)
+
+    def set_value(self, value):
+        if isinstance(value, sastool.ErrorValue):
+            self._valsb.set_value(value.val)
+            self._errsb.set_value(value.err)
+        else:
+            self._valsb.set_value(value)
+            self._errsb.set_value(0)
+
+    def get_value(self):
+        return sastool.ErrorValue(self._valsb.get_value(),self._errsb.get_value())

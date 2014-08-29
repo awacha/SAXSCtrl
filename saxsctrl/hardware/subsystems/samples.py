@@ -67,13 +67,14 @@ class SubSystemSamples(SubSystem):
             return
         # only add the sample to the list if no equivalent is present. Equivalency is
         # determined via the __eq__() method of SAXSSample.
-        if not [s for s in self._list if s == sam]:
+        if not [s for s in self._list if s.title == sam.title]:
             # logger.debug('Sample ' + str(sam) + ' added.')
             self._list.append(sam)
             self._list.sort()
             self.emit('changed')
         else:
-            logger.warning('Not adding duplicate sample: ' + str(sam))
+            logger.debug('Not adding duplicate sample: ' + str(sam))
+            pass
     def remove(self, sam):
         try:
             todelete = [s == sam for s in self._list][0]

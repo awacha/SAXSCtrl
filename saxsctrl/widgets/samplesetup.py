@@ -5,11 +5,12 @@ import datetime
 from ..hardware import sample
 from gi.repository import GObject
 # import cPickle as pickle
-from .widgets import ToolDialog
+from .widgets import ToolDialog, ErrorValueEntry
 
 
 class SampleSetup(Gtk.Dialog):
-    def __init__(self, title='Edit sample', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+    def __init__(self, title='Edit sample', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                 buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
         vb = self.get_content_area()
@@ -18,7 +19,8 @@ class SampleSetup(Gtk.Dialog):
         self.set_resizable(False)
         row = 0
 
-        l = Gtk.Label(label='Sample name:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Sample name:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.samplename_entry = Gtk.Entry()
         self.samplename_entry.set_text('-- please fill --')
@@ -26,52 +28,71 @@ class SampleSetup(Gtk.Dialog):
         self.samplename_entry.connect('changed', self.on_change_entry, 'title')
         row += 1
 
-        l = Gtk.Label(label='Thickness (cm):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Thickness (cm):');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.thickness_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.1, 0, 100, 0.1, 1), digits=4)
+        self.thickness_entry = ErrorValueEntry(
+            adjustment_nominal=Gtk.Adjustment(value=0.1, lower=0, upper=100, step_increment=0.1, page_increment=1),
+            adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1, page_increment=1),
+            digits=4)
         tab.attach(self.thickness_entry, 1, 2, row, row + 1)
         self.thickness_entry.connect('value-changed', self.on_change_entry, 'thickness')
         row += 1
 
-        l = Gtk.Label(label='X position:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='X position:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.positionx_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -100, 100, 0.1, 1), digits=3)
+        self.positionx_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0, lower=-100, upper=100, step_increment=0.1, page_increment=1),
+                                               adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100000, step_increment=0.1, page_increment=1),
+                                               digits=3)
         tab.attach(self.positionx_entry, 1, 2, row, row + 1)
         self.positionx_entry.connect('value-changed', self.on_change_entry, 'positionx')
         row += 1
 
-        l = Gtk.Label(label='Y position:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Y position:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.positiony_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -100, 100, 0.1, 1), digits=3)
+        self.positiony_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0, lower=-100, upper=100, step_increment=0.1, page_increment=1),
+                                               adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100000, step_increment=0.1, page_increment=1),
+                                               digits=3)
         tab.attach(self.positiony_entry, 1, 2, row, row + 1)
         self.positiony_entry.connect('value-changed', self.on_change_entry, 'positiony')
         row += 1
 
-        l = Gtk.Label(label='Distance decrease:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Distance decrease:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.distminus_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1000, 1000, 0.1, 1), digits=4)
+        self.distminus_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0, lower=-1000, upper=1000, step_increment=0.1, page_increment=1),
+                                               adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100000, step_increment=0.1, page_increment=1),
+                                               digits=4)
         tab.attach(self.distminus_entry, 1, 2, row, row + 1)
         self.distminus_entry.connect('value-changed', self.on_change_entry, 'distminus')
         row += 1
 
-        l = Gtk.Label(label=u'Transmission:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label=u'Transmission:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.transmission_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.5, 0, 1, 0.1, 1), digits=4)
+        self.transmission_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0.5, lower=0, upper=1, step_increment=0.1, page_increment=1),
+                                                  adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1, page_increment=1),
+                                                  digits=4)
         tab.attach(self.transmission_entry, 1, 2, row, row + 1)
         self.transmission_entry.connect('value-changed', self.on_change_entry, 'transmission')
         row += 1
 
-        l = Gtk.Label(label=u'Prepared by:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label=u'Prepared by:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.preparedby_entry = Gtk.Entry()
         tab.attach(self.preparedby_entry, 1, 2, row, row + 1)
         self.preparedby_entry.connect('changed', self.on_change_entry, 'preparedby')
         row += 1
 
-        l = Gtk.Label(label=u'Preparation time:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label=u'Preparation time:');
+        l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.preparetime_entry = Gtk.Calendar()
-        self.preparetime_entry.set_display_options(Gtk.CalendarDisplayOptions.SHOW_DAY_NAMES | Gtk.CalendarDisplayOptions.SHOW_HEADING | Gtk.CalendarDisplayOptions.SHOW_WEEK_NUMBERS)
+        self.preparetime_entry.set_display_options(
+            Gtk.CalendarDisplayOptions.SHOW_DAY_NAMES | Gtk.CalendarDisplayOptions.SHOW_HEADING | Gtk.CalendarDisplayOptions.SHOW_WEEK_NUMBERS)
         n = datetime.date.today()
         self.preparetime_entry.select_month(n.month - 1, n.year)
         self.preparetime_entry.select_day(n.day)
@@ -81,16 +102,18 @@ class SampleSetup(Gtk.Dialog):
         tab.attach(self.preparetime_entry, 1, 2, row, row + 1)
         row += 1
 
-
         self.connect('delete-event', self.hide_on_delete)
         vb.show_all()
         self._changelist = []
+
     def run(self, *args, **kwargs):
         self._changelist = []
         return Gtk.Dialog.run(self, *args, **kwargs)
+
     def on_change_entry(self, entry, attr):
         if entry not in [x[0] for x in self._changelist]:
             self._changelist.append((entry, attr))
+
     def get_sample(self):
         title = self.samplename_entry.get_text()
         thickness = self.thickness_entry.get_value()
@@ -100,7 +123,9 @@ class SampleSetup(Gtk.Dialog):
         preparedby = self.preparedby_entry.get_text()
         preparetime = self.preparetime_entry.get_date()
         distminus = self.distminus_entry.get_value()
-        return sample.SAXSSample(title, positionx, positiony, thickness, transmission, preparedby, datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
+        return sample.SAXSSample(title, positionx, positiony, thickness, transmission, preparedby,
+                                 datetime.datetime(preparetime[0], preparetime[1] + 1, preparetime[2]), distminus)
+
     def set_sample(self, sam):
         self.samplename_entry.set_text(sam.title)
         self.thickness_entry.set_value(sam.thickness)
@@ -112,6 +137,7 @@ class SampleSetup(Gtk.Dialog):
         self.preparetime_entry.select_day(sam.preparetime.day)
         self.distminus_entry.set_value(sam.distminus)
         return True
+
     def update_sample(self, sam):
         for widget, attr in self._changelist:
             if isinstance(widget, Gtk.SpinButton):
@@ -119,14 +145,18 @@ class SampleSetup(Gtk.Dialog):
             elif isinstance(widget, Gtk.Entry):
                 sam.__setattr__(attr, widget.get_text())
             elif isinstance(widget, Gtk.Calendar):
-                sam.__setattr__(attr, datetime.datetime(widget.get_date()[0], widget.get_date()[1] + 1, widget.get_date()[2]))
+                sam.__setattr__(attr,
+                                datetime.datetime(widget.get_date()[0], widget.get_date()[1] + 1, widget.get_date()[2]))
         self._changelist = []
         return sam
 
+
 class SampleListDialog(ToolDialog):
-    __gsignals__ = {'response':'override'}
+    __gsignals__ = {'response': 'override'}
+
     def __init__(self, credo, title='Sample configuration'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY))
+        ToolDialog.__init__(self, credo, title,
+                            buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY))
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         vb = self.get_content_area()
 
@@ -135,28 +165,28 @@ class SampleListDialog(ToolDialog):
         tbar.set_style(Gtk.ToolbarStyle.BOTH)
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_NEW)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self.add_sample())
+        tb.connect('clicked', lambda tb: self.add_sample())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_SAVE)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_save())
+        tb.connect('clicked', lambda tb: self._tool_save())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_OPEN)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_load())
+        tb.connect('clicked', lambda tb: self._tool_load())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_EDIT)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_edit())
+        tb.connect('clicked', lambda tb: self._tool_edit())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_REMOVE)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_remove())
+        tb.connect('clicked', lambda tb: self._tool_remove())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_CLEAR)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_clear())
+        tb.connect('clicked', lambda tb: self._tool_clear())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_COPY)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_duplicate())
+        tb.connect('clicked', lambda tb: self._tool_duplicate())
         tb = Gtk.ToolButton(stock_id=Gtk.STOCK_REFRESH)
         tbar.add(tb)
-        tb.connect('clicked', lambda tb:self._tool_refresh())
+        tb.connect('clicked', lambda tb: self._tool_refresh())
 
         sw = Gtk.ScrolledWindow()
         sw.set_size_request(400, 300)
@@ -164,13 +194,14 @@ class SampleListDialog(ToolDialog):
         self.sampleliststore = Gtk.ListStore(GObject.TYPE_STRING,  # title
                                              GObject.TYPE_STRING,  # prepared by
                                              GObject.TYPE_STRING,  # preparation time
-                                             GObject.TYPE_DOUBLE,  # thickness
-                                             GObject.TYPE_DOUBLE,  # positionX
-                                             GObject.TYPE_DOUBLE,  # positionY
-                                             GObject.TYPE_DOUBLE,  # distminus
-                                             GObject.TYPE_STRING,  # transmission (string, because +/- error can be given)
+                                             GObject.TYPE_STRING,  # thickness
+                                             GObject.TYPE_STRING,  # positionX
+                                             GObject.TYPE_STRING,  # positionY
+                                             GObject.TYPE_STRING,  # distminus
+                                             GObject.TYPE_STRING,
+                                             # transmission (string, because +/- error can be given)
                                              GObject.TYPE_PYOBJECT,  # the Sample object itself
-                                             )
+        )
         self.sampletreeview = Gtk.TreeView(self.sampleliststore)
         sw.add(self.sampletreeview)
         cr = Gtk.CellRendererText()
@@ -192,35 +223,40 @@ class SampleListDialog(ToolDialog):
         self.sampletreeview.get_selection().set_mode(Gtk.SelectionMode.SINGLE)
         self.sampletreeview.set_headers_visible(True)
         self.sampletreeview.set_rules_hint(True)
-        self.sampletreeview.connect('row-activated', lambda tv, path, column:self._tool_edit())
+        self.sampletreeview.connect('row-activated', lambda tv, path, column: self._tool_edit())
 
         self.from_credo()
+
     def _changed(self):
         self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
+
     def add_sample(self, sam=None, index=None):
         if sam is None:
             sam = sample.SAXSSample('-- no title --', preparedby=self.credo.username)
         if index is not None:
-            self.sampleliststore.insert_after(index, ('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
+            self.sampleliststore.insert_after(index, ('', '', '', '', '', '', '', '', sam))
         else:
-            self.sampleliststore.append(('', '', '', 0.0, 0.0, 0.0, 0.0, '', sam))
+            self.sampleliststore.append(('', '', '', '', '', '', '', '', sam))
         self.update_liststore()
         self._changed()
+
     def update_liststore(self):
         for row in self.sampleliststore:
             row[0] = row[-1].title
             row[1] = row[-1].preparedby
             row[2] = str(row[-1].preparetime.date())
-            row[3] = row[-1].thickness
-            row[4] = row[-1].positionx
-            row[5] = row[-1].positiony
-            row[6] = row[-1].distminus
+            row[3] = unicode(row[-1].thickness)
+            row[4] = unicode(row[-1].positionx)
+            row[5] = unicode(row[-1].positiony)
+            row[6] = unicode(row[-1].distminus)
             row[7] = unicode(row[-1].transmission)
+
     def _tool_remove(self):
         model, it = self.sampletreeview.get_selection().get_selected()
         if it is not None:
             model.remove(it)
             self._changed()
+
     def _tool_duplicate(self):
         model, it = self.sampletreeview.get_selection().get_selected()
         if it is not None:
@@ -228,13 +264,17 @@ class SampleListDialog(ToolDialog):
             sam = sample.SAXSSample(sam)
             sam.title = 'Copy of ' + sam.title
             self.add_sample(sam, it)
+
     def _tool_load(self):
         self.credo.subsystems['Samples'].load()
         self.from_credo()
+
     def _tool_save(self):
         self.to_credo()
         self.credo.subsystems['Samples'].save()
-        md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, 'Samples saved to file: ' + self.credo.subsystems['Samples'].configfile)
+        md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
+                               Gtk.MessageType.INFO, Gtk.ButtonsType.OK,
+                               'Samples saved to file: ' + self.credo.subsystems['Samples'].configfile)
         md.run()
         md.destroy()
         del md
@@ -242,8 +282,10 @@ class SampleListDialog(ToolDialog):
     def _tool_clear(self):
         self.sampleliststore.clear()
         self._changed()
+
     def _tool_refresh(self):
         self.from_credo()
+
     def _tool_edit(self):
         sel = self.sampletreeview.get_selection().get_selected()
         if sel[1] is not None:
@@ -257,9 +299,11 @@ class SampleListDialog(ToolDialog):
             self._changed()
 
     def do_response(self, respid):
-        if respid in(Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
+        if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
             if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_sensitive():
-                md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.YES_NO, 'You have unsaved modifications. Do you want to apply them?')
+                md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
+                                       Gtk.MessageType.WARNING, Gtk.ButtonsType.YES_NO,
+                                       'You have unsaved modifications. Do you want to apply them?')
                 if md.run() == Gtk.ResponseType.YES:
                     self.to_credo()
                 md.destroy()
@@ -267,33 +311,39 @@ class SampleListDialog(ToolDialog):
             self.hide()
         if respid == Gtk.ResponseType.APPLY:
             self.to_credo()
+
     def to_credo(self):
         self.credo.subsystems['Samples'].clear()
         for row in self.sampleliststore:
             self.credo.subsystems['Samples'].add(row[-1])
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
+
     def from_credo(self):
         self.sampleliststore.clear()
         for sam in self.credo.subsystems['Samples']:
             self.add_sample(sam)
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
 
+
 class SampleSelector(Gtk.ComboBoxText):
-    __gsignals__ = {'sample-changed':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                  }
+    __gsignals__ = {'sample-changed': (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+    }
     autorefresh = GObject.property(type=bool, default=True)
+
     def __init__(self, credo, autorefresh=True, shortnames=False):
         Gtk.ComboBox.__init__(self)
         self.credo = credo
-        self.credo.subsystems['Samples'].connect('changed', lambda sss:self.reload_samples())
+        self.credo.subsystems['Samples'].connect('changed', lambda sss: self.reload_samples())
         self.autorefresh = autorefresh
         self.shortnames = shortnames
-        self.credo.subsystems['Samples'].connect('selected', lambda sss, sam: (self.autorefresh) and self.set_sample(sam))
+        self.credo.subsystems['Samples'].connect('selected',
+                                                 lambda sss, sam: (self.autorefresh) and self.set_sample(sam))
         self.samplelist = Gtk.ListStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT)
         self.set_model(self.samplelist)
         self.set_entry_text_column(0)
         self.reload_samples()
         self.show_all()
+
     def reload_samples(self):
         if self.get_active() >= 0 and self.get_active() < len(self.samplelist):
             sam_before = self.samplelist[self.get_active()][-1]
@@ -312,6 +362,7 @@ class SampleSelector(Gtk.ComboBoxText):
                 self.samplelist.append((str(sam), sam))
         if self.samplelist[self.get_active()][-1] != sam_before:
             self.emit('sample-changed', self.samplelist[self.get_active()][-1])
+
     def set_sample(self, sam):
         if isinstance(sam, basestring) and sam == '':
             sam = None
@@ -324,10 +375,11 @@ class SampleSelector(Gtk.ComboBoxText):
         elif isinstance(sam, basestring):
             for i, row in enumerate(self.samplelist):
                 if ((str(row[-1]) == sam) or (row[0] == sam) or
-                    (isinstance(row[-1], sample.SAXSSample) and row[-1].title == sam)):
+                        (isinstance(row[-1], sample.SAXSSample) and row[-1].title == sam)):
                     self.set_active(i)
                     self.emit('sample-changed', row[-1])
                     return
         raise ValueError('Sample not in list: ' + str(sam))
+
     def get_sample(self):
         return self.samplelist[self.get_active()][-1]

@@ -98,10 +98,11 @@ class SubSystemExposure(SubSystem):
             header_template.update({'Title':'None'})
         header_template['__Origin__'] = 'CREDO'
         header_template['__particle__'] = 'photon'
+        dist=sastool.ErrorValue(self.credo().dist,self.credo().dist_error)
         if sample is not None:
-            header_template['Dist'] = self.credo().dist - sample.distminus
-        else:
-            header_template['Dist'] = self.credo().dist
+            dist = dist - sample.distminus
+        header_template['Dist'] = dist.val
+        header_template['DistError'] = dist.err
         header_template['BeamPosX'] = self.credo().beamposx
         header_template['BeamPosY'] = self.credo().beamposy
         header_template['PixelSize'] = self.credo().pixelsize / 1000.
@@ -112,8 +113,9 @@ class SubSystemExposure(SubSystem):
         header_template['MeasTime'] = self.exptime
         header_template['FSN'] = fsn
         header_template['Project'] = self.credo().projectname
-        header_template['Filter'] = self.credo().filter
+        header_template['SetupDescription'] = self.credo().setup_description
         header_template['Monitor'] = header_template['MeasTime']
+        header_template['MonitorError']=0
         header_template['StartDate'] = datetime.datetime.now()
         if mask is not None:
             header_template['maskid'] = mask.maskid

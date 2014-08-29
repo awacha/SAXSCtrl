@@ -86,7 +86,7 @@ class SAXSSample(object):
                 self.__setattr__(attr, cp.getfloat(sectionname, name))
                 if cp.has_option(sectionname, name + 'Error'):
                     self.__setattr__(
-                        name, ErrorValue(self.__getattribute__(attr),
+                        attr, ErrorValue(self.__getattribute__(attr),
                                     cp.getfloat(sectionname, name + 'Error')))
         if cp.has_option(sectionname, 'Preparetime'):
             self.preparetime = dateutil.parser.parse(

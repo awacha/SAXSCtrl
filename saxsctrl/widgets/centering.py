@@ -21,6 +21,7 @@ class CenteringDialog(ToolDialog):
         
         self.plot2d = sasgui.plot2dsasimage.PlotSASImage()
         hb.pack_start(self.plot2d, True, True, 0)
+        self.plot2d.set_size_request(300,300)
         
         self.nb = Gtk.Notebook()
         vb1.pack_start(self.nb, True, True, 0)

@@ -10,6 +10,7 @@ from gi.repository import GLib
 import matplotlib.figure
 import matplotlib.backends.backend_agg
 import time
+import traceback
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
@@ -258,13 +259,13 @@ class CorrectGeometry(DataReductionStep):
 
     def execute(self, exposure, force=False):
         if self.solidangle:
-            exposure *= sastool.utils2d.corrections.solidangle(
-                exposure.tth, exposure['DistCalibrated'])
+            exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.solidangle_errorprop(
+                exposure.tth, exposure.dtth, exposure['DistCalibrated'], exposure['DistCalibratedError']))
             exposure.header.add_history('Solid-angle correction done.')
             self.message(exposure, 'Solid-angle correction done.')
         if self.angle_dependent_self_absorption:
-            exposure *= sastool.utils2d.corrections.angledependentabsorption(
-                exposure.tth, exposure['Transm'])
+            exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.angledependentabsorption_errorprop(
+                exposure.tth, exposure.dtth, exposure['Transm'], exposure['TransmError']))
             exposure.header.add_history(
                 'Corrected for angle-dependence of self-absorption.')
             self.message(
@@ -274,8 +275,8 @@ class CorrectGeometry(DataReductionStep):
                 exposure.header.add_history('Could not carry out angle dependent air absorption correction: Vacuum value not known in header.')
             else:
                 mu = self.angle_dependent_air_absorption_mu0 / 1000.0 * exposure['Vacuum'] * 0.1
-                exposure *= sastool.utils2d.corrections.angledependentairtransmission(
-                    exposure.tth, mu, exposure['DistCalibrated'])
+                exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.angledependentairtransmission_errorprop(
+                    exposure.tth, exposure.dtth, mu, 0, exposure['DistCalibrated'], exposure['DistCalibratedError']))
                 exposure.header.add_history('Flight-path air absorption correction done.')
             return True
 
@@ -293,15 +294,17 @@ class PreScaling(DataReductionStep):
 
     def execute(self, exposure, force=False):
         if self.monitor:
-            exposure /= exposure[self.monitorname]
+            monitor=sastool.ErrorValue(exposure[self.monitorname],exposure[self.monitorname+'Error'])
+            exposure /= monitor
             exposure.header.add_history(
                 'Normalized by monitor %s' % self.monitorname)
             self.message(exposure, 'Normalized by monitor %s' %
                          self.monitorname)
         if self.transmission:
-            exposure /= exposure['Transm']
+            transm=sastool.ErrorValue(exposure['Transm'],exposure['TransmError'])
+            exposure /= transm
             exposure.header.add_history(
-                'Normalized by transmission: %s' % exposure['Transm'])
+                'Normalized by transmission: %s' % transm)
             self.message(exposure, 'Normalized by transmission.')
         return True
 
@@ -315,7 +318,8 @@ class PostScaling(DataReductionStep):
 
     def execute(self, exposure, force=False):
         if self.thickness:
-            exposure /= exposure['Thickness']
+            thickness=sastool.ErrorValue(exposure['Thickness'],exposure['ThicknessError'])
+            exposure /= thickness
             self.message(exposure, 'Divided by thickness: %.4f cm' %
                          exposure['Thickness'])
             exposure.header.add_history('Divided by thickness')
@@ -377,7 +381,7 @@ class ReductionThread(GObject.GObject):
                 exposure = self.execute(exposure, force, None)
             except Exception as ex:
                 logger.error(
-                    'Error while reducing FSN #%d: ' % fsn + str(str(ex)))
+                    'Error while reducing FSN #%d: ' % fsn + str(traceback.format_exc()))
             self._threadsafe_emit('done', exposure['FSN'], exposure.header)
         self._threadsafe_emit('endthread')
 
