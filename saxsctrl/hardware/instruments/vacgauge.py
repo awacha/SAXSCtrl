@@ -51,7 +51,7 @@ class VacuumGauge(Instrument_TCP):
                 logger.error('Connection of instrument %s broken: ' % self._get_classname() + str(exc))
                 raise VacuumGaugeError('Connection broken: ' + str(exc))
             except Exception as exc:
-                logger.error('Instrument error on module %s: ' % self.hwtype + str(exc))
+                logger.error('Instrument error on module %s: ' % self._get_classname() + str(exc))
                 raise VacuumGaugeError('Instrument error: ' + str(exc))
 
         return message
@@ -79,7 +79,7 @@ class VacuumGauge(Instrument_TCP):
     def set_units(self, units='mbar'):
         self.execute('u', '%06d' % ({'mbar':0, 'Torr':1, 'hPa':2}[units]))
     def get_current_parameters(self):
-        return {'Vacuum':self.pressure, 'VacuumGauge':self.get_version()}
+        return {'Vacuum':self.get_instrument_property('pressure')[0], 'VacuumGauge':self.get_version()}
     def wait_for_vacuum(self, pthreshold=1.0, alternative_breakfunc=lambda :False):
         """Wait until the vacuum becomes better than pthreshold or alternative_breakfunc() returns True.
         During the wait, this calls the default GObject main loop.

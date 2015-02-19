@@ -92,7 +92,10 @@ class SingleExposure(ToolDialog):
                 sam = self.sample_combo.get_sample()
                 logger.info('Starting single exposure on sample: ' + str(sam))
                 self.credo.subsystems['Samples'].set(sam)
-                self.credo.subsystems['Samples'].moveto(blocking=True)
+                if sam.title!=self.credo.subsystems['Exposure'].dark_sample_name:
+                    self.credo.subsystems['Samples'].moveto(blocking=True)
+                else:
+                    logger.info('Not moving motor, since this is the dark sample.')
                 # make an exposure
                 self.expframe.execute(write_nexus=True)
             else:

@@ -2,6 +2,7 @@
 from .widgets import ToolDialog
 from gi.repository import Gtk
 from .instrumentstatus import InstrumentStatus
+from ..hardware.instruments.instrument import InstrumentPropertyUnknown
 
 
 class HaakePhoenix(ToolDialog):
@@ -72,8 +73,11 @@ class HaakePhoenix(ToolDialog):
         self.show_all()
     def _on_instrumentproperty_notify(self, instrument, propname):
         if propname == 'pumppower':
-            self.set_response_sensitive(Gtk.ResponseType.NO, instrument.pumppower > 0)
-            self.set_response_sensitive(Gtk.ResponseType.YES, instrument.pumppower == 0)
+            try:
+                self.set_response_sensitive(Gtk.ResponseType.NO, instrument.pumppower > 0)
+                self.set_response_sensitive(Gtk.ResponseType.YES, instrument.pumppower == 0)
+            except InstrumentPropertyUnknown:
+                pass
         return False
             
     def do_response(self, respid):

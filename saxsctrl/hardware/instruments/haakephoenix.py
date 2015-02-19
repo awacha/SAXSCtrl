@@ -29,6 +29,9 @@ class HaakePhoenix(Instrument_TCP):
     internal_pt100_fault = InstrumentProperty(name='internal_pt100_fault', type=bool, timeout=1, refreshinterval=1)
     external_pt100_fault = InstrumentProperty(name='external_pt100_fault', type=bool, timeout=1, refreshinterval=1)
     iscooling = InstrumentProperty(name='iscooling', type=bool, timeout=1, refreshinterval=1)
+    _stateflags=['temperaturecontrol','externalcontrol','mainrelay_fault','overtemperature_fault',
+                 'liquidlevel_fault','motor_overload_fault','external_connection_fault',
+                 'cooling_fault','internal_pt100_fault','external_pt100_fault']
     def _parse_stateflags(self, message):
         m = re.match('(?P<temperaturecontrol>[01])(?P<externalcontrol>[01])(?P<mainrelay_fault>[01])(?P<overtemperature_fault>[01])'
                    '(?P<liquidlevel_fault>[01])(?P<motor_overload_fault>[01])(?P<external_connection_fault>[01])'
@@ -90,7 +93,7 @@ class HaakePhoenix(Instrument_TCP):
         try:
             stateflags = self.get_stateflags()
         except HaakePhoenixError:
-            for flag in stateflags:
+            for flag in self._stateflags:
                 getattr(type(self), flag)._update(self, None, InstrumentPropertyCategory.UNKNOWN)
         else:
             for flag in stateflags:
@@ -124,7 +127,7 @@ class HaakePhoenix(Instrument_TCP):
                     raise HaakePhoenixError('Communication error on command %s. %d retries exhausted. Error: %s' % (command, retries, str(ie)))
     def interpret_message(self, message, command=None):
         if command is None:
-            logger.warning('Asynchronous commands not supported for vacuum gauge!')
+            logger.warning('Asynchronous commands not supported for Haake Phoenix!')
             return None
         if message[-1] != '\r':
             raise HaakePhoenixError('Invalid message: does not end with CR: ' + message)
@@ -177,7 +180,13 @@ class HaakePhoenix(Instrument_TCP):
         return self._version
     def get_current_parameters(self):
         if self.connected():
-            return {'Temperature':self.temperature, 'TemperatureController':self.version, 'TemperatureSetpoint':self.setpoint, 'PumpPower':self.pumppower}
+            dic={}
+            for name, parname in [('Temperature','temperature'),
+                                  ('TemperatureController','version'),
+                                  ('TemperatureSetpoint','setpoint'),
+                                  ('PumpPower','pumppower')]:
+                dic[name]=self.get_instrument_property(parname)[0]
+            return dic
         else:
             return {'Temperature':None, 'TemperatureController':'Disconnected', 'TemperatureSetpoint':None, 'PumpPower':None}
     def wait_for_temperature(self, interval, delta=0.01, setpoint=None, alternative_breakfunc=lambda :False):
@@ -204,4 +213,11 @@ class HaakePhoenix(Instrument_TCP):
         return m.group(1) == '1' 
     def get_cooling_state(self):
         return self.execute('R CC', self._parse_coolingstate)
-        
+
+    def _get_logline(self):
+        try:
+            return self._logformatstring() % ((time.time(),) + tuple(getattr(self, x[0]) for x in self._logging_parameters))
+        except Exception as ex:
+            return "# log error: "+str(type(ex))+" "+str(ex)
+            
+                        

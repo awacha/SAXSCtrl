@@ -13,6 +13,7 @@ class SAXSSample(object):
     preparedby = 'Anonymous'
     preparetime = None
     distminus = 0.0
+    description = ''
 
     @classmethod
     def new_from_cfg(cls, *filenames):
@@ -28,7 +29,7 @@ class SAXSSample(object):
 
     def __init__(self, title, positiony=0.0, positionx=0.0, thickness=1.0,
                  transmission=1.0, preparedby='Anonymous', preparetime=None,
-                 distminus=0.0):
+                 distminus=0.0, description=''):
         if isinstance(title, SAXSSample):
             self.title = title.title
             self.positionx = title.positionx
@@ -38,6 +39,7 @@ class SAXSSample(object):
             self.preparedby = title.preparedby
             self.preparetime = title.preparetime
             self.distminus = title.distminus
+            self.description = title.description
         else:
             self.title = title
             self.positionx = positionx
@@ -49,6 +51,7 @@ class SAXSSample(object):
                 preparetime = datetime.datetime.now()
             self.preparetime = preparetime
             self.distminus = distminus
+            self.description = description
 
     def save_to_ConfigParser(self, cp, sectionname):
         if not cp.has_section(sectionname):
@@ -71,9 +74,10 @@ class SAXSSample(object):
         cp.set(sectionname, 'Distminus', float(self.distminus))
         if isinstance(self.distminus, ErrorValue):
             cp.set(sectionname, 'DistminusError', self.distminus.err)
+        cp.set(sectionname, 'Description', str(self.description))
 
     def read_from_ConfigParser(self, cp, sectionname):
-        for name, attr in [('Title', 'title'), ('Preparedby', 'preparedby')]:
+        for name, attr in [('Title', 'title'), ('Preparedby', 'preparedby'), ('Description', 'description')]:
             if cp.has_option(sectionname, name):
                 self.__setattr__(attr, cp.get(sectionname, name))
         for name, attr in [('Position', 'positiony'),
@@ -81,7 +85,8 @@ class SAXSSample(object):
                            ('PositionX', 'positionx'),
                            ('Thickness', 'thickness'),
                            ('Transmission', 'transmission'),
-                           ('Distminus', 'distminus')]:
+                           ('Distminus', 'distminus'),
+                           ]:
             if cp.has_option(sectionname, name):
                 self.__setattr__(attr, cp.getfloat(sectionname, name))
                 if cp.has_option(sectionname, name + 'Error'):
@@ -133,12 +138,14 @@ class SAXSSample(object):
 
     def get_header(self):
         hed = {'Title': self.title, 'Preparedby':
-               self.preparedby, 'Preparetime': self.preparetime}
+               self.preparedby, 'Preparetime': self.preparetime,
+               'SampleDescription':self.description}
         for attr, key in [('thickness', 'Thickness'),
                           ('transmission', 'Transm'),
                           ('positiony', 'PosSample'),
                           ('positionx', 'PosSampleX'),
-                          ('distminus', 'DistMinus')]:
+                          ('distminus', 'DistMinus'),
+                          ]:
             hed[key] = float(self.__getattribute__(attr))
             if isinstance(self.__getattribute__(attr), ErrorValue):
                 hed[key + 'Error'] = self.__getattribute__(attr).err

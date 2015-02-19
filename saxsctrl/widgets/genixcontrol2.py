@@ -1,5 +1,5 @@
 from .widgets import ToolDialog
-from .instrumentstatus import InstrumentStatus
+from .instrumentstatus import InstrumentStatus, InstrumentStatusLabel
 from ..hardware.instruments.genix import GenixStatus, InstrumentError
 from gi.repository import Gtk
 
@@ -12,7 +12,7 @@ class GenixControl(ToolDialog):
         self._statusframe.add_label('status', 'Status')
         self._statusframe.add_label('remote_mode', 'Remote', lambda x:['NO', 'YES'][int(x) % 2])
         self._statusframe.add_label('xrays', 'X-rays', lambda x:['OFF', 'ON'][int(x) % 2])
-        self._statusframe.add_label('shutter', 'Shutter', lambda x:['CLOSED', 'OPEN'][int(x) % 2])
+        self._statusframe.add_label('shutter', 'Shutter', lambda x:['CLOSED', 'OPEN'][int(x) % 2], InstrumentStatusLabel._default_colourer_reversed)
         self._statusframe.add_label('interlock', 'Interlock', lambda x:['BROKEN', 'OK'][int(x) % 2])
         self._statusframe.add_label('overridden', 'Overridden', lambda x:['NO', 'YES'][int(x) % 2])
         self._statusframe.add_label('ht', 'Voltage', '%.2f kV')

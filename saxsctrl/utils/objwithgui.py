@@ -66,7 +66,6 @@ class ObjSetupDialog(Gtk.Dialog):
             self._tab.disconnect(c)
         del self._tabconn
 
-
 class ObjSetupTable(Gtk.Table):
     __gsignals__ = {'changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     'apply': (GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -147,7 +146,7 @@ class ObjSetupTable(Gtk.Table):
                 else:
                     self._entries[p.name] = Gtk.Entry()
                     self._entries[p.name].set_text(
-                        self.objwithgui.get_property(p.name))
+                        unicode(self.objwithgui.get_property(p.name)))
                     self._entries[p.name]._connection = self._entries[p.name].connect(
                         'changed', lambda ent, n: self.emit('changed', n), p.name)
                     logger.warning('ToDo: the type of this entry (%s) is not yet supported, using simple Gtk.Entry()' %
@@ -183,6 +182,8 @@ class ObjSetupTable(Gtk.Table):
             if hasattr(e, '_connection'):
                 e.disconnect(e._connection)
                 del e._connection
+        del self._entries
+        del self._partbuttons
         if hasattr(self, '_owgconn'):
             self.objwithgui.disconnect(self._owgconn)
             del self._owgconn
@@ -204,7 +205,7 @@ class ObjSetupTable(Gtk.Table):
 
     def _objwithgui_notify(self, owg, prop):
         if prop.name in self._entries:
-            self.revert_changes(keep_changed=True)
+            self.revert_changes(keep_changed=False)
 
     def do_changed(self, propname):
         logger.debug('OWG_Table. Changed: ' + propname)
@@ -264,12 +265,15 @@ class ObjSetupTable(Gtk.Table):
 
 
 class ObjWithGUI(GObject.GObject):
-    _OWG_nogui_props = None
-    _OWG_nosave_props = None
-    _OWG_entrytypes = None
-    _OWG_parts = None
-    _OWG_hints = None
-    _OWG_parttab_cols = 5
+    _OWG_nogui_props = None  # a list of the names of properties which should not be represented in the GUI.
+    _OWG_nosave_props = None  # a list of the names of properties of which the values should not be saved or loaded.
+    _OWG_entrytypes = None  # a dict. Keys: property names. Values: entry types of OWG_Param_Type
+    _OWG_parts = None  # a list of parts (attributes to ObjWithGUI) which are also instances of ObjWithGUI.
+                      # In the GUI table these will be represented as buttons which open the appropriate GUI
+                      # dialog for the part. Changes in these dialogs are not forwarded per se to the parent dialog of
+                      # the parent ObjWithGUI.
+    _OWG_hints = None  # a dict of various hints assisting the correct display of entries
+    _OWG_parttab_cols = 5  # the number of columns in the table for parts in the GUI.
 
     def __init__(self):
         GObject.GObject.__init__(self)
@@ -352,7 +356,7 @@ class ObjWithGUI(GObject.GObject):
                     sectionprefix + self._get_classname(), p.name)
             else:
                 val = configparser.get(
-                    sectionprefix + self._get_classname(), p.name)
+                    sectionprefix + self._get_classname(), p.name).decode('utf-8')
             if self.get_property(p.name) != val:
                 self.set_property(p.name, val)
         for owgp in self._OWG_parts:
@@ -366,8 +370,11 @@ class ObjWithGUI(GObject.GObject):
         for p in self.props:
             if p.name in self._OWG_nosave_props:
                 continue
+            value = self.get_property(p.name)
+            if isinstance(value, str):
+                value = value.decode('utf-8')
             configparser.set(
-                sectionprefix + self._get_classname(), p.name, self.get_property(p.name))
+                sectionprefix + self._get_classname(), p.name, unicode(value).encode('utf-8'))
         for owgp in self._OWG_parts:
             logger.debug('Saving state of OWG part: ' + owgp._get_classname())
             owgp.savestate(configparser, self._get_classname() + '::')

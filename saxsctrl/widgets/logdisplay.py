@@ -10,7 +10,7 @@ class LogDisplay(Gtk.VBox):
         Gtk.VBox.__init__(self, *args, **kwargs)
         self.textview = Gtk.TextView()
         self.textbuffer = self.textview.get_buffer()
-        self.textbuffer.create_mark('log_end',self.textbuffer.get_end_iter(),False)
+        self.textbuffer.create_mark('log_end', self.textbuffer.get_end_iter(), False)
         self.textview.set_editable(False)
         sw = Gtk.ScrolledWindow()
         sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -40,21 +40,22 @@ class LogDisplay(Gtk.VBox):
             tag = self.tags['__DEFAULT__']
         enditer = self.textbuffer.get_end_iter()
         self.textbuffer.insert_with_tags(enditer, message + '\n', tag)
-        self.textview.scroll_to_mark(self.textbuffer.get_mark('log_end'),0.1,False,0,0)
+        self.textview.scroll_to_mark(self.textbuffer.get_mark('log_end'), 0.1, False, 0, 0)
         if record.levelno >= logging.INFO:
             self.label.set_label(record.message)
         if record.levelno >= logging.CRITICAL:
-            self.image.set_from_stock(Gtk.STOCK_STOP, Gtk.IconSize.SMALL_TOOLBAR)
+            self.image.set_from_icon_name('face-crying', Gtk.IconSize.SMALL_TOOLBAR)
         elif record.levelno >= logging.ERROR:
-            self.image.set_from_stock(Gtk.STOCK_DIALOG_ERROR, Gtk.IconSize.SMALL_TOOLBAR)
+            self.image.set_from_icon_name('dialog-error', Gtk.IconSize.SMALL_TOOLBAR)
         elif record.levelno >= logging.WARNING:
-            self.image.set_from_stock(Gtk.STOCK_DIALOG_WARNING, Gtk.IconSize.SMALL_TOOLBAR)
+            self.image.set_from_icon_name('dialog-warning', Gtk.IconSize.SMALL_TOOLBAR)
         elif record.levelno >= logging.INFO:
-            self.image.set_from_stock(Gtk.STOCK_INFO, Gtk.IconSize.SMALL_TOOLBAR)
+            self.image.set_from_icon_name('dialog-info', Gtk.IconSize.SMALL_TOOLBAR)
         else:
-            self.image.set_from_stock(Gtk.STOCK_OK, Gtk.IconSize.SMALL_TOOLBAR)
+            # self.image.set_from_icon_name(Gtk.STOCK_OK, Gtk.IconSize.SMALL_TOOLBAR)
+            pass
         return False
-    
+
 class Gtk3LogHandler(logging.Handler):
     def __init__(self, logdisplay=None):
         logging.Handler.__init__(self)
@@ -63,4 +64,4 @@ class Gtk3LogHandler(logging.Handler):
         message = self.format(record)
         GLib.idle_add(self.logdisplay.addlogline, message, record)
         # logdisplay.addlogline(message, record)
-        
+

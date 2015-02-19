@@ -2,7 +2,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 import calendar
 import datetime
 import dateutil.parser
@@ -57,25 +57,25 @@ class DateEntry(Gtk.Box):
         self.pack_start(boxdate, True, True, 0)
         boxtime = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.pack_start(boxtime, True, True, 0)
-        self._yearspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -9999, 9999, 1, 10), digits=0)
+        self._yearspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=-9999, upper=9999, step_increment=1, page_increment=10), digits=0)
         self._yearspin.connect('changed', self._year_changed)
-        self._monthspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 12, 1, 10), digits=0)
+        self._monthspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=1, lower=1, upper=12, step_increment=1, page_increment=10), digits=0)
         self._monthspin.connect('changed', self._month_changed)
         self._monthspin.connect('wrapped', self._month_wrapped)
         self._monthspin.set_wrap(True)
-        self._dayspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 31, 1, 10), digits=0)
+        self._dayspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=1, lower=1, upper=31, step_increment=1, page_increment=10), digits=0)
         self._dayspin.connect('changed', self._day_changed)
         self._dayspin.connect('wrapped', self._day_wrapped)
         self._dayspin.set_wrap(True)
-        self._hourspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 23, 1, 10), digits=0)
+        self._hourspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=23, step_increment=1, page_increment=10), digits=0)
         self._hourspin.connect('changed', self._hour_changed)
         self._hourspin.connect('wrapped', self._hour_wrapped)
         self._hourspin.set_wrap(True)
-        self._minutespin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 59, 1, 10), digits=0)
+        self._minutespin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=59, step_increment=1, page_increment=10), digits=0)
         self._minutespin.connect('changed', self._minute_changed)
         self._minutespin.connect('wrapped', self._minute_wrapped)
         self._minutespin.set_wrap(True)
-        self._secondspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 59, 1, 10), digits=0)
+        self._secondspin = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=0, upper=59, step_increment=1, page_increment=10), digits=0)
         self._secondspin.connect('changed', self._second_changed)
         self._secondspin.connect('wrapped', self._second_wrapped)
         self._secondspin.set_wrap(True)
@@ -165,27 +165,27 @@ class DateEntry(Gtk.Box):
         self._secondspin.set_value(dt.second)
 
 class ErrorValueEntry(Gtk.Box):
-    __gtype_name__='SAXSCtrl_ErrorValueEntry'
-    __gsignals__={'value-changed':(GObject.SignalFlags.RUN_LAST,None,()),
-                  'changed':(GObject.SignalFlags.RUN_LAST,None,())}
+    __gtype_name__ = 'SAXSCtrl_ErrorValueEntry'
+    __gsignals__ = {'value-changed':(GObject.SignalFlags.RUN_LAST, None, ()),
+                  'changed':(GObject.SignalFlags.RUN_LAST, None, ())}
     def __init__(self, adjustment_nominal=None, adjustment_error=None, climb_rate=None, digits=None):
         Gtk.Box.__init__(self, orientation=Gtk.Orientation.HORIZONTAL)
-        kwargs={}
+        kwargs = {}
         if climb_rate is not None:
-            kwargs['climb_rate']=climb_rate
+            kwargs['climb_rate'] = climb_rate
         if digits is not None:
-            kwargs['digits']=digits
-        self._valsb=Gtk.SpinButton(adjustment=adjustment_nominal, **kwargs)
-        self._errsb=Gtk.SpinButton(adjustment=adjustment_error, **kwargs)
+            kwargs['digits'] = digits
+        self._valsb = Gtk.SpinButton(adjustment=adjustment_nominal, **kwargs)
+        self._errsb = Gtk.SpinButton(adjustment=adjustment_error, **kwargs)
         self._valsb.set_value(adjustment_nominal.get_value())
         self._errsb.set_value(adjustment_error.get_value())
         self.pack_start(self._valsb, True, True, 0)
-        self.pack_start(Gtk.Label(label=u'\xb1'),False,False,2)
-        self.pack_start(self._errsb, True,True,0)
-        self._valsb.connect('value-changed',self._on_spinbutton_value_changed)
-        self._errsb.connect('value-changed',self._on_spinbutton_value_changed)
-        self._valsb.connect('changed',self._on_spinbutton_changed)
-        self._errsb.connect('changed',self._on_spinbutton_changed)
+        self.pack_start(Gtk.Label(label=u'\xb1'), False, False, 2)
+        self.pack_start(self._errsb, True, True, 0)
+        self._valsb.connect('value-changed', self._on_spinbutton_value_changed)
+        self._errsb.connect('value-changed', self._on_spinbutton_value_changed)
+        self._valsb.connect('changed', self._on_spinbutton_changed)
+        self._errsb.connect('changed', self._on_spinbutton_changed)
 
     def _on_spinbutton_value_changed(self, spinbutton):
         self.emit('value-changed')
@@ -206,4 +206,4 @@ class ErrorValueEntry(Gtk.Box):
             self._errsb.set_value(0)
 
     def get_value(self):
-        return sastool.ErrorValue(self._valsb.get_value(),self._errsb.get_value())
+        return sastool.ErrorValue(self._valsb.get_value(), self._errsb.get_value())

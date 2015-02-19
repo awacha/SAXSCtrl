@@ -312,7 +312,7 @@ class SubSystemScan(SubSystem):
         return (self._current_step >= self.nstep) or (self.scandevice.name() == 'Time')
 
     def _exposure_fail(self, sse, message):
-        self.emit('scan-fail', 'Exposure failed with message: '+message)
+        self.emit('scan-fail', 'Exposure failed with message: ' + message)
 
     def _exposure_end(self, sse, status):
         self._current_step += 1
@@ -369,7 +369,7 @@ class SubSystemScan(SubSystem):
             self._where = self.scandevice.moveto(
                 self.value_begin + (self.value_end - self.value_begin) / (self.nstep - 1) * self._current_step)
         except ScanDeviceError as sde:
-            self.emit('scan-fail', 'Scan device error: '+str(sde))
+            self.emit('scan-fail', 'Scan device error: ' + str(sde))
         logger.debug('Adding timeout for starting exposure')
         GLib.timeout_add(int(self.waittime * 1000), self._start_exposure)
 

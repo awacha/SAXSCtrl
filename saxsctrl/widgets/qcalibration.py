@@ -1,4 +1,5 @@
 from gi.repository import Gtk
+from gi.repository import Gdk
 from gi.repository import GObject
 import numpy as np
 
@@ -16,7 +17,7 @@ class DistCalibrationDialog(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_DistCalibrationDialog'
 
     def __init__(self, credo, title='Sample-to-detector distance calibration'):
-        ToolDialog.__init__(self, credo, title=title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL,Gtk.ResponseType.CANCEL))
+        ToolDialog.__init__(self, credo, title=title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
         vb = self.get_content_area()
         f = Gtk.Expander(label='Exposure')
         vb.pack_start(f, False, False, 0)
@@ -45,9 +46,9 @@ class DistCalibrationDialog(ToolDialog):
         self._treeview.set_rules_hint(True)
         self._treeview.set_headers_visible(True)
         self._treeview.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
-        self._treeview.set_size_request(150,-1)
+        self._treeview.set_size_request(150, -1)
         tv_buttonbox = Gtk.ButtonBox(orientation=Gtk.Orientation.VERTICAL)
-        tv_buttonbox.set_layout(Gtk.ButtonBoxStyle.SPREAD)
+        tv_buttonbox.set_layout(Gtk.ButtonBoxStyle.START)
         hb1.pack_start(tv_buttonbox, False, False, 0)
         b = Gtk.Button(label='Add', image=Gtk.Image.new_from_icon_name('list-add', Gtk.IconSize.BUTTON))
         tv_buttonbox.add(b)
@@ -73,11 +74,16 @@ class DistCalibrationDialog(ToolDialog):
         self._findpeakbutton.connect('clicked', self._treeview_findpeak)
         self._findpeakbutton.set_sensitive(False)
 
+        b = Gtk.Button(label='Export to HTML')
+        tv_buttonbox.add(b)
+        b.connect('clicked', self._treeview_export_html)
+
+
         vb2 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         hb.pack_start(vb2, True, True, 0)
         self._fig = Figure()
         self._canvas = FigureCanvasGTK3Agg(self._fig)
-        self._canvas.set_size_request(400,300)
+        self._canvas.set_size_request(400, 300)
         vb2.pack_start(self._canvas, True, True, 0)
         self._figtoolbar = NavigationToolbar2GTK3(self._canvas, None)
         vb2.pack_start(self._figtoolbar, False, False, 0)
@@ -88,7 +94,7 @@ class DistCalibrationDialog(ToolDialog):
         l.set_alignment(0, 0.5)
         grid.attach(l, 0, 0, 1, 1)
         self._wavelength_entry = Gtk.SpinButton(
-            adjustment=Gtk.Adjustment(value=0.15418, lower=0, upper=100, step_increment=0.01, page_increment=0.1,page_size=0.1),
+            adjustment=Gtk.Adjustment(value=0.15418, lower=0, upper=100, step_increment=0.01, page_increment=0.1, page_size=0.1),
             digits=5)
         self._wavelength_entry.set_value(0.15418)
         grid.attach(self._wavelength_entry, 1, 0, 1, 1)
@@ -102,17 +108,17 @@ class DistCalibrationDialog(ToolDialog):
         self._pixelsize_entry.set_value(0.172)
         grid.attach(self._pixelsize_entry, 3, 0, 1, 1)
 
-        l=Gtk.Label(label='Coefficient of determination (R2) of the fit:');
-        l.set_alignment(0,0.5)
-        grid.attach(l, 0,1,1,1)
-        self._r2_label=Gtk.Label(label='N/A')
-        grid.attach(self._r2_label, 1,1,1,1)
+        l = Gtk.Label(label='Coefficient of determination (R2) of the fit:');
+        l.set_alignment(0, 0.5)
+        grid.attach(l, 0, 1, 1, 1)
+        self._r2_label = Gtk.Label(label='N/A')
+        grid.attach(self._r2_label, 1, 1, 1, 1)
 
-        l=Gtk.Label(label='Reduced Chi2 of the fit:')
-        l.set_alignment(0,0.5)
-        grid.attach(l,2,1,1,1)
-        self._chi2_label=Gtk.Label(label='N/A')
-        grid.attach(self._chi2_label,3,1,1,1)
+        l = Gtk.Label(label='Reduced Chi2 of the fit:')
+        l.set_alignment(0, 0.5)
+        grid.attach(l, 2, 1, 1, 1)
+        self._chi2_label = Gtk.Label(label='N/A')
+        grid.attach(self._chi2_label, 3, 1, 1, 1)
 
         l = Gtk.Label(label='Sample-to-detector distance:');
         l.set_alignment(0, 0.5)
@@ -121,13 +127,12 @@ class DistCalibrationDialog(ToolDialog):
         grid.attach(self._sddist_label, 1, 2, 1, 1)
 
 
-
     def do_response(self, respid):
-        if respid in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY) and hasattr(self,'_dist'):
-            self.credo.dist=self._dist.val
-            self.credo.dist_error=self._dist.err
+        if respid in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY) and hasattr(self, '_dist'):
+            self.credo.dist = self._dist.val
+            self.credo.dist_error = self._dist.err
         if respid in (Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL):
-            ToolDialog.do_response(self,respid)
+            ToolDialog.do_response(self, respid)
         return
 
     def do_load_exposure(self, exposureselector, exposure):
@@ -149,6 +154,7 @@ class DistCalibrationDialog(ToolDialog):
         model, selection = self._treeview.get_selection().get_selected_rows()
         for row in reversed(selection):
             model.remove(self._treemodel.get_iter(row))
+        self._treeview_refresh()
 
     def _treeview_clear(self, button=None):
         self._treemodel.clear()
@@ -158,6 +164,20 @@ class DistCalibrationDialog(ToolDialog):
 
     def _treeview_open(self, button=None):
         pass
+
+    def _treeview_export_html(self, button=None):
+        htmlout = '<table border="1" cellpadding="1" cellspacing="1" style="width:500px">\n'
+        htmlout = htmlout + '  <tr>\n'
+        htmlout = htmlout + '    <th>Uncalibrated values (pixel)</th>\n'
+        htmlout = htmlout + '    <th>Calibrated values (1/nm)</th>\n'
+        htmlout = htmlout + '    <th>Determined from (calibration sample, peak nr.)</th>\n'
+        htmlout = htmlout + '  </tr>\n'
+        for uncal, cal, struncal, strcal in self._treemodel:
+            htmlout = htmlout + '  <tr>\n'
+            htmlout = htmlout + '    <td>%s</td>\n    <td>%s</td>\n    <td>...</td>\n' % (uncal.tostring(extra_digits=1), cal.tostring(extra_digits=1))
+            htmlout = htmlout + '  </tr>\n'
+        htmlout = htmlout + '</table>\n'
+        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(htmlout, -1)
 
     def _treeview_refresh(self, button=None):
         self._fig.clear()
@@ -170,26 +190,26 @@ class DistCalibrationDialog(ToolDialog):
 
         def qfrompix(pix, pixelsize, wavelength, dist):
             return 4 * np.pi * np.sin(0.5 * np.arctan(pixelsize * pix / dist)) / wavelength
-        if len(x)>1:
+        if len(x) > 1:
 
             dist, stat = sastool.easylsq.nonlinear_leastsquares(x, y, dy, qfrompix,
                                                                 [sastool.FixedParameter(self._pixelsize_entry.get_value()),
                                                                  sastool.FixedParameter(self._wavelength_entry.get_value()),
                                                                  100.
                                                                 ])[2:]
-            pixscale=np.linspace(x.min(),x.max(),100)
+            pixscale = np.linspace(x.min(), x.max(), 100)
             self._r2_label.set_label(str(stat['R2']))
             self._chi2_label.set_label(str(stat['Chi2_reduced']))
         else:
-            q=sastool.ErrorValue(y[0],dy[0])
-            pix=sastool.ErrorValue(x[0],dx[0])
-            dist=self._pixelsize_entry.get_value()*pix/np.tan(np.arcsin(q*self._wavelength_entry.get_value()/(4*np.pi))*2)
-            pixscale=np.linspace(0,float(pix),100)
+            q = sastool.ErrorValue(y[0], dy[0])
+            pix = sastool.ErrorValue(x[0], dx[0])
+            dist = self._pixelsize_entry.get_value() * pix / np.tan(np.arcsin(q * self._wavelength_entry.get_value() / (4 * np.pi)) * 2)
+            pixscale = np.linspace(0, float(pix), 100)
             self._r2_label.set_label('N/A')
             self._chi2_label.set_label('N/A')
-        self._sddist_label.set_label(unicode(dist))
-        self._dist=dist
-        axes.plot(pixscale,qfrompix(pixscale,self._pixelsize_entry.get_value(),self._wavelength_entry.get_value(),dist),'r-',label='Calibration curve from LSQ fit')
+        self._sddist_label.set_label(dist.tostring(extra_digits=3))
+        self._dist = dist
+        axes.plot(pixscale, qfrompix(pixscale, self._pixelsize_entry.get_value(), self._wavelength_entry.get_value(), dist), 'r-', label='Calibration curve from LSQ fit')
         axes.set_xlabel('Pixels')
         axes.set_ylabel('q')
         axes.legend(loc='best')
@@ -206,10 +226,10 @@ class DistCalibrationDialog(ToolDialog):
         pf.destroy()
 
     def _on_peak_found(self, peakfinder, a, x0, sigma, y0, stat, cal):
-        if not isinstance(cal,sastool.ErrorValue):
-            uncal=sastool.ErrorValue(cal)
+        if not isinstance(cal, sastool.ErrorValue):
+            uncal = sastool.ErrorValue(cal)
         self._treemodel.append((x0, cal, unicode(x0), unicode(cal)))
-        self._treeview_refresh(self)
+        self._treeview_refresh()
 
 
 class QCalibrationDialog(sasgui.QCalibrator):

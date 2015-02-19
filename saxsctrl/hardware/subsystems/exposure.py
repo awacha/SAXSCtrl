@@ -1,3 +1,4 @@
+# coding: utf-8
 import threading
 import multiprocessing.queues
 import sastool
@@ -41,6 +42,7 @@ class SubSystemExposure(SubSystem):
     cbf_file_timeout = GObject.property(type=float, default=3, blurb='Timeout for cbf files')
     timecriticalmode = GObject.property(type=bool, default=False, blurb='Time-critical mode')
     default_mask = GObject.property(type=str, default='mask.mat', blurb='Default mask file')
+    dark_sample_name = GObject.property(type=str, default='Dark', blurb='Sample name for dark measurement')
     def __init__(self, credo, offline=True, **kwargs):
         SubSystem.__init__(self, credo, offline)
         self._OWG_nogui_props.append('configfile')
@@ -130,7 +132,7 @@ class SubSystemExposure(SubSystem):
                                                                           fsn, self.cbf_file_timeout, header_template, mask, write_nexus
                                                                           ))
         self._thread.daemon = True
-        if self.operate_shutter and genix.shutter_state() == False:
+        if (self.operate_shutter and genix.shutter_state() == False) and (header_template['Title']!=self.dark_sample_name):
             genix.shutter_open()
         self._pilatus_idle_handler = pilatus.connect('idle', self._pilatus_idle, genix)
         self.credo().subsystems['Files'].increment_next_fsn()
@@ -292,23 +294,35 @@ class SubSystemExposure(SubSystem):
         root.entry.instrument.vacuum = nxs.NXsensor()
         vg = self.credo().subsystems['Equipments'].get('vacgauge')
         if vg.connected():
-            root.entry.instrument.vacuum.model = vg.get_version()
+            try:
+                root.entry.instrument.vacuum.model = vg.get_version()
+            except Exception as ex:
+                logger.warn('Cannot get version of the vacuum gauge (error: %s).'%str(ex))
             root.entry.instrument.vacuum.name = 'TPG-201 Handheld Pirani Gauge'
             root.entry.instrument.vacuum.short_name = 'Vacuum Gauge'
             root.entry.instrument.vacuum.measurement = 'pressure'
             root.entry.instrument.vacuum.type = 'Pirani'
-            root.entry.instrument.vacuum.value = vg.pressure
+            try:
+                root.entry.instrument.vacuum.value = vg.pressure
+            except Exception as ex:
+                logger.warn('Cannot get pressure from the vacuum gauge (error: %s).'%str(ex))
             root.entry.instrument.vacuum.value.attrs['units'] = 'mbar'
         root.entry.instrument.thermostat = nxs.NXsensor()
         ts = self.credo().subsystems['Equipments'].get('haakephoenix')
         if ts.connected():
-            root.entry.instrument.thermostat.model = ts.get_version()
+            try:
+                root.entry.instrument.thermostat.model = ts.get_version()
+            except Exception as ex:
+                logger.warn('Cannot get version of the thermostat (error: %s).'%str(ex))
             root.entry.instrument.thermostat.name = 'Haake Phoenix Circulator'
             root.entry.instrument.thermostat.short_name = 'haakephoenix'
             root.entry.instrument.thermostat.measurement = 'temperature'
             root.entry.instrument.thermostat.type = 'Pt100'
-            root.entry.instrument.thermostat.value = ts.temperature
-            root.entry.instrument.thermostat.value.attrs['units'] = '°C'
+            try:
+                root.entry.instrument.thermostat.value = ts.temperature
+                root.entry.instrument.thermostat.value.attrs['units'] = '°C'
+            except Exception as ex:
+                logger.warn('Cannot get temperature of the thermostat (error: %s).'%str(ex))
         root.entry.sample = nxs.NXsample()
         root.entry.sample.name = header['Title']
         if 'Temperature' in header:
@@ -394,7 +408,11 @@ class SubSystemExposure(SubSystem):
         nxdata.makelink(root.entry.instrument.detector.x)
         nxdata.makelink(root.entry.instrument.detector.y)
         nt = nxs.NeXusTree(nexusname, 'w5')
-        nt.writefile(root)
+        try:
+            nt.writefile(root)
+        except ValueError as ve:
+            logger.error('Error writing nexus file: %s. Error is: %s'%(nexusname,str(ve)))
+
         
     def _thread_worker(self, expname_template, headername_template, stopswitch, outqueue, exptime, nimages, dwelltime, firstfsn, cbf_file_timeout, header_template, mask, write_nexus):
         """Wait for the availability of scattering image files (especially when doing multiple exposures).

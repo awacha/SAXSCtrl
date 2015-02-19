@@ -12,7 +12,7 @@ import weakref
 from ..hardware import credo
 from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer, pinholecalculator
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 def my_excepthook(type_, value, traceback_):
     try:
@@ -52,12 +52,12 @@ class Tool(object):
         return self.window
     def createbutton(self):
         if self.button is None:
-            self.button = Gtk.Button(self.buttonname)
+            self.button = Gtk.Button(label=self.buttonname)
             self.button.connect('clicked', self.createwindow)
         return self.button
     def createmenuitem(self):
         if self.menuitem is None:
-            self.menuitem = Gtk.MenuItem(self.buttonname)
+            self.menuitem = Gtk.MenuItem(label=self.buttonname)
             self.menuitem.connect('activate', self.createwindow)
         return self.menuitem
 
@@ -144,8 +144,8 @@ class RootWindow(Gtk.Window):
                             Tool(self.credo, 'Data viewer & masking', '2D data viewer and masking', dataviewer.DataViewer, 'View', [], False),
                             Tool(self.credo, 'Scan viewer', 'Scan viewer', scanviewer.ScanViewer, 'View', [], False),
 #                            Tool(self.credo, 'Q calibration', 'Q calibration', qcalibration.QCalibrationDialog, 'Calibration', [], False),
-                            Tool(self.credo, 'Distance calibration', 'Distance calibration', qcalibration.DistCalibrationDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Centering', 'Center finding', centering.CenteringDialog, 'Calibration', [], False),
+                            Tool(self.credo, 'Distance calibration', 'Distance calibration', qcalibration.DistCalibrationDialog, 'Calibration', [], False),
                             Tool(self.credo, 'Motors', 'Motor control', motorcontrol.MotorMonitor, 'Hardware', [], True),
                             Tool(self.credo, 'Automatic sequence', 'Automatic sequence', saxssequence.SAXSSequence, 'Expose', [], False),
                             Tool(self.credo, 'Vacuum gauge', 'Vacuum status', vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge'], True),
@@ -166,13 +166,13 @@ class RootWindow(Gtk.Window):
             menus[mname] = Gtk.Menu()
             mi.set_submenu(menus[mname])
 
-        mi = Gtk.ImageMenuItem(label='Save settings')
+        mi = Gtk.MenuItem(label='Save settings')
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:self.credo.savestate())
         mi = Gtk.CheckMenuItem(label='Dark theme')
         menus['File'].append(mi)
         mi.connect('toggled', lambda menuitem:Gtk.Settings.get_default().set_property('gtk-application-prefer-dark-theme', menuitem.get_active()))
-        mi = Gtk.ImageMenuItem.new_from_stock(Gtk.STOCK_QUIT, None)
+        mi = Gtk.MenuItem(label='Quit')
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:Gtk.main_quit())
 

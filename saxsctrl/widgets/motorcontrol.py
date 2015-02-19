@@ -152,18 +152,26 @@ class MotorMonitor(ToolDialog):
         self._savedmotorstates_view.set_rules_hint(True)
         self._savedmotorstates_view.set_headers_visible(True)
         self._savedmotorstates_view.connect('row-activated', self._on_row_activated)
-        b = Gtk.Button(stock=Gtk.STOCK_ADD)
+        b = Gtk.Button('Add')
+        b.set_image(Gtk.Image.new_from_icon_name('list-add',Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_add)
-        b = Gtk.Button(stock=Gtk.STOCK_REMOVE)
+        b = Gtk.Button('Remove')
+        b.set_image(Gtk.Image.new_from_icon_name('list-remove',Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_remove)
-        b = Gtk.Button(stock=Gtk.STOCK_CLEAR)
+        b = Gtk.Button('Clear')
+        b.set_image(Gtk.Image.new_from_icon_name('edit-clear',Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_clear)
-        b = Gtk.Button(stock=Gtk.STOCK_EXECUTE)
+        b = Gtk.Button('Execute')
+        b.set_image(Gtk.Image.new_from_icon_name('system-run',Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_execute)
+        b = Gtk.Button('Redefine')
+        b.set_image(Gtk.Image.new_from_icon_name('document-save-as',Gtk.IconSize.BUTTON))
+        vbb.pack_start(b, True, True, 0)
+        b.connect('clicked', self._on_redefine)
         self._reload_from_file()
         self.show_all()
     def _reload_from_file(self):
@@ -195,6 +203,27 @@ class MotorMonitor(ToolDialog):
     def _on_execute(self, button):
         it = self._savedmotorstates_view.get_selection().get_selected()[1]
         return self._on_row_activated(self._savedmotorstates_view, it, None)
+    def _on_redefine(self, button):
+        it = self._savedmotorstates_view.get_selection().get_selected()[1]
+        row=self._motorstates_list[it]
+        ssm=self.credo.subsystems['Motors']
+        cp = ConfigParser.ConfigParser()
+        cp.read(os.path.join(self.credo.subsystems['Files'].configpath, 'motorconfigs.conf'))
+        if not cp.has_section(row[0]):
+            return
+        motors=cp.options(row[0])[:]
+        cp.remove_section(row[0])
+        cp.add_section(row[0])
+        for mname in motors:
+            motor=ssm.get(mname,casesensitive=False)
+            cp.set(row[0],mname,motor.get_parameter('Current_position'))
+
+        with open(os.path.join(self.credo.subsystems['Files'].configpath, 'motorconfigs.conf'), 'wt') as f:
+            cp.write(f)
+        del cp
+        self._reload_from_file()
+
+
 
     def _movement_finished(self, ssm, it):
         ssm.disconnect(self._movetostoredconfig_conn)
@@ -372,7 +401,13 @@ class MotorDriver(ToolDialog):
         grid = Gtk.Grid()
         f.add(grid)
         row = 0
+        l = Gtk.Label(label='Current position:'); l.set_alignment(0,0.5)
+        grid.attach(l,0,row,1,1)
 
+        self._poslabel=Gtk.Label(); self._poslabel.set_alignment(0,0.5)
+        self._poslabel.set_label('%.03f'%self.motor.get_parameter('Current_position'))
+        grid.attach(self._poslabel, 1, row, 1, 1)
+        row +=1
         l = Gtk.Label(label='Move ' + motorname + ' to:'); l.set_alignment(0, 0.5)
         grid.attach(l, 0, row, 1, 1)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -581,7 +616,7 @@ class MotorDriver(ToolDialog):
         logger.debug('Done recalculating.')
 
     def on_motor_report(self, motor, pos, speed, load):
-        self._moveto_entry.set_value(pos)
+        self._poslabel.set_label('%.03f'%pos)
         return False
 
     def on_motor_stop(self, motor):

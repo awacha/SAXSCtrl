@@ -42,25 +42,45 @@ class InstrumentStatusLabel(Gtk.Box):
             value = None
             category = InstrumentPropertyCategory.UNKNOWN
         if self._colourer is None:
-            if category in [InstrumentPropertyCategory.ERROR, InstrumentPropertyCategory.NO]:
-                self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(*Gdk.color_parse('red').to_floats()))
-            elif category in [InstrumentPropertyCategory.OK, InstrumentPropertyCategory.YES]:
-                self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(*Gdk.color_parse('green').to_floats()))
-            elif category in [InstrumentPropertyCategory.WARNING]:
-                self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(*Gdk.color_parse('orange').to_floats()))
-            elif category in [InstrumentPropertyCategory.UNKNOWN]:
-                self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(*Gdk.color_parse('gray').to_floats()))
-            elif category in [InstrumentPropertyCategory.NORMAL]:
-                self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(*Gdk.color_parse('white').to_floats()))
-            else:
-                raise NotImplementedError('Instrument property category "%s" is unknown for InstrumentStatusLabel.' % category)
+            colour=self._default_colourer(value, category)
         else:
-            self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, self._colourer(value, category))
+            colour=self._colourer(value,category)
+        self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, colour)
         if category != InstrumentPropertyCategory.UNKNOWN:
             self._valuelabel.set_text(self._formatter(value))
         else:
             self._valuelabel.set_text('UNKNOWN')
         return True
+    @staticmethod
+    def _default_colourer(value,category):
+        if category in [InstrumentPropertyCategory.ERROR, InstrumentPropertyCategory.NO]:
+            return Gdk.RGBA(*Gdk.color_parse('red').to_floats())
+        elif category in [InstrumentPropertyCategory.OK, InstrumentPropertyCategory.YES]:
+            return Gdk.RGBA(*Gdk.color_parse('green').to_floats())
+        elif category in [InstrumentPropertyCategory.WARNING]:
+            return Gdk.RGBA(*Gdk.color_parse('orange').to_floats())
+        elif category in [InstrumentPropertyCategory.UNKNOWN]:
+            return Gdk.RGBA(*Gdk.color_parse('gray').to_floats())
+        elif category in [InstrumentPropertyCategory.NORMAL]:
+            return Gdk.RGBA(*Gdk.color_parse('white').to_floats())
+        else:
+            raise NotImplementedError('Instrument property category "%s" is unknown for InstrumentStatusLabel.' % category)
+
+    @staticmethod
+    def _default_colourer_reversed(value,category):
+        if category in [InstrumentPropertyCategory.OK, InstrumentPropertyCategory.YES]:
+            return Gdk.RGBA(*Gdk.color_parse('red').to_floats())
+        elif category in [InstrumentPropertyCategory.ERROR, InstrumentPropertyCategory.NO]:
+            return Gdk.RGBA(*Gdk.color_parse('green').to_floats())
+        elif category in [InstrumentPropertyCategory.WARNING]:
+            return Gdk.RGBA(*Gdk.color_parse('orange').to_floats())
+        elif category in [InstrumentPropertyCategory.UNKNOWN]:
+            return Gdk.RGBA(*Gdk.color_parse('gray').to_floats())
+        elif category in [InstrumentPropertyCategory.NORMAL]:
+            return Gdk.RGBA(*Gdk.color_parse('white').to_floats())
+        else:
+            raise NotImplementedError('Instrument property category "%s" is unknown for InstrumentStatusLabel.' % category)
+
     def _on_property_notify(self, instrument, prop):
         try:
             value = instrument.get_property(self._propertyname)

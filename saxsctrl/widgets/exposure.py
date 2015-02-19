@@ -2,6 +2,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 from gi.repository import GLib
 
+import traceback
 from .spec_filechoosers import MaskEntryWithButton
 import time
 import logging
@@ -21,7 +22,7 @@ class ExposureFrame(Gtk.Frame):
         tab = Gtk.Table()
         self.add(tab)
         row = 0
-        l = Gtk.Label(label='File format:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Filename prefix:'); l.set_alignment(0, 0.5)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._fileformat_entry = Gtk.ComboBoxText.new_with_entry()
         for i, f in enumerate(self.credo.subsystems['Files'].formats()):
@@ -123,8 +124,9 @@ class ExposureFrame(Gtk.Frame):
             logger.info('Started exposure for %g seconds at %s (%d images requested).' % (self._exptime_entry.get_value(), self.credo.subsystems['Files'].get_fileformat() % fsn, self._nimages_entry.get_value_as_int()))
             self._starttime = time.time()
         except Exception as exc:
-            md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error starting exposure')
-            md.format_secondary_text(str(exc))
+            md = Gtk.MessageDialog(transient_for=self.get_toplevel(), destroy_with_parent=True,
+                                   modal=True, type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, message_format='Error starting exposure')
+            md.format_secondary_text(traceback.format_exc(exc))
             md.run()
             md.destroy()
             del md

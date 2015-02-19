@@ -11,6 +11,7 @@ import matplotlib.figure
 import matplotlib.backends.backend_agg
 import time
 import traceback
+import numpy as np
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
@@ -115,6 +116,7 @@ class BackgroundSubtraction(DataReductionStep):
         exposure -= bg
         exposure.header.add_history(
             'Subtracted background: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % bgheader)
+        exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
         exposure['FSNempty'] = bg['FSN']
         self.message(exposure, 'Background subtraction done.')
         return True
@@ -190,6 +192,7 @@ class AbsoluteCalibration(DataReductionStep):
             exposure['NormFactorError'] = float(scalefactor.err)
             exposure.header.add_history(
                 'Normalized into absolute intensity units using reference file %s' % self.reference_datafile)
+            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             f = matplotlib.figure.Figure()
             canvas = matplotlib.backends.backend_agg.FigureCanvasAgg(f)
             ax = f.add_subplot(1, 1, 1)
@@ -239,6 +242,7 @@ class AbsoluteCalibration(DataReductionStep):
         exposure['NormFactorError'] = ref['NormFactorError']
         exposure.header.add_history(
             'Used absolute intensity reference for scaling: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % refheader)
+        exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
         self.message(exposure, 'Scaled into absolute intensity units.')
         return True
 
@@ -262,22 +266,26 @@ class CorrectGeometry(DataReductionStep):
             exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.solidangle_errorprop(
                 exposure.tth, exposure.dtth, exposure['DistCalibrated'], exposure['DistCalibratedError']))
             exposure.header.add_history('Solid-angle correction done.')
+            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             self.message(exposure, 'Solid-angle correction done.')
         if self.angle_dependent_self_absorption:
             exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.angledependentabsorption_errorprop(
                 exposure.tth, exposure.dtth, exposure['Transm'], exposure['TransmError']))
             exposure.header.add_history(
                 'Corrected for angle-dependence of self-absorption.')
+            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             self.message(
                 exposure, 'Corrected for angle-dependence of self-absorption')
         if self.angle_dependent_air_absorption:
             if 'Vacuum' not in exposure.header:
                 exposure.header.add_history('Could not carry out angle dependent air absorption correction: Vacuum value not known in header.')
+                exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             else:
                 mu = self.angle_dependent_air_absorption_mu0 / 1000.0 * exposure['Vacuum'] * 0.1
                 exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.angledependentairtransmission_errorprop(
                     exposure.tth, exposure.dtth, mu, 0, exposure['DistCalibrated'], exposure['DistCalibratedError']))
                 exposure.header.add_history('Flight-path air absorption correction done.')
+                exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             return True
 
 
@@ -298,6 +306,7 @@ class PreScaling(DataReductionStep):
             exposure /= monitor
             exposure.header.add_history(
                 'Normalized by monitor %s' % self.monitorname)
+            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             self.message(exposure, 'Normalized by monitor %s' %
                          self.monitorname)
         if self.transmission:
@@ -305,6 +314,7 @@ class PreScaling(DataReductionStep):
             exposure /= transm
             exposure.header.add_history(
                 'Normalized by transmission: %s' % transm)
+            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
             self.message(exposure, 'Normalized by transmission.')
         return True
 
@@ -323,6 +333,7 @@ class PostScaling(DataReductionStep):
             self.message(exposure, 'Divided by thickness: %.4f cm' %
                          exposure['Thickness'])
             exposure.header.add_history('Divided by thickness')
+            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
         return True
 
 

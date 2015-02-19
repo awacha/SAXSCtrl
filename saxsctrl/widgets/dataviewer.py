@@ -10,7 +10,7 @@ import logging
 _errorflags = [('Wrong distance', 'BADDIST'), ('Wrong sample', 'BADSAMPLE'), ('Artifacts (i.e. chip flares)', 'ARTIFACTS')]
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class DataViewer(ToolDialog):
@@ -21,45 +21,43 @@ class DataViewer(ToolDialog):
         ToolDialog.__init__(self, credo, title)
         self.datareduction = None
         vb = self.get_content_area()
-        
+
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, True, 0)
-        self._exposureselector = ExposureSelector(self.credo,loadtype='Raw')
+        self._exposureselector = ExposureSelector(self.credo, loadtype='Raw')
         self._exposureselector.connect('open', self._exposure_open)
         hb.pack_start(self._exposureselector, True, True, 0)
-        
-        
+
+
         f = Gtk.Frame(label='Currently loaded:')
         hb.pack_start(f, True, True, 0)
-        tab = Gtk.Table()
-        f.add(tab)
-        
+        grid = Gtk.Grid()
+        f.add(grid)
+
         row = 0
         self._labels = {}
         for labeltext, labelname in [('FSN:', 'fsn'), ('Sample-detector distance:', 'dist'), ('Title:', 'title'), ('Owner:', 'owner'), ('Exposure time:', 'meastime'), ('Temperature', 'temperature')]:
-            l = Gtk.Label(labeltext); l.set_alignment(0, 0.5)
-            tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+            l = Gtk.Label(label=labeltext); l.set_alignment(0, 0.5)
+            grid.attach(l, 0, row, 1, 1)
             self._labels[labelname] = Gtk.Label(label='<none>')
             self._labels[labelname].set_alignment(0, 0.5)
-            tab.attach(self._labels[labelname], 1, 2, row, row + 1, xpadding=5)
+            grid.attach(self._labels[labelname], 1, row, 2, 1)
+            self._labels[labelname].set_hexpand(True)
             row += 1
         b = Gtk.Button(label='Data reduction...')
-        tab.attach(b, 2, 3, 0, row, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        grid.attach(b, 2, 0, 1, row)
         b.connect('clicked', self.do_data_reduction)
         l = Gtk.Label(label='Mask:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        grid.attach(l, 0, row, 1, 1)
         self._labels['maskid'] = Gtk.Label(label='<none>')
         self._labels['maskid'].set_alignment(0, 0.5)
-        tab.attach(self._labels['maskid'], 1, 2, row, row + 1, xpadding=5)
+        grid.attach(self._labels['maskid'], 1, row, 1, 1)
 
-        hbb = Gtk.HButtonBox()
-        tab.attach(hbb, 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
-        hbb.set_layout(Gtk.ButtonBoxStyle.SPREAD)
         b = Gtk.Button(stock=Gtk.STOCK_EDIT)
         b.connect('clicked', self._editmask)
-        hbb.pack_start(b, True, True, 0)
+        grid.attach(b, 2, row, 1, 1)
         row += 1
-        
+
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, False, 0)
         l = Gtk.Label(label='Flags:')
@@ -71,7 +69,7 @@ class DataViewer(ToolDialog):
             self._flagbuttons[flagname].override_background_color(Gtk.StateFlags.ACTIVE | Gtk.StateFlags.NORMAL, Gdk.RGBA(1, 0, 0, 1))
             self._flagbuttons[flagname].connect('toggled', self._on_flag, flagname)
             hb.pack_start(self._flagbuttons[flagname], False, False, 0)
-        
+
         p = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(p, True, True, 0)
         self.plot2d = sasgui.PlotSASImage()
@@ -82,9 +80,9 @@ class DataViewer(ToolDialog):
         self.plot1d.set_size_request(200, -1)
         p.pack2(self.plot1d, True, False)
         p.set_size_request(-1, 480)
-        
+
         vb.show_all()
-        
+
     def _on_flag(self, flagbutton, flagname):
         exposure = self.plot2d.get_exposure()
         header = exposure.header
@@ -96,13 +94,13 @@ class DataViewer(ToolDialog):
         elif flagname in currentflags:
             currentflags.remove(flagname)
         header['ErrorFlags'] = ' '.join(sorted(currentflags))
-        headerformat=self.credo.subsystems['Files'].get_headerformat(self._exposureselector.get_fileprefix(),
+        headerformat = self.credo.subsystems['Files'].get_headerformat(self._exposureselector.get_fileprefix(),
                                                                      self._exposureselector.get_ndigits())
-        self.credo.subsystems['Files'].writeheader(header, raw=True, override=True, 
+        self.credo.subsystems['Files'].writeheader(header, raw=True, override=True,
                                                    headerformat=headerformat)
         self._exposure_open(self._exposureselector, exposure)
         self.credo.subsystems['DataReduction'].beamtimeraw.reload_header_for_fsn(header['FSN'])
-    
+
     def on_data_reduction_finished(self, ssdr, fsn, header, button, fsn_to_wait_for):
         if fsn != fsn_to_wait_for:
             return False
@@ -156,7 +154,7 @@ class DataViewer(ToolDialog):
             ex.header['ErrorFlags'] = ''
         currentflags = ex.header['ErrorFlags'].upper().split()
         for flag in self._flagbuttons:
-            self._flagbuttons[flag].set_active(flag in currentflags)     
+            self._flagbuttons[flag].set_active(flag in currentflags)
         return False
     def _editmask(self, widget):
         maskmaker = sasgui.maskmaker.MaskMaker(matrix=self.plot2d.get_exposure())
@@ -167,4 +165,4 @@ class DataViewer(ToolDialog):
             self.plot2d.set_exposure(ex)
         maskmaker.destroy()
         return
-        
+

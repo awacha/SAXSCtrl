@@ -698,7 +698,7 @@ class StepperMotor(GObject.GObject):
         self._start_move()
 
     def moverel(self, pos, raw=False):
-        return self.moveto(self, pos, raw, True)
+        return self.moveto(pos, raw, True)
 
     def calibrate_pos(self, pos=0, raw=False):
         logger.debug('Motor '+self.alias+' calibrating.')

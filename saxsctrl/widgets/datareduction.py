@@ -218,8 +218,8 @@ class DataReduction(ToolDialog):
                 self._resultsprogress.set_fraction(0)
                 for sel in selected:
                     self.credo.subsystems['DataReduction'].reduce(sel)
-                for path in self._headerview.get_selection().get_selected_rows()[1]:
-                    self._headerlist[path][1] = True
+#                for path in self._headerview.get_selection().get_selected_rows()[1]:
+#                    self._headerlist[path][1] = True
                 self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_STOP)
                 logger.debug('Started data reduction sequence.')
             except DataReductionError as dre:

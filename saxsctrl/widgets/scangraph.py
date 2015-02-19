@@ -17,6 +17,7 @@ import pkg_resources
 import matplotlib
 import itertools
 import sasgui
+import traceback
 
 
 iconfactory = Gtk.IconFactory()
@@ -71,7 +72,7 @@ class ScanGraph(ToolDialog):
         l = Gtk.Label(label='Move cursor')
         self._hb_cursor.pack_start(l, False, False, 0)
         l.show()
-        self._cursor_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=Gtk.Adjustment(0, 0, 1, 0, 1))
+        self._cursor_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=Gtk.Adjustment(value=0, lower=0, upper=1, step_increment=0, page_increment=1))
         self._hb_cursor.pack_start(self._cursor_scale, True, True, 0)
         self._cursor_scale.show()
         self._cursor_scale.set_draw_value(False)
@@ -111,7 +112,7 @@ class ScanGraph(ToolDialog):
         cr.connect('toggled', self.on_cell_toggled)
         self.scalertreeview.append_column(Gtk.TreeViewColumn('Visible', cr, active=1))
         cr = Gtk.CellRendererSpin()
-        cr.set_property('adjustment', Gtk.Adjustment(0, -1e9, 1e9, 1, 10, 0))
+        cr.set_property('adjustment', Gtk.Adjustment(value=0, lower=-1e9, upper=1e9, step_increment=1, page_increment=10))
         cr.set_property('digits', 1)
         cr.set_property('editable', True)
         cr.connect('edited', self.on_cell_edited)
@@ -151,6 +152,7 @@ class ScanGraph(ToolDialog):
         self._initialize_cursors()
         self.set_scalers(None)
         self.is_recording = False
+
     def _on_motor_to_cursor(self, *buttons):
         try:
             self._movement_connection = self.motor.connect('idle', self._on_motor_idle, *buttons)
@@ -182,8 +184,10 @@ class ScanGraph(ToolDialog):
             for b in buttons:
                 b.set_sensitive(False)
         except MotorError as me:
-            md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Cannot move to peak')
-            md.set_title('Reason: ' + str(me))
+            md = Gtk.MessageDialog(transient_for=self, destroy_with_parent=True,
+                                   modal=True, type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK,
+                                   message_format='Cannot move to peak')
+            md.format_secondary_text('Reason: ' + traceback.format_exc(me))
             md.run()
             md.destroy()
             del md
@@ -203,7 +207,7 @@ class ScanGraph(ToolDialog):
         self.move_cursor(self.scan[self.xname][self.scan[signalname].argmax()])
     def _initialize_cursors(self):
         for col, color in itertools.izip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
-            self._cursors[col] = self.gca().plot(np.nan, np.nan, 'o', markersize=4, mew=2, mfc='none', mec=color)[0]
+            self._cursors[col] = self.gca().plot(np.nan, np.nan, 'o', markersize=10, mew=2, mfc='none', mec=color)[0]
 
     def do_notify(self, prop):
         if prop.name == 'is-recording':
@@ -213,11 +217,10 @@ class ScanGraph(ToolDialog):
                 if not len(x):
                     return
                 self._cursor_scale.set_range(x.min(), x.max())
-                xlen = x.max() - x.min()
-                self._cursor_scale.set_increments(xlen * 1.0 / (len(x) - 1), min(xlen * 10.0 / (len(x) - 1), len(x) / 5.))
-                self._cursor_scale.set_digits(max(0, -np.log10(x.max() - x.min())) + 3)
-                self._cursor_scale.set_value(0.5 * (x.min() + x.max()))
-                self.move_cursor(0.5 * (x.min() + x.max()))
+                xwid = x.max() - x.min()
+                self._cursor_scale.set_increments(xwid / (len(x) - 1.), 10 * xwid / (len(x) - 1.))
+                self._cursor_scale.set_digits(3)
+                self.move_cursor(x[len(x) / 2])
             else:
                 self._hb_cursor.hide()
 
@@ -237,11 +240,22 @@ class ScanGraph(ToolDialog):
         return
 
     def move_cursor(self, to):
-        self._cursor_at = np.interp(to, self.scan[self.xname], np.arange(len(self.scan)), 0, len(self.scan) - 1)
-        if self._cursor_scale.get_value() != to:
-            self._cursor_scale.set_value(to)
-            self._cursor_label.set_label(str(to))
-        self.redraw_scan()
+        """Move the cursor to the given position (update the scale and its label as well)
+
+        to: value with respect to the x scale. Snap to the nearest point."""
+        if hasattr(self, '_movecursor_noreentry'):
+            return
+        try:
+            self._movecursor_noreentry = True
+            x = self.scan[self.xname]
+            desired_index = np.interp(to, x, np.arange(len(self.scan)), 0, len(self.scan) - 1)
+            self._cursor_at = round(desired_index)
+            if self._cursor_scale.get_value() != to:
+                self._cursor_scale.set_value(to)
+                self._cursor_label.set_label(unicode(to))
+            self.redraw_scan()
+        finally:
+            del self._movecursor_noreentry
 
 
     def xlabel(self, *args, **kwargs):
@@ -278,7 +292,7 @@ class ScanGraph(ToolDialog):
                 try:
                     scale = [m[2] for m in mod if m[0] == col][0]
                     visible = [m[1] for m in mod if m[0] == col][0]
-                except IndexError:
+                except (IndexError, TypeError):
                     scale = None
                     visible = False
                 if not visible:
@@ -300,7 +314,7 @@ class ScanGraph(ToolDialog):
                 try:
                     scale = [m[2] for m in mod if m[0] == l.get_label()][0]
                     visible = [m[1] for m in mod if m[0] == l.get_label()][0]
-                except IndexError:
+                except (IndexError, TypeError):
                     scale = None
                     visible = False
                 self._cursors[l.get_label()].set_visible(visible)

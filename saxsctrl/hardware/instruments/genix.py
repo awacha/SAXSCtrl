@@ -428,7 +428,10 @@ class Genix(Instrument_ModbusTCP):
         else:
             return self.status
     def get_current_parameters(self):
-        return {'HT':self.ht, 'Current':self.current, 'TubeTime':self.tubetime, 'Status':self.faultstatus}
+        return {'HT':self.get_instrument_property('ht')[0], 
+                'Current':self.get_instrument_property('current')[0], 
+                'TubeTime':self.get_instrument_property('tubetime')[0], 
+                'Status':self.get_instrument_property('faultstatus')[0]}
     
         
         
