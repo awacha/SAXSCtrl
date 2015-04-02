@@ -12,7 +12,7 @@ import sastool
 class ToolDialog(Gtk.Window):
     __gtype_name__ = "SAXSCtrl_ToolDialog"
     __gsignals__ = {'response':(GObject.SignalFlags.RUN_FIRST, None, (int,))}
-    def __init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE)):
+    def __init__(self, credo, title, buttons=('Close', Gtk.ResponseType.CLOSE)):
         Gtk.Window.__init__(self)
         self.set_title(title)
         self.credo = credo
@@ -28,7 +28,7 @@ class ToolDialog(Gtk.Window):
         self._responsewidgets = {}
         for i in range(len(buttons) / 2):
             respid = buttons[i * 2 + 1]
-            self._responsewidgets[respid] = Gtk.Button(stock=buttons[i * 2])
+            self._responsewidgets[respid] = Gtk.Button.new_with_mnemonic(buttons[i * 2])
             self._action.add(self._responsewidgets[respid])
             self._responsewidgets[respid].connect('clicked', lambda b, respid:self.emit('response', respid), buttons[i * 2 + 1])
     def get_content_area(self):

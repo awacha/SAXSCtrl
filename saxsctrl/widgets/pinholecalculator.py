@@ -241,154 +241,154 @@ def Pinhole_MonteCarlo(R1, R2, R3, L1, L2, L3, deltaL, deltaLprime, BSsize, Nray
 class PinholeDistanceCalculator(ToolDialog):
     _sddist = {'Short tube':457.121, 'Long tube':1214., 'Both tubes':1494.336}
     def __init__(self, credo, title='Pinhole distance calculator'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
-        vb=self.get_content_area()
-        hb=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        vb.pack_start(hb, True,True,0)
-        grid=Gtk.Grid()
-        hb.pack_start(grid,False,False,0)
+        ToolDialog.__init__(self, credo, title, buttons=('Execute', Gtk.ResponseType.APPLY, 'Close', Gtk.ResponseType.CLOSE))
+        vb = self.get_content_area()
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        vb.pack_start(hb, True, True, 0)
+        grid = Gtk.Grid()
+        hb.pack_start(grid, False, False, 0)
 
-        l=Gtk.Label(label='PH#1 diameter (um):')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,0,1,1)
-        self._aperture1_entry=Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0,upper=2000,step_increment=50,page_increment=100),digits=0)
+        l = Gtk.Label(label='PH#1 diameter (um):')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 0, 1, 1)
+        self._aperture1_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=2000, step_increment=50, page_increment=100), digits=0)
         self._aperture1_entry.set_value(500)
-        grid.attach(self._aperture1_entry,1,0,1,1)
+        grid.attach(self._aperture1_entry, 1, 0, 1, 1)
 
-        l=Gtk.Label(label='PH#2 diameter (um):')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,1,1,1)
-        self._aperture2_entry=Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0,upper=2000,step_increment=50,page_increment=100),digits=0)
+        l = Gtk.Label(label='PH#2 diameter (um):')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 1, 1, 1)
+        self._aperture2_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=2000, step_increment=50, page_increment=100), digits=0)
         self._aperture2_entry.set_value(500)
-        grid.attach(self._aperture2_entry,1,1,1,1)
+        grid.attach(self._aperture2_entry, 1, 1, 1, 1)
 
-        l=Gtk.Label(label='PH#3-to-sample distance (mm):')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,2,1,1)
-        self._deltaL_entry=Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0,upper=2000,step_increment=1,page_increment=10),digits=2)
+        l = Gtk.Label(label='PH#3-to-sample distance (mm):')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 2, 1, 1)
+        self._deltaL_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=2000, step_increment=1, page_increment=10), digits=2)
         self._deltaL_entry.set_value(194)
-        grid.attach(self._deltaL_entry,1,2,1,1)
+        grid.attach(self._deltaL_entry, 1, 2, 1, 1)
 
-        l=Gtk.Label(label='BS-Det distance (mm):')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,3,1,1)
-        self._deltaLprime_entry=Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0,upper=2000,step_increment=1,page_increment=10),digits=2)
+        l = Gtk.Label(label='BS-Det distance (mm):')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 3, 1, 1)
+        self._deltaLprime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=2000, step_increment=1, page_increment=10), digits=2)
         self._deltaLprime_entry.set_value(54)
-        grid.attach(self._deltaLprime_entry,1,3,1,1)
+        grid.attach(self._deltaLprime_entry, 1, 3, 1, 1)
 
-        l=Gtk.Label(label='Flight tube:')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,4,1,1)
+        l = Gtk.Label(label='Flight tube:')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 4, 1, 1)
         self._sddist_entry = Gtk.ComboBoxText()
         for sdd in sorted(self._sddist):
             self._sddist_entry.append_text(sdd)
         self._sddist_entry.set_active(0)
         grid.attach(self._sddist_entry, 1, 4, 1, 1)
 
-        l=Gtk.Label(label='Max sample diameter (mm):')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,5,1,1)
-        self._dsamplemax_entry=Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0,upper=3,step_increment=0.01,page_increment=0.1),digits=3)
+        l = Gtk.Label(label='Max sample diameter (mm):')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 5, 1, 1)
+        self._dsamplemax_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=3, step_increment=0.01, page_increment=0.1), digits=3)
         self._dsamplemax_entry.set_value(0.7)
-        grid.attach(self._dsamplemax_entry,1,5,1,1)
+        grid.attach(self._dsamplemax_entry, 1, 5, 1, 1)
 
-        l=Gtk.Label(label='Max beamstop diameter (mm):')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,6,1,1)
-        self._dbeamstopmax_entry=Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0,upper=10,step_increment=0.1,page_increment=1),digits=3)
+        l = Gtk.Label(label='Max beamstop diameter (mm):')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 6, 1, 1)
+        self._dbeamstopmax_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=10, step_increment=0.1, page_increment=1), digits=3)
         self._dbeamstopmax_entry.set_value(4)
-        grid.attach(self._dbeamstopmax_entry,1,6,1,1)
+        grid.attach(self._dbeamstopmax_entry, 1, 6, 1, 1)
 
-        l=Gtk.Label(label='Image background:')
-        l.set_alignment(0,0.5)
-        grid.attach(l,0,7,1,1)
-        self._background_selector=Gtk.ComboBoxText()
+        l = Gtk.Label(label='Image background:')
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, 7, 1, 1)
+        self._background_selector = Gtk.ComboBoxText()
         for backgroundtype in ['beam-stop radius', 'beam radius at sample', 'beam radius at detector']:
             self._background_selector.append_text(backgroundtype)
         self._background_selector.set_active(0)
-        grid.attach(self._background_selector,1,7,1,1)
+        grid.attach(self._background_selector, 1, 7, 1, 1)
 
-        vb1=Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        hb.pack_start(vb1,True,True,0)
-        self._fig=Figure()
-        self._canvas=FigureCanvasGTK3Agg(self._fig)
-        self._canvas.set_size_request(600,600)
-        self._toolbar=NavigationToolbar2GTK3(self._canvas,None)
-        vb1.pack_start(self._canvas,True,True,0)
-        vb1.pack_start(self._toolbar,False,False,0)
+        vb1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        hb.pack_start(vb1, True, True, 0)
+        self._fig = Figure()
+        self._canvas = FigureCanvasGTK3Agg(self._fig)
+        self._canvas.set_size_request(600, 600)
+        self._toolbar = NavigationToolbar2GTK3(self._canvas, None)
+        vb1.pack_start(self._canvas, True, True, 0)
+        vb1.pack_start(self._toolbar, False, False, 0)
 
     def do_response(self, respid):
-        if respid==Gtk.ResponseType.APPLY:
-            R1=self._aperture1_entry.get_value()*0.5e-3
-            R2=self._aperture2_entry.get_value()*0.5e-3
-            deltaL=self._deltaL_entry.get_value()
-            deltaLprime=self._deltaLprime_entry.get_value()
-            L3=self._sddist[self._sddist_entry.get_active_text()]+deltaL
-            Deltaprime_max=self._dbeamstopmax_entry.get_value()*0.5
-            Rs_max = self._dsamplemax_entry.get_value()*0.5
+        if respid == Gtk.ResponseType.APPLY:
+            R1 = self._aperture1_entry.get_value() * 0.5e-3
+            R2 = self._aperture2_entry.get_value() * 0.5e-3
+            deltaL = self._deltaL_entry.get_value()
+            deltaLprime = self._deltaLprime_entry.get_value()
+            L3 = self._sddist[self._sddist_entry.get_active_text()] + deltaL
+            Deltaprime_max = self._dbeamstopmax_entry.get_value() * 0.5
+            Rs_max = self._dsamplemax_entry.get_value() * 0.5
 
-            Lsum=800+500+200+200+100+100+100+100
+            Lsum = 800 + 500 + 200 + 200 + 100 + 100 + 100 + 100
 
             ########################
-            L1_limits=(100,3000,1000)
-            L2_limits=(100,3000,1000)
+            L1_limits = (100, 3000, 1000)
+            L2_limits = (100, 3000, 1000)
             # to find: L1, L2
 
-            A=(R1+R2)
-            B=(L3+deltaLprime)
+            A = (R1 + R2)
+            B = (L3 + deltaLprime)
 
-            l1=np.linspace(*L1_limits)[np.newaxis,:]
-            l2=np.linspace(*L2_limits)[:,np.newaxis]
+            l1 = np.linspace(*L1_limits)[np.newaxis, :]
+            l2 = np.linspace(*L2_limits)[:, np.newaxis]
 
-            r3=R2+l2*(R1+R2)/(l1*1.0)
-            if self._background_selector.get_active_text()=='beam-stop radius':
-                bgimage=r3*(1+(L3+deltaLprime)/l2)+R2*((L3+deltaLprime)/l2)
-            elif self._background_selector.get_active_text()=='beam radius at sample':
-                bgimage=R2+(l2+deltaL)*(R1+R2)/l1
-            elif self._background_selector.get_active_text()=='beam radius at detector':
-                bgimage=(L3+l2)/l1*R1+(l1+l2+L3)/l1*R2
+            r3 = R2 + l2 * (R1 + R2) / (l1 * 1.0)
+            if self._background_selector.get_active_text() == 'beam-stop radius':
+                bgimage = r3 * (1 + (L3 + deltaLprime) / l2) + R2 * ((L3 + deltaLprime) / l2)
+            elif self._background_selector.get_active_text() == 'beam radius at sample':
+                bgimage = R2 + (l2 + deltaL) * (R1 + R2) / l1
+            elif self._background_selector.get_active_text() == 'beam radius at detector':
+                bgimage = (L3 + l2) / l1 * R1 + (l1 + l2 + L3) / l1 * R2
             self._fig.clear()
-            axes=self._fig.add_subplot(1,1,1)
-            im=axes.imshow(bgimage,norm=matplotlib.colors.LogNorm(),origin='lower',extent=L1_limits[:2]+L2_limits[:2])
+            axes = self._fig.add_subplot(1, 1, 1)
+            im = axes.imshow(bgimage, norm=matplotlib.colors.LogNorm(), origin='lower', extent=L1_limits[:2] + L2_limits[:2])
             self._fig.colorbar(im)
-            lambda1=((Deltaprime_max+3*R2)-2*(2*(Deltaprime_max+R2)*R2)**0.5)/(A*B)
-            lambda2=((Deltaprime_max+3*R2)+2*(2*(Deltaprime_max+R2)*R2)**0.5)/(A*B)
-            L1 =np.logspace(np.log10(1/lambda1),np.log10(3000),3000)
-            a=A/L1
-            b=(A*B/L1-(Deltaprime_max-R2))
-            c=2*R2*B
+            lambda1 = ((Deltaprime_max + 3 * R2) - 2 * (2 * (Deltaprime_max + R2) * R2) ** 0.5) / (A * B)
+            lambda2 = ((Deltaprime_max + 3 * R2) + 2 * (2 * (Deltaprime_max + R2) * R2) ** 0.5) / (A * B)
+            L1 = np.logspace(np.log10(1 / lambda1), np.log10(3000), 3000)
+            a = A / L1
+            b = (A * B / L1 - (Deltaprime_max - R2))
+            c = 2 * R2 * B
 
-            L2_1=(-b-(b**2-4*a*c)**0.5)/(2*a)
-            L2_2=(-b+(b**2-4*a*c)**0.5)/(2*a)
-            axes.plot(L1,L2_1,'w',lw=2,label='Beamstop diameter = %g mm'%(Deltaprime_max*2))
-            axes.plot(L1,L2_2,'w',lw=2,label='_nolabel_')
-            axes.plot([L1[1]]*2,[L2_1[1],L2_2[1]],'w',lw=2,label='_nolabel_')
-            axes.plot(L1,(Rs_max-R2)/A*L1-deltaL,'r',lw=2, label='Sample thickness = %g mm'%(Rs_max*2))
+            L2_1 = (-b - (b ** 2 - 4 * a * c) ** 0.5) / (2 * a)
+            L2_2 = (-b + (b ** 2 - 4 * a * c) ** 0.5) / (2 * a)
+            axes.plot(L1, L2_1, 'w', lw=2, label='Beamstop diameter = %g mm' % (Deltaprime_max * 2))
+            axes.plot(L1, L2_2, 'w', lw=2, label='_nolabel_')
+            axes.plot([L1[1]] * 2, [L2_1[1], L2_2[1]], 'w', lw=2, label='_nolabel_')
+            axes.plot(L1, (Rs_max - R2) / A * L1 - deltaL, 'r', lw=2, label='Sample thickness = %g mm' % (Rs_max * 2))
             axes.set_xlabel('L1 (mm)')
             axes.set_ylabel('L2 (mm)')
-            axes.axis(ymin=L2_limits[0],ymax=L2_limits[1],xmin=L1_limits[0],xmax=L1_limits[1])
-            axes.set_title('L2 should be between the two white curves for the beamstop radius to be below the limit.\nL2 should be below the red curve for the sample radius to be below the limit.\nColor image: %s'%self._background_selector.get_active_text(), fontsize='small')
+            axes.axis(ymin=L2_limits[0], ymax=L2_limits[1], xmin=L1_limits[0], xmax=L1_limits[1])
+            axes.set_title('L2 should be between the two white curves for the beamstop radius to be below the limit.\nL2 should be below the red curve for the sample radius to be below the limit.\nColor image: %s' % self._background_selector.get_active_text(), fontsize='small')
 
-            #calculating the intersection of the blue curves and the red, i.e. the lowest L1 to be used.
-            E=2*deltaL*A-A*B
-            C=Deltaprime_max+R2-2*Rs_max
+            # calculating the intersection of the blue curves and the red, i.e. the lowest L1 to be used.
+            E = 2 * deltaL * A - A * B
+            C = Deltaprime_max + R2 - 2 * Rs_max
 
-            a=A**2*B**2-E**2
-            b=-(2*A*B*(Deltaprime_max+3*R2)+2*C*E)
-            c=(Deltaprime_max-R2)**2-C**2
+            a = A ** 2 * B ** 2 - E ** 2
+            b = -(2 * A * B * (Deltaprime_max + 3 * R2) + 2 * C * E)
+            c = (Deltaprime_max - R2) ** 2 - C ** 2
 
-            lambda1=(-b - (b**2-4*a*c)**0.5)/(2*a)
-            lambda2=(-b + (b**2-4*a*c)**0.5)/(2*a)
-            ax=axes.axis()
-            axes.plot([1/lambda1]*2,ax[2:],'k--',label='Smallest usable L1: %g mm.\nCorresponding L2: %g mm'%(1/lambda1,(Rs_max-R2)/A/lambda1-deltaL))
+            lambda1 = (-b - (b ** 2 - 4 * a * c) ** 0.5) / (2 * a)
+            lambda2 = (-b + (b ** 2 - 4 * a * c) ** 0.5) / (2 * a)
+            ax = axes.axis()
+            axes.plot([1 / lambda1] * 2, ax[2:], 'k--', label='Smallest usable L1: %g mm.\nCorresponding L2: %g mm' % (1 / lambda1, (Rs_max - R2) / A / lambda1 - deltaL))
 
-            L2_opt= (2*(np.linspace(*L1_limits)*R2*(L3+deltaL))/(R1+R2))**0.5
-            axes.plot(np.linspace(*L1_limits),L2_opt,'m-',label='L2 with smallest beam-stop')
-            axes.legend(loc='best',framealpha=0.2, fontsize='small')
-            axes.text(0.98,0.02,'D1=%g mm, D2=%g mm, SD=%g mm'%(2*R1,2*R2,L3-deltaL),transform=axes.transAxes,ha='right',va='bottom',bbox={'facecolor':'white','alpha':0.5},fontsize='small')
+            L2_opt = (2 * (np.linspace(*L1_limits) * R2 * (L3 + deltaL)) / (R1 + R2)) ** 0.5
+            axes.plot(np.linspace(*L1_limits), L2_opt, 'm-', label='L2 with smallest beam-stop')
+            axes.legend(loc='best', framealpha=0.2, fontsize='small')
+            axes.text(0.98, 0.02, 'D1=%g mm, D2=%g mm, SD=%g mm' % (2 * R1, 2 * R2, L3 - deltaL), transform=axes.transAxes, ha='right', va='bottom', bbox={'facecolor':'white', 'alpha':0.5}, fontsize='small')
             self._canvas.draw()
         else:
-            ToolDialog.do_response(self,respid)
+            ToolDialog.do_response(self, respid)
 
 class PinHoleCalculator(ToolDialog):
     _pinhole_inventory = [150, 150, 200, 300, 300, 400, 400, 400, 500, 500, 500, 600, 600, 750, 750, 750, 1000, 1000, 1000, 1250]
@@ -402,7 +402,7 @@ class PinHoleCalculator(ToolDialog):
     _Nrays = 1000000
     _last_results = None
     def __init__(self, credo, title='Pin-hole calculator'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, credo, title)
         self._distelement_inventory = Inventory([str(x) for x in self._distelement_inventory])
         self._pinhole_inventory = Inventory([str(x) for x in self._pinhole_inventory])
 
@@ -411,7 +411,7 @@ class PinHoleCalculator(ToolDialog):
         vb.pack_start(grid, True, True, 0)
         row = 0
         l = Gtk.Label(label='Pin-hole #1 diameter (um):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._ph1_aperture_entry = Gtk.ComboBoxText()
@@ -421,7 +421,7 @@ class PinHoleCalculator(ToolDialog):
         grid.attach(self._ph1_aperture_entry, 1, row, 1, 1)
         row += 1
         l = Gtk.Label(label='Pin-hole #2 diameter (um):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._ph2_aperture_entry = Gtk.ComboBoxText()
@@ -431,7 +431,7 @@ class PinHoleCalculator(ToolDialog):
         grid.attach(self._ph2_aperture_entry, 1, row, 1, 1)
         row += 1
         self._ph3_manual_selector = Gtk.CheckButton(label='Pin-hole #3 diameter (um):')
-        self._ph3_manual_selector.set_alignment(0, 0.5)
+        self._ph3_manual_selector.set_halign(Gtk.Align.START)
         grid.attach(self._ph3_manual_selector, 0, row, 1, 1)
         self._ph3_manual_selector.set_hexpand(False)
         self._ph3_aperture_entry = Gtk.ComboBoxText()
@@ -443,7 +443,7 @@ class PinHoleCalculator(ToolDialog):
         self._ph3_manual_selector.set_active(False)
         row += 1
         self._bs_manual_selector = Gtk.CheckButton(label='Beamstop diameter (mm):')
-        self._bs_manual_selector.set_alignment(0, 0.5)
+        self._bs_manual_selector.set_halign(Gtk.Align.START)
         grid.attach(self._bs_manual_selector, 0, row, 1, 1)
         self._bs_manual_selector.set_hexpand(False)
         self._bs_size_entry = Gtk.SpinButton(digits=2)
@@ -456,14 +456,14 @@ class PinHoleCalculator(ToolDialog):
         self._bs_manual_selector.set_active(False)
         row += 1
         l = Gtk.Label(label='Pin-hole #1-#2 distance elements:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._ph12_dist_elements_entry = InventorySelectorButtons(self._distelement_inventory)
         grid.attach(self._ph12_dist_elements_entry, 1, row, 1, 1)
         row += 1
         l = Gtk.Label(label='Pin-hole #2-#3 distance elements:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._ph23_dist_elements_entry = InventorySelectorButtons(self._distelement_inventory)
@@ -471,7 +471,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='Sample-to-detector distance (mm):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._sddist_entry = Gtk.ComboBoxText()
@@ -482,7 +482,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='Pin-hole #3-to-sample distance (mm):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._p3_sample_dist_entry = Gtk.SpinButton(digits=2)
@@ -493,7 +493,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='Beamstop front-to-detector distance (mm):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._bs_det_dist_entry = Gtk.SpinButton(digits=2)
@@ -504,7 +504,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='Beam width at X-ray generator exit (mm):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._beamwidth_entry = Gtk.SpinButton(digits=2)
@@ -515,7 +515,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='Beam height at X-ray generator exit (mm):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._beamheight_entry = Gtk.SpinButton(digits=2)
@@ -526,7 +526,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='Beam HWHM divergence (mrad):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._beamdiv_entry = Gtk.SpinButton(digits=4)
@@ -537,7 +537,7 @@ class PinHoleCalculator(ToolDialog):
         row += 1
 
         l = Gtk.Label(label='No. of rays for Monte Carlo:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         l.set_hexpand(False)
         self._Nrays_entry = Gtk.SpinButton(digits=0)
@@ -584,14 +584,14 @@ class PinHoleCalculator(ToolDialog):
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vbox.pack_start(hbox, False, False, 0)
         l = Gtk.Label(label='Distance along beam:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hbox.pack_start(l, False, False, 0)
         self._beampathlength_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=None)
         hbox.pack_start(self._beampathlength_scale, True, True, 0)
         self._beampathlength_scale.set_value_pos(Gtk.PositionType.RIGHT)
 
         self._beamprofile_plottype = Gtk.CheckButton(label='Beam map instead of radial profile')
-        self._beamprofile_plottype.set_alignment(0, 0.5)
+        self._beamprofile_plottype.set_halign(Gtk.Align.START)
         vbox.pack_start(self._beamprofile_plottype, False, False, 0)
         self._beamprofile_plottype.connect('toggled', self._on_beampathlength_scale_value_changed)
 
@@ -611,11 +611,11 @@ class PinHoleCalculator(ToolDialog):
 
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vbox.pack_start(hbox, False, False, 0)
-        l = Gtk.Label(label='Max. radius:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Max. radius:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hbox.pack_start(l, False, False, 0)
         self._photonradius_max_label = Gtk.Label(label='--')
         hbox.pack_start(self._photonradius_max_label, True, True, 5)
-        l = Gtk.Label(label='Mean radius:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Mean radius:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hbox.pack_start(l, False, False, 0)
         self._photonradius_mean_label = Gtk.Label(label='--')
         hbox.pack_start(self._photonradius_mean_label, True, True, 5)
@@ -656,7 +656,7 @@ class PinHoleCalculator(ToolDialog):
             self._beamprofile_axes.plot((rays['x'] + pos * rays['vx'])[alive], (rays['y'] + pos * rays['vy'])[alive], ',')
             if self._beammap_plotwidth_cb.get_active():
                 width = self._beammap_plotwidth_entry.get_value()
-                self._beamprofile_axes.axis(xmin= -0.5 * width, xmax=0.5 * width, ymin= -0.5 * width, ymax=0.5 * width)
+                self._beamprofile_axes.axis(xmin=-0.5 * width, xmax=0.5 * width, ymin=-0.5 * width, ymax=0.5 * width)
             self._beamprofile_axes.set_aspect('equal')
         else:
             self._beamprofile_axes.hist(r, 100, weights=r ** (-1))

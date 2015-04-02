@@ -17,7 +17,7 @@ class DistCalibrationDialog(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_DistCalibrationDialog'
 
     def __init__(self, credo, title='Sample-to-detector distance calibration'):
-        ToolDialog.__init__(self, credo, title=title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        ToolDialog.__init__(self, credo, title=title, buttons=('OK', Gtk.ResponseType.OK, 'Apply', Gtk.ResponseType.APPLY, 'Cancel', Gtk.ResponseType.CANCEL))
         vb = self.get_content_area()
         f = Gtk.Expander(label='Exposure')
         vb.pack_start(f, False, False, 0)
@@ -91,7 +91,7 @@ class DistCalibrationDialog(ToolDialog):
         vb.pack_start(grid, False, False, 0)
 
         l = Gtk.Label(label='Wavelength:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, 0, 1, 1)
         self._wavelength_entry = Gtk.SpinButton(
             adjustment=Gtk.Adjustment(value=0.15418, lower=0, upper=100, step_increment=0.01, page_increment=0.1, page_size=0.1),
@@ -100,7 +100,7 @@ class DistCalibrationDialog(ToolDialog):
         grid.attach(self._wavelength_entry, 1, 0, 1, 1)
 
         l = Gtk.Label(label='Pixel size:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 2, 0, 1, 1)
         self._pixelsize_entry = Gtk.SpinButton(
             adjustment=Gtk.Adjustment(value=0.172, lower=0, upper=100, step_increment=0.01, page_increment=0.1),
@@ -109,19 +109,19 @@ class DistCalibrationDialog(ToolDialog):
         grid.attach(self._pixelsize_entry, 3, 0, 1, 1)
 
         l = Gtk.Label(label='Coefficient of determination (R2) of the fit:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, 1, 1, 1)
         self._r2_label = Gtk.Label(label='N/A')
         grid.attach(self._r2_label, 1, 1, 1, 1)
 
         l = Gtk.Label(label='Reduced Chi2 of the fit:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 2, 1, 1, 1)
         self._chi2_label = Gtk.Label(label='N/A')
         grid.attach(self._chi2_label, 3, 1, 1, 1)
 
         l = Gtk.Label(label='Sample-to-detector distance:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, 2, 1, 1)
         self._sddist_label = Gtk.Label(label='N/A')
         grid.attach(self._sddist_label, 1, 2, 1, 1)
@@ -238,7 +238,7 @@ class QCalibrationDialog(sasgui.QCalibrator):
 
     def __init__(self, credo, title='Q calibration'):
         sasgui.QCalibrator.__init__(self, title, flags=0, buttons=(
-            Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE,
+            'OK', Gtk.ResponseType.OK, 'Apply', Gtk.ResponseType.APPLY, 'Close',
             Gtk.ResponseType.CLOSE,))
         self.set_default_response(Gtk.ResponseType.CLOSE)
         self.credo = credo

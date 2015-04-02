@@ -38,7 +38,7 @@ class ScanDeviceSelector(Gtk.ComboBoxText):
 class Scan(ToolDialog):
     __gsignals__ = {'response':'override'}
     def __init__(self, credo, title='Scan'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, credo, title, buttons=('Execute', Gtk.ResponseType.OK, 'Close', Gtk.ResponseType.CLOSE))
         vb = self.get_content_area()
         self.entrytable = Gtk.Grid()
         self.entrytable.set_hexpand(True)
@@ -47,14 +47,14 @@ class Scan(ToolDialog):
         self.set_resizable(True)
         row = 0
 
-        l = Gtk.Label(label='Scan device:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Scan device:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
         self.scandevice_selector = ScanDeviceSelector(self.credo)
         self.scandevice_selector.set_hexpand(True)
         self.entrytable.attach(self.scandevice_selector, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Comment:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Comment:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
         self.samplename_entry = Gtk.Entry()
         self.samplename_entry.set_text(self.credo.subsystems['Scan'].comment)
@@ -62,7 +62,7 @@ class Scan(ToolDialog):
         self.entrytable.attach(self.samplename_entry, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Counting time (s):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Counting time (s):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
         self.exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0, upper=100, step_increment=0.1, page_increment=1), digits=4)
         self.exptime_entry.set_value(self.credo.subsystems['Scan'].countingtime)
@@ -71,11 +71,11 @@ class Scan(ToolDialog):
         row += 1
 
         self.symmetric_scan_check = Gtk.CheckButton(label='Symmetric scan');
-        self.symmetric_scan_check.set_alignment(0, 0.5)
+        self.symmetric_scan_check.set_halign(Gtk.Align.START)
         self.entrytable.attach(self.symmetric_scan_check, 0, row, 2, 1)
         row += 1
 
-        self.start_label = Gtk.Label(label='Start:'); self.start_label.set_alignment(0, 0.5)
+        self.start_label = Gtk.Label(label='Start:'); self.start_label.set_halign(Gtk.Align.START); self.start_label.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(self.start_label, 0, row, 1, 1)
         self.start_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=-1e9, upper=1e9, step_increment=1, page_increment=10), digits=4)
         self.entrytable.attach(self.start_entry, 1, row, 1, 1)
@@ -83,7 +83,7 @@ class Scan(ToolDialog):
         self.start_entry.connect('value-changed', lambda sb: self._recalculate_stepsize())
         row += 1
 
-        self.end_label = Gtk.Label(label='End:'); self.end_label.set_alignment(0, 0.5)
+        self.end_label = Gtk.Label(label='End:'); self.end_label.set_halign(Gtk.Align.START); self.end_label.set_valign(Gtk.Align.CENTER)
         self.end_label.set_no_show_all(True)
         self.entrytable.attach(self.end_label, 0, row, 1, 1)
         self.end_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=-1e9, upper=1e9, step_increment=1, page_increment=10), digits=4)
@@ -95,7 +95,7 @@ class Scan(ToolDialog):
 
         self.symmetric_scan_check.connect('toggled', self.on_symmetric_scan_toggled)
 
-        l = Gtk.Label(label='Number of steps:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Number of steps:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
         self.step_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=2, upper=1e9, step_increment=1, page_increment=10), digits=0)
         self.entrytable.attach(self.step_entry, 1, row, 1, 1)
@@ -104,13 +104,13 @@ class Scan(ToolDialog):
         row += 1
 
 
-        l = Gtk.Label(label='Step size:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Step size:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
-        self.stepsize_label = Gtk.Label(label='--'); self.stepsize_label.set_alignment(0, 0.5)
+        self.stepsize_label = Gtk.Label(label='--'); self.stepsize_label.set_halign(Gtk.Align.START); self.stepsize_label.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(self.stepsize_label, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Delay between exposures (s):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Delay between exposures (s):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
         self.dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=0.003, upper=10000, step_increment=1, page_increment=10), digits=4)
         self.dwelltime_entry.set_value(self.credo.subsystems['Scan'].waittime)
@@ -118,18 +118,18 @@ class Scan(ToolDialog):
         row += 1
 
 #        self.shutter_checkbutton = Gtk.CheckButton('Open shutter at start and close at end')
-#        self.shutter_checkbutton.set_alignment(0, 0.5)
+#        self.shutter_checkbutton.set_halign(Gtk.Align.START)
 #        self.entrytable.attach(self.shutter_checkbutton, 0, 2, row, row + 1)
 #        self.shutter_checkbutton.set_active(self.credo.subsystems['Scan'].operate_shutter)
 #        row += 1
 
         self.autoreturn_checkbutton = Gtk.CheckButton('Auto-return to start at end')
-        self.autoreturn_checkbutton.set_alignment(0, 0.5)
+        self.autoreturn_checkbutton.set_halign(Gtk.Align.START)
         self.entrytable.attach(self.autoreturn_checkbutton, 0, row, 2, 1)
         self.autoreturn_checkbutton.set_active(self.credo.subsystems['Scan'].autoreturn)
         row += 1
 
-        l = Gtk.Label(label='Iterations:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Iterations:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, row, 1, 1)
         self.repetitions_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(lower=1, upper=100000, step_increment=1, page_increment=10), digits=0)
         self.repetitions_entry.set_value(1)
@@ -222,7 +222,7 @@ class Scan(ToolDialog):
         else:
             self.set_sensitive(True)
             self.entrytable.set_sensitive(False)
-            self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_STOP)
+            self.get_widget_for_response(Gtk.ResponseType.OK).set_label('Stop')
             self.lazystop_button.set_sensitive(True)
             self._progress_frame.show_now()
             self._progressbar.set_fraction(0.0)
@@ -230,7 +230,7 @@ class Scan(ToolDialog):
             self._starttime = time.time()
     def do_response(self, respid):
         if respid in (Gtk.ResponseType.CLOSE, Gtk.ResponseType.DELETE_EVENT):
-            if self.get_sensitive() and self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == Gtk.STOCK_EXECUTE:
+            if self.get_sensitive() and self.get_widget_for_response(Gtk.ResponseType.OK).get_label() == 'Execute':
                 self.destroy()
                 return True
             else:
@@ -240,10 +240,10 @@ class Scan(ToolDialog):
                 del md
                 return True
         if respid == Gtk.ResponseType.OK:
-            if self.get_widget_for_response(respid).get_label() == Gtk.STOCK_STOP:
+            if self.get_widget_for_response(respid).get_label() == 'Stop':
                 self.set_response_sensitive(respid, False)
                 self.credo.subsystems['Scan'].kill()
-            elif self.get_widget_for_response(respid).get_label() == Gtk.STOCK_EXECUTE:
+            elif self.get_widget_for_response(respid).get_label() == 'Execute':
                 self.start_scan()
             else:
                 raise NotImplementedError
@@ -265,7 +265,7 @@ class Scan(ToolDialog):
             GLib.idle_add(lambda: self.start_scan() and False)
         else:
             logger.info('Scan ended, no repetitions requested.')
-            self.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_EXECUTE)
+            self.get_widget_for_response(Gtk.ResponseType.OK).set_label('Execute')
             self.set_response_sensitive(Gtk.ResponseType.OK, True)
             self.lazystop_button.set_sensitive(False)
             self.entrytable.set_sensitive(True)

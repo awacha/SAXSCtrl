@@ -3,7 +3,7 @@ from gi.repository import Gdk
 from ..hardware.instruments import InstrumentPropertyCategory, InstrumentError, InstrumentPropertyUnknown
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class InstrumentStatusLabel(Gtk.Box):
     __gtype_name__ = 'SAXSCtrl_InstrumentStatusLabel'
@@ -42,9 +42,9 @@ class InstrumentStatusLabel(Gtk.Box):
             value = None
             category = InstrumentPropertyCategory.UNKNOWN
         if self._colourer is None:
-            colour=self._default_colourer(value, category)
+            colour = self._default_colourer(value, category)
         else:
-            colour=self._colourer(value,category)
+            colour = self._colourer(value, category)
         self._eventbox.override_background_color(Gtk.StateFlags.NORMAL, colour)
         if category != InstrumentPropertyCategory.UNKNOWN:
             self._valuelabel.set_text(self._formatter(value))
@@ -52,7 +52,7 @@ class InstrumentStatusLabel(Gtk.Box):
             self._valuelabel.set_text('UNKNOWN')
         return True
     @staticmethod
-    def _default_colourer(value,category):
+    def _default_colourer(value, category):
         if category in [InstrumentPropertyCategory.ERROR, InstrumentPropertyCategory.NO]:
             return Gdk.RGBA(*Gdk.color_parse('red').to_floats())
         elif category in [InstrumentPropertyCategory.OK, InstrumentPropertyCategory.YES]:
@@ -67,7 +67,7 @@ class InstrumentStatusLabel(Gtk.Box):
             raise NotImplementedError('Instrument property category "%s" is unknown for InstrumentStatusLabel.' % category)
 
     @staticmethod
-    def _default_colourer_reversed(value,category):
+    def _default_colourer_reversed(value, category):
         if category in [InstrumentPropertyCategory.OK, InstrumentPropertyCategory.YES]:
             return Gdk.RGBA(*Gdk.color_parse('red').to_floats())
         elif category in [InstrumentPropertyCategory.ERROR, InstrumentPropertyCategory.NO]:

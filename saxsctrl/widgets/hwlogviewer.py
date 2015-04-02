@@ -8,7 +8,7 @@ import datetime
 class HWLogViewer(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_HWLogViewer'
     def __init__(self, credo, title):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, 1))
+        ToolDialog.__init__(self, credo, title, buttons=('Close', Gtk.ResponseType.CLOSE, 'Refresh', 1))
         hpaned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.get_content_area().pack_start(hpaned, True, True, 0)
         toolvb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -21,23 +21,23 @@ class HWLogViewer(ToolDialog):
         figvb.pack_start(self._figcanvas, True, True, 0)
         self._figcanvas.set_size_request(640, 480)
         figvb.pack_start(self._figtoolbar, False , False, 0)
-    
+
         grid = Gtk.Grid()
         toolvb.pack_start(grid, False, False, 0)
         row = 0
         l = Gtk.Label(label='Equipment:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self._equipment_selector = Gtk.ComboBoxText()
         for eq in credo.subsystems['Equipments'].known_equipments():
             self._equipment_selector.append_text(eq)
         self._equipment_selector.set_active(0)
         self._equipment_selector.connect('changed', lambda cbt:self._on_equipment_changed())
-        grid.attach(self._equipment_selector, 1, row, 1, 1)    
+        grid.attach(self._equipment_selector, 1, row, 1, 1)
         row += 1
-        
+
         l = Gtk.Label(label='Parameter:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self._parameter_selector = Gtk.ComboBoxText()
         grid.attach(self._parameter_selector, 1, row, 1, 1)
@@ -45,7 +45,7 @@ class HWLogViewer(ToolDialog):
         row += 1
 
         self._starttimecheck = Gtk.CheckButton(label='Start time:')
-        self._starttimecheck.set_alignment(0, 0.5)
+        self._starttimecheck.set_halign(Gtk.Align.START)
         grid.attach(self._starttimecheck, 0, row, 1, 1)
         self._starttimeentry = DateEntry(orientation=Gtk.Orientation.VERTICAL)
         self._starttimeentry.set_datetime(datetime.datetime.now())
@@ -55,9 +55,9 @@ class HWLogViewer(ToolDialog):
         self._starttimeentry.connect('changed', lambda te:self._redraw())
         self._starttimecheck.set_active(False)
         row += 1
-        
+
         self._endtimecheck = Gtk.CheckButton(label='End time:')
-        self._endtimecheck.set_alignment(0, 0.5)
+        self._endtimecheck.set_halign(Gtk.Align.START)
         grid.attach(self._endtimecheck, 0, row, 1, 1)
         self._endtimeentry = DateEntry(orientation=Gtk.Orientation.VERTICAL)
         self._endtimeentry.set_datetime(datetime.datetime.now())
@@ -67,40 +67,40 @@ class HWLogViewer(ToolDialog):
         self._endtimeentry.connect('changed', lambda te:self._redraw())
         self._endtimecheck.set_active(False)
         row += 1
-        
+
         self._logy_checkbutton = Gtk.CheckButton(label='Logarithmic y')
-        self._logy_checkbutton.set_alignment(0, 0.5)
+        self._logy_checkbutton.set_halign(Gtk.Align.START)
         grid.attach(self._logy_checkbutton, 0, row, 2, 1)
         self._logy_checkbutton.connect('toggled', lambda cb:self._redraw())
         row += 1
 
         self._connectpoints_checkbutton = Gtk.CheckButton(label='Plot continuous line')
-        self._connectpoints_checkbutton.set_alignment(0, 0.5)
+        self._connectpoints_checkbutton.set_halign(Gtk.Align.START)
         grid.attach(self._connectpoints_checkbutton, 0, row, 2, 1)
         self._connectpoints_checkbutton.connect('toggled', lambda cb:self._redraw())
         row += 1
-        
+
         self._abscissa_dates_radio = Gtk.RadioButton(label='Dates on abscissa')
-        self._abscissa_dates_radio.set_alignment(0, 0.5)
+        self._abscissa_dates_radio.set_halign(Gtk.Align.START)
         grid.attach(self._abscissa_dates_radio, 0, row, 2, 1)
         self._abscissa_dates_radio.connect('toggled', lambda rb:(rb.get_active() and self._redraw()))
         self._abscissa_dates_radio.set_active(True)
         row += 1
-        
+
         self._abscissa_linear_radio = Gtk.RadioButton.new_with_label_from_widget(self._abscissa_dates_radio, 'Linear abscissa')
-        self._abscissa_linear_radio.set_alignment(0, 0.5)
+        self._abscissa_linear_radio.set_halign(Gtk.Align.START)
         grid.attach(self._abscissa_linear_radio, 0, row, 2, 1)
         self._abscissa_linear_radio.connect('toggled', lambda rb:(rb.get_active() and self._redraw()))
         row += 1
-        
+
         self._abscissa_logarithmic_radio = Gtk.RadioButton.new_with_label_from_widget(self._abscissa_dates_radio, 'Logarithmic abscissa')
-        self._abscissa_logarithmic_radio.set_alignment(0, 0.5)
+        self._abscissa_logarithmic_radio.set_halign(Gtk.Align.START)
         grid.attach(self._abscissa_logarithmic_radio, 0, row, 2, 1)
         self._abscissa_logarithmic_radio.connect('toggled', lambda rb:(rb.get_active() and self._redraw()))
         row += 1
-        
 
-        
+
+
         self._on_equipment_changed()
         self.show_all()
     def do_response(self, respid):
@@ -150,5 +150,5 @@ class HWLogViewer(ToolDialog):
             else:
                 ax.set_xscale('log')
         ax.set_ylabel(self._parameter_selector.get_active_text())
-        
+
         self._figcanvas.draw()

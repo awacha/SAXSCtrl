@@ -15,13 +15,13 @@ class ScanViewer(ToolDialog):
         self.entrytable = Gtk.Table()
         vb.pack_start(self.entrytable, False, True, 0)
         row = 0
-        
-        l = Gtk.Label(label='Scan file:'); l.set_alignment(0, 0.5)
+
+        l = Gtk.Label(label='Scan file:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.scanfile_entry = FileEntryWithButton()
         self.scanfile_entry.set_filename(self.credo.subsystems['Files'].scanfilename)
         self.entrytable.attach(self.scanfile_entry, 1, 2, row, row + 1)
-        b = Gtk.Button(stock=Gtk.STOCK_REFRESH)
+        b = Gtk.Button(label='Refresh')
         self.entrytable.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         b.connect('clicked', lambda b: self.reload_list())
         vp = Gtk.VPaned()
@@ -82,7 +82,7 @@ class ScanViewer(ToolDialog):
         b = Gtk.Button('Make movie')
         b.connect('clicked', self.on_movie_button)
         hbb.add(b)
-        
+
         vb.show_all()
         self.reload_list()
     def on_cellrenderer_toggled(self, crtoggle, path, what, colidx):
@@ -95,7 +95,7 @@ class ScanViewer(ToolDialog):
             for l in self.cols_liststore:
                 l[colidx] = False
             self.cols_liststore[path][colidx] = not prevval
-        return True        
+        return True
     def on_movie_button(self, button):
         model, paths = self.scan_treeview.get_selection().get_selected_rows()
         row = model[paths[0]]
@@ -109,12 +109,12 @@ class ScanViewer(ToolDialog):
         self.spec = sastool.classes.SASScanStore(self.scanfile_entry.get_filename())
         for scan in [s for s in self.spec if len(s)]:
             self.scan_liststore.append((scan.fsn, scan.columns()[0], scan.comment, scan.command, len(scan), datetime.datetime.fromtimestamp(scan.timestamp).strftime('%F %R')))
-            
+
     def _plot(self):
         model, paths = self.scan_treeview.get_selection().get_selected_rows()
         row = model[paths[0]]
         scan = self.spec[row[0]]
-        
+
         if isinstance(scan._N, tuple):
             sg = scangraph.ImagingGraph(scan, 'Imaging #' + str(scan.fsn) + ' -- ' + str(scan.comment))
         else:

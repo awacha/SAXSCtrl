@@ -7,7 +7,7 @@ from .spec_filechoosers import MaskEntryWithButton
 import time
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class ExposureFrame(Gtk.Frame):
     __gsignals__ = {'started':(GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -19,11 +19,11 @@ class ExposureFrame(Gtk.Frame):
         Gtk.Frame.__init__(self, label='Expose...')
         self._connections = []
         self.credo = credo
-        tab = Gtk.Table()
-        self.add(tab)
+        grid = Gtk.Grid()
+        self.add(grid)
         row = 0
-        l = Gtk.Label(label='Filename prefix:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        l = Gtk.Label(label='Filename prefix:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
         self._fileformat_entry = Gtk.ComboBoxText.new_with_entry()
         for i, f in enumerate(self.credo.subsystems['Files'].formats()):
             self._fileformat_entry.append_text(f)
@@ -37,59 +37,60 @@ class ExposureFrame(Gtk.Frame):
             self._connections.append((self.credo.subsystems['Files'], self.credo.subsystems['Files'].connect('notify::filebegin', self._on_filebegin_changed)))
         if fixedformat is not None:
             self._fileformat_entry.set_sensitive(False)
-        tab.attach(self._fileformat_entry, 1, 2, row, row + 1)
+        self._fileformat_entry.set_hexpand(True)
+        grid.attach(self._fileformat_entry, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Exposure time (sec):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(10, 0.0001, 3600 * 24 * 7, 10, 100), digits=4)
+        l = Gtk.Label(label='Exposure time (sec):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
+        self._exptime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=10, lower=0.0001, upper=3600 * 24 * 7, step_increment=10, page_increment=100), digits=4)
         self._exptime_entry.set_value(self.credo.subsystems['Exposure'].exptime)
-        tab.attach(self._exptime_entry, 1, 2, row, row + 1)
+        grid.attach(self._exptime_entry, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Dwell time (sec):'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0.003, 0.003, 3600 * 24 * 7, 10, 100), digits=4)
-        tab.attach(self._dwelltime_entry, 1, 2, row, row + 1)
+        l = Gtk.Label(label='Dwell time (sec):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
+        self._dwelltime_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0.003, lower=0.003, upper=3600 * 24 * 7, step_increment=10, page_increment=100), digits=4)
+        grid.attach(self._dwelltime_entry, 1, row, 1, 1)
         self._dwelltime_entry.set_value(self.credo.subsystems['Exposure'].dwelltime)
         self._dwelltime_entry.set_sensitive(False)
         row += 1
 
-        l = Gtk.Label(label='Number of images:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(1, 1, 9999999999, 1, 10), digits=0)
-        tab.attach(self._nimages_entry, 1, 2, row, row + 1)
+        l = Gtk.Label(label='Number of images:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
+        self._nimages_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=1, lower=1, upper=9999999999, step_increment=1, page_increment=10), digits=0)
+        grid.attach(self._nimages_entry, 1, row, 1, 1)
         self._nimages_entry.set_value(self.credo.subsystems['Exposure'].nimages)
         self._connections.append((self._nimages_entry, self._nimages_entry.connect('value-changed', lambda sb:self._dwelltime_entry.set_sensitive(self._nimages_entry.get_value_as_int() > 1))))
         row += 1
 
-        l = Gtk.Label(label='Mask file:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        l = Gtk.Label(label='Mask file:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
         self._maskfile_entry = MaskEntryWithButton(self.credo)
-        tab.attach(self._maskfile_entry, 1, 2, row, row + 1)
+        grid.attach(self._maskfile_entry, 1, row, 1, 1)
         self._maskfile_entry.set_filename(self.credo.subsystems['Exposure'].default_mask)
         row += 1
 
-        l = Gtk.Label(label='Next FSN:'); l.set_alignment(0, 0.5)
-        tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
+        l = Gtk.Label(label='Next FSN:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
         if fixedformat:
-            self._nextfsn_label = Gtk.Label(str(self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(fixedformat, None))))
+            self._nextfsn_label = Gtk.Label(label=str(self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(fixedformat, None))))
         else:
-            self._nextfsn_label = Gtk.Label(str(self.credo.subsystems['Files'].get_next_fsn()))
+            self._nextfsn_label = Gtk.Label(label=str(self.credo.subsystems['Files'].get_next_fsn()))
         self._connections.append((self.credo.subsystems['Files'], self.credo.subsystems['Files'].connect('new-nextfsn', lambda ssf, fsn, regex: (regex.startswith(self._fileformat_entry.get_active_text()) and  (self._nextfsn_label.set_text(str(fsn)))))))
-        tab.attach(self._nextfsn_label, 1, 2, row, row + 1, xpadding=2)
+        grid.attach(self._nextfsn_label, 1, row, 1, 1)
         row += 1
 
         self.exposure_progress = Gtk.ProgressBar()
         self.exposure_progress.set_no_show_all(True)
         self.exposure_progress.set_show_text(True)
-        tab.attach(self.exposure_progress, 0, 2, row, row + 1)
+        grid.attach(self.exposure_progress, 0, row, 1, 2)
         row += 1
 
         self.nimages_progress = Gtk.ProgressBar()
         self.nimages_progress.set_no_show_all(True)
         self.nimages_progress.set_show_text(True)
-        tab.attach(self.nimages_progress, 0, 2, row, row + 1)
+        grid.attach(self.nimages_progress, 0, row, 1, 2)
         row += 1
 
         self._conns = []

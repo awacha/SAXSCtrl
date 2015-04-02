@@ -825,8 +825,7 @@ class SAXSSequence(ToolDialog):
     _filename = 'untitled.aseq'
     _changed = False
     def __init__(self, credo, title='SAXS Sequence'):
-        # ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_SAVE, self.RESPONSE_SAVE, Gtk.STOCK_OPEN, self.RESPONSE_OPEN, Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, credo, title)
 
         self.sequence = Gtk.ListStore(GObject.TYPE_STRING,  # element string
                                       GObject.TYPE_OBJECT,  # element object
@@ -929,7 +928,7 @@ class SAXSSequence(ToolDialog):
         self._sourceview.set_indent_width(4)
         self._sourceview.set_tab_width(4)
         ma = GtkSource.MarkAttributes()
-        ma.set_stock_id(Gtk.STOCK_MEDIA_PLAY)
+        ma.set_icon_name('media-playback-start')
         ma.set_background(Gdk.RGBA(0, 1, 0, 1))
         self._sourceview.set_mark_attributes('Executing', ma, 0)
         self._progressbar = Gtk.ProgressBar()
@@ -960,7 +959,7 @@ class SAXSSequence(ToolDialog):
             self.save_to(self._filename)
             return
         if (not hasattr(self, '_fcd')) and (what in ['saveas', 'load']):
-            self._fcd = Gtk.FileChooserDialog('Save automatic sequence to...', self, Gtk.FileChooserAction.SAVE, (Gtk.STOCK_SAVE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+            self._fcd = Gtk.FileChooserDialog('Save automatic sequence to...', self, Gtk.FileChooserAction.SAVE, ('Save', Gtk.ResponseType.OK, 'Cancel', Gtk.ResponseType.CANCEL))
             ff = Gtk.FileFilter(); ff.set_name('All files (*)'); ff.add_pattern('*'); self._fcd.add_filter(ff)
             ff = Gtk.FileFilter(); ff.set_name('Automatic sequence files (*.aseq)'); ff.add_pattern('*.aseq'); self._fcd.add_filter(ff)
             self._fcd.set_filter(ff)
@@ -970,11 +969,11 @@ class SAXSSequence(ToolDialog):
             self._fcd.set_title('Save automatic sequence to...')
             self._fcd.set_action(Gtk.FileChooserAction.SAVE)
             self._fcd.set_do_overwrite_confirmation(True)
-            self._fcd.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_SAVE_AS)
+            self._fcd.get_widget_for_response(Gtk.ResponseType.OK).set_label('Save as')
         elif what == 'load':
             self._fcd.set_title('Load automatic sequence from...')
             self._fcd.set_action(Gtk.FileChooserAction.OPEN)
-            self._fcd.get_widget_for_response(Gtk.ResponseType.OK).set_label(Gtk.STOCK_OPEN)
+            self._fcd.get_widget_for_response(Gtk.ResponseType.OK).set_label('Open')
         if self._fcd.run() == Gtk.ResponseType.OK:
             filename = self._fcd.get_filename()
             if what in ['save', 'saveas']:

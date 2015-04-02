@@ -10,7 +10,7 @@ import re
 
 
 class MovieMaker(Gtk.Dialog):
-    def __init__(self, credo, scan, title='Create movie from scan', parent=None, flags=0, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+    def __init__(self, credo, scan, title='Create movie from scan', parent=None, flags=0, buttons=('Execute', Gtk.ResponseType.OK, 'Cancel', Gtk.ResponseType.CANCEL)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.CANCEL)
         self.credo = credo
@@ -29,25 +29,25 @@ class MovieMaker(Gtk.Dialog):
         vb1.pack_start(self.pritable, False, True, 0)
         row = 0
         
-        l = Gtk.Label(label='Top:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Top:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.pritable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.pritop_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e10, 1e10, 1, 10), digits=2)
         self.pritable.attach(self.pritop_entry, 1, 2, row, row + 1)
         row += 1
 
-        l = Gtk.Label(label='Bottom:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Bottom:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.pritable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.pribottom_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e10, 1e10, 1, 10), digits=2)
         self.pritable.attach(self.pribottom_entry, 1, 2, row, row + 1)
         row += 1
         
-        l = Gtk.Label(label='Left:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Left:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.pritable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.prileft_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e10, 1e10, 1, 10), digits=2)
         self.pritable.attach(self.prileft_entry, 1, 2, row, row + 1)
         row += 1
 
-        l = Gtk.Label(label='Right:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Right:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.pritable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.priright_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, -1e10, 1e10, 1, 10), digits=2)
         self.pritable.attach(self.priright_entry, 1, 2, row, row + 1)
@@ -57,7 +57,7 @@ class MovieMaker(Gtk.Dialog):
         vb.pack_start(self.entrytable, False, True, 0)
         row = 0
 
-        self.Imin_checkbutton = Gtk.CheckButton('Lower intensity cut-off:'); self.Imin_checkbutton.set_alignment(0, 0.5)
+        self.Imin_checkbutton = Gtk.CheckButton('Lower intensity cut-off:'); self.Imin_checkbutton.set_halign(Gtk.Align.START)
         self.entrytable.attach(self.Imin_checkbutton, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.Imin_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e100, 1, 10), digits=0)
         self.entrytable.attach(self.Imin_entry, 1, 2, row, row + 1)
@@ -65,7 +65,7 @@ class MovieMaker(Gtk.Dialog):
         self.on_sensitivity_checkbutton(self.Imin_checkbutton, self.Imin_entry)
         row += 1
         
-        self.Imax_checkbutton = Gtk.CheckButton('Upper intensity cut-off:'); self.Imax_checkbutton.set_alignment(0, 0.5)
+        self.Imax_checkbutton = Gtk.CheckButton('Upper intensity cut-off:'); self.Imax_checkbutton.set_halign(Gtk.Align.START)
         self.entrytable.attach(self.Imax_checkbutton, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.Imax_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e100, 1, 10), digits=0)
         self.entrytable.attach(self.Imax_entry, 1, 2, row, row + 1)
@@ -73,7 +73,7 @@ class MovieMaker(Gtk.Dialog):
         self.on_sensitivity_checkbutton(self.Imax_checkbutton, self.Imax_entry)
         row += 1
 
-        l = Gtk.Label(label='Colour scaling:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Colour scaling:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.colourscale_combo = Gtk.ComboBoxText()
         for l in ['linear', 'log', 'sqrt']:
@@ -82,7 +82,7 @@ class MovieMaker(Gtk.Dialog):
         self.entrytable.attach(self.colourscale_combo, 1, 2, row, row + 1)
         row += 1
         
-        l = Gtk.Label(label='Movie fps:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Movie fps:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.fps_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(25, 0, 100, 1, 10), digits=0)
         self.fps_entry.set_value(25)

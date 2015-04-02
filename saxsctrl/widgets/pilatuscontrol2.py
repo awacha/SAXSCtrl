@@ -44,7 +44,7 @@ class PilatusControl(ToolDialog):
         hb.pack_start(grid, True, True, 0)
         row = 0
         l = Gtk.Label(label='Threshold (eV):')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self._threshold_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(4024, 4000, 18000, 100, 1000), digits=0)
         self._threshold_entry.set_value(self.credo.get_equipment('pilatus').threshold)
@@ -52,7 +52,7 @@ class PilatusControl(ToolDialog):
         grid.attach(self._threshold_entry, 1, row, 1, 1)
         row += 1
         l = Gtk.Label(label='Gain:')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self._gain_combo = Gtk.ComboBoxText()
         self._gain_combo.append_text('default')
@@ -74,7 +74,7 @@ class PilatusControl(ToolDialog):
         MIDG     4425  -->  14328  eV
         HIGHG     3814  -->  11614  eV
         """)
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hb.pack_start(l, False, False, 0)
 
         self.show_all()

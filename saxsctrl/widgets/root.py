@@ -176,9 +176,13 @@ class RootWindow(Gtk.Window):
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem:Gtk.main_quit())
 
-        self.statuslabel_memory = Gtk.Label(label=''); self.statuslabel_memory.set_alignment(0, 0.5)
+        self.statuslabel_memory = Gtk.Label(label='')
+        self.statuslabel_memory.set_halign(Gtk.Align.START)
+        self.statuslabel_memory.set_valign(Gtk.Align.CENTER)
         hb.pack_start(self.statuslabel_memory, False, False, 3)
-        self.statuslabel_uptime = Gtk.Label(label=''); self.statuslabel_uptime.set_alignment(0, 0.5)
+        self.statuslabel_uptime = Gtk.Label(label='')
+        self.statuslabel_uptime.set_halign(Gtk.Align.START)
+        self.statuslabel_uptime.set_valign(Gtk.Align.CENTER)
         hb.pack_start(self.statuslabel_uptime, False, False, 3)
         eb = Gtk.EventBox()
         hb.pack_start(eb, False, False, 3)
@@ -199,7 +203,7 @@ class RootWindow(Gtk.Window):
         f.add(tab)
         row = 0
 
-        l = Gtk.Label(label='User name:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='User name:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.username_entry = Gtk.Entry()
         self.username_entry.set_text(self.credo.username)
@@ -207,7 +211,7 @@ class RootWindow(Gtk.Window):
         tab.attach(self.username_entry, 1, 3, row, row + 1)
         row += 1
 
-        l = Gtk.Label(label='Project name:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Project name:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.projectname_entry = Gtk.Entry()
         self.projectname_entry.set_text(self.credo.projectname)
@@ -244,12 +248,6 @@ class RootWindow(Gtk.Window):
     def _on_delete_event(self, self_, event):
         md = Gtk.MessageDialog(self, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.WARNING, Gtk.ButtonsType.YES_NO, 'Do you really want to quit SAXSCtrl?')
         md.set_default_response(Gtk.ResponseType.NO)
-        yesbutton = md.get_widget_for_response(Gtk.ResponseType.YES)
-        nobutton = md.get_widget_for_response(Gtk.ResponseType.NO)
-        yesbutton.connect('enter-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-no', Gtk.IconSize.BUTTON)),
-                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-yes', Gtk.IconSize.BUTTON)))) and False, nobutton)
-        yesbutton.connect('leave-notify-event', lambda yesb, ev, nob: bool((yesb.set_image(Gtk.Image.new_from_icon_name('gtk-yes', Gtk.IconSize.BUTTON)),
-                                                                            nob.set_image(Gtk.Image.new_from_icon_name('gtk-no', Gtk.IconSize.BUTTON)))) and False, nobutton)
         result = md.run()
         md.destroy()
         del md

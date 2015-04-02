@@ -11,7 +11,9 @@ logger.setLevel(logging.INFO)
 
 class DataReduction(ToolDialog):
     def __init__(self, credo, title='Data reduction'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_EXECUTE, Gtk.ResponseType.APPLY, Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, Gtk.ResponseType.ACCEPT))
+        ToolDialog.__init__(self, credo, title, buttons=(
+            'Execute', Gtk.ResponseType.APPLY, 'Close',
+            Gtk.ResponseType.CLOSE, 'Refresh', Gtk.ResponseType.ACCEPT))
         vb = self.get_content_area()
         f = Gtk.Frame(label='Filesystem parameters')
         vb.pack_start(f, False, False, 0)
@@ -20,7 +22,8 @@ class DataReduction(ToolDialog):
         row = 0
 
         self._startfsn_check = Gtk.CheckButton(label='Starting FSN:')
-        self._startfsn_check.set_alignment(0, 0.5)
+        self._startfsn_check.set_halign(Gtk.Align.START)
+        self._startfsn_check.set_valign(Gtk.Align.CENTER)
         tab.attach(self._startfsn_check, 0, 1, row, row + 1)
         self._startfsn_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e6, 1, 10), digits=0)
         tab.attach(self._startfsn_spin, 1, 2, row, row + 1)
@@ -30,7 +33,8 @@ class DataReduction(ToolDialog):
         row += 1
 
         self._endfsn_check = Gtk.CheckButton(label='Ending FSN:')
-        self._endfsn_check.set_alignment(0, 0.5)
+        self._endfsn_check.set_halign(Gtk.Align.START)
+        self._endfsn_check.set_valign(Gtk.Align.CENTER)
         tab.attach(self._endfsn_check, 0, 1, row, row + 1)
         self._endfsn_spin = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e6, 1, 10), digits=0)
         tab.attach(self._endfsn_spin, 1, 2, row, row + 1)
@@ -194,7 +198,7 @@ class DataReduction(ToolDialog):
             self._reload_beamtimes()
             return
         elif response == Gtk.ResponseType.APPLY:
-            if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_label() == Gtk.STOCK_STOP:
+            if self.get_widget_for_response(Gtk.ResponseType.APPLY).get_label() == 'Stop':
                 self.credo.subsystems['DataReduction'].stop()
                 return True
             selectedpath = self._headerview.get_selection().get_selected_rows()[1]
@@ -220,7 +224,7 @@ class DataReduction(ToolDialog):
                     self.credo.subsystems['DataReduction'].reduce(sel)
 #                for path in self._headerview.get_selection().get_selected_rows()[1]:
 #                    self._headerlist[path][1] = True
-                self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_STOP)
+                self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label('Stop')
                 logger.debug('Started data reduction sequence.')
             except DataReductionError as dre:
                 md = Gtk.MessageDialog(self.get_toplevel(), Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, 'Error during data reduction!')
@@ -249,6 +253,6 @@ class DataReduction(ToolDialog):
         GLib.source_remove(self._pulser_handle)
         self._pulser_handle = None
         self._headerview.set_sensitive(True)
-        self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label(Gtk.STOCK_EXECUTE)
+        self.get_widget_for_response(Gtk.ResponseType.APPLY).set_label('Execute')
         logger.info('Data reduction sequence finished.')
 

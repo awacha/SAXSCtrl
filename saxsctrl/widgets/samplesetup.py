@@ -12,7 +12,7 @@ import sastool
 
 class SampleSetup(Gtk.Dialog):
     def __init__(self, title='Edit sample', parent=None, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT,
-                 buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)):
+                 buttons=('OK', Gtk.ResponseType.OK, 'Cancel', Gtk.ResponseType.CANCEL)):
         Gtk.Dialog.__init__(self, title, parent, flags, buttons)
         self.set_default_response(Gtk.ResponseType.OK)
         vb = self.get_content_area()
@@ -22,7 +22,7 @@ class SampleSetup(Gtk.Dialog):
         row = 0
 
         l = Gtk.Label(label='Sample name:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.samplename_entry = Gtk.Entry()
         self.samplename_entry.set_placeholder_text('-- please fill --')
@@ -31,7 +31,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label='Description:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.description_entry = Gtk.Entry()
         self.description_entry.set_placeholder_text('-- please fill --')
@@ -41,7 +41,7 @@ class SampleSetup(Gtk.Dialog):
 
 
         l = Gtk.Label(label='Thickness (cm):');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.thickness_entry = ErrorValueEntry(
             adjustment_nominal=Gtk.Adjustment(value=0.1, lower=0, upper=100, step_increment=0.1, page_increment=1),
@@ -52,7 +52,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label='X position:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.positionx_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0, lower=-100, upper=100, step_increment=0.1, page_increment=1),
                                                adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100000, step_increment=0.1, page_increment=1),
@@ -62,7 +62,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label='Y position:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.positiony_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0, lower=-100, upper=100, step_increment=0.1, page_increment=1),
                                                adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100000, step_increment=0.1, page_increment=1),
@@ -72,7 +72,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label='Distance decrease:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.distminus_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0, lower=-1000, upper=1000, step_increment=0.1, page_increment=1),
                                                adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100000, step_increment=0.1, page_increment=1),
@@ -82,7 +82,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label=u'Transmission:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.transmission_entry = ErrorValueEntry(adjustment_nominal=Gtk.Adjustment(value=0.5, lower=0, upper=1, step_increment=0.1, page_increment=1),
                                                   adjustment_error=Gtk.Adjustment(value=0, lower=0, upper=100, step_increment=0.1, page_increment=1),
@@ -92,7 +92,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label=u'Prepared by:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.preparedby_entry = Gtk.Entry()
         self.preparedby_entry.set_placeholder_text('-- please fill --')
@@ -101,7 +101,7 @@ class SampleSetup(Gtk.Dialog):
         row += 1
 
         l = Gtk.Label(label=u'Preparation time:');
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.preparetime_entry = Gtk.Calendar()
         self.preparetime_entry.set_display_options(
@@ -175,8 +175,7 @@ class SampleListDialog(ToolDialog):
     __gsignals__ = {'response': 'override'}
 
     def __init__(self, credo, title='Sample configuration'):
-        ToolDialog.__init__(self, credo, title,
-                            buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, credo, title)
         vb = self.get_content_area()
 
         tbar = Gtk.Toolbar()

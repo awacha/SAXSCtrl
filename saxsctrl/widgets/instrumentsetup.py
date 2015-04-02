@@ -2,7 +2,7 @@ from gi.repository import Gtk
 from .widgets import ToolDialog
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class InstrumentSetup(ToolDialog):
@@ -12,9 +12,9 @@ class InstrumentSetup(ToolDialog):
     def __init__(self, credo, title='Instrument parameters'):
         ToolDialog.__init__(
             self, credo, title, buttons=(
-                Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY,
-                Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL,
-                Gtk.ResponseType.CANCEL, Gtk.STOCK_REFRESH,
+                'OK', Gtk.ResponseType.OK, 'Apply',
+                Gtk.ResponseType.APPLY, 'Cancel',
+                Gtk.ResponseType.CANCEL, 'Refresh',
                 Gtk.ResponseType.REJECT))
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
 

@@ -8,12 +8,15 @@ from ..hardware.instruments.instrument import InstrumentPropertyUnknown
 class HaakePhoenix(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_HaakePhoenixWindow'
     def __init__(self, credo, title='Haake Phoenix Circulator'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_MEDIA_PLAY, Gtk.ResponseType.YES, Gtk.STOCK_MEDIA_STOP, Gtk.ResponseType.NO))
+        ToolDialog.__init__(self, credo, title, buttons=('Close', Gtk.ResponseType.CLOSE,
+                                                         'Apply', Gtk.ResponseType.APPLY,
+                                                         'Start pump', Gtk.ResponseType.YES,
+                                                         'Stop pump', Gtk.ResponseType.NO))
         vb = self.get_content_area()
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         self.set_response_sensitive(Gtk.ResponseType.YES, False)
         self.set_response_sensitive(Gtk.ResponseType.NO, False)
-        
+
         status = InstrumentStatus(self.credo.get_equipment('haakephoenix'), ncolumns=5)
         status.add_label('setpoint', 'Set temperature', '%.02f°C')
         status.add_label('temperature', 'Current temperature', '%.02f°C')
@@ -34,41 +37,41 @@ class HaakePhoenix(ToolDialog):
         tab = Gtk.Table()
         vb.pack_start(tab, False, False, 0)
         row = 0
-        
-        
-        l = Gtk.Label(label='Setpoint (C):'); l.set_alignment(0, 0.5)
+
+
+        l = Gtk.Label(label='Setpoint (C):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._setpoint_sb = Gtk.SpinButton(adjustment=Gtk.Adjustment(25, -50, 200, 1, 10), digits=2)
         tab.attach(self._setpoint_sb, 1, 2, row, row + 1)
         self._setpoint_sb.connect('changed', lambda sb:self.set_response_sensitive(Gtk.ResponseType.APPLY, True))
         row += 1
         self._setpoint_sb.set_value(self.credo.get_equipment('haakephoenix').setpoint)
-        
+
         f = Gtk.Frame(label='Manual programming:')
         vb.pack_start(f, False, False, 0)
         tab = Gtk.Table()
         f.add(tab)
         row = 0
-        l = Gtk.Label(label='Command:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Command:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
         self._command_entry = Gtk.Entry();
         tab.attach(self._command_entry, 1, 2, row, row + 1, xpadding=3)
         row += 1
 
-        
-        l = Gtk.Label(label='Reply:'); l.set_alignment(0, 0.5)
+
+        l = Gtk.Label(label='Reply:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
-        self._result_label = Gtk.Label(label=''); self._result_label.set_alignment(0, 0.5)
+        self._result_label = Gtk.Label(label=''); self._result_label.set_halign(Gtk.Align.START); self._result_label.set_valign(Gtk.Align.CENTER)
         tab.attach(self._result_label, 1, 2, row, row + 1, xpadding=3)
         row += 1
         self._command_entry.connect('activate', lambda entry: self._result_label.set_text(self.credo.get_equipment('haakephoenix').execute(entry.get_text())))
         status.refresh_statuslabels()
-        
+
         if self.credo.get_equipment('haakephoenix').pumppower > 0:
             self.set_response_sensitive(Gtk.ResponseType.NO, True)
         else:
             self.set_response_sensitive(Gtk.ResponseType.YES, True)
-        
+
         self._connection = self.credo.get_equipment('haakephoenix').connect('instrumentproperty-notify', self._on_instrumentproperty_notify)
         self.show_all()
     def _on_instrumentproperty_notify(self, instrument, propname):
@@ -79,7 +82,7 @@ class HaakePhoenix(ToolDialog):
             except InstrumentPropertyUnknown:
                 pass
         return False
-            
+
     def do_response(self, respid):
         if respid == Gtk.ResponseType.APPLY:
             self._setpoint_sb.update()

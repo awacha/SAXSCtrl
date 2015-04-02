@@ -25,7 +25,7 @@ class LogDisplay(Gtk.VBox):
         self.pack_start(hb, False, False, 0)
         self.image = Gtk.Image()
         hb.pack_start(self.image, False, False, 0)
-        self.label = Gtk.Label(); self.label.set_alignment(0, 0.5)
+        self.label = Gtk.Label(); self.label.set_halign(Gtk.Align.START); self.label.set_valign(Gtk.Align.CENTER)
         self.label.set_ellipsize(Pango.EllipsizeMode.END)
         hb.pack_start(self.label, True, True, 0)
         self.show_all()
@@ -52,7 +52,7 @@ class LogDisplay(Gtk.VBox):
         elif record.levelno >= logging.INFO:
             self.image.set_from_icon_name('dialog-info', Gtk.IconSize.SMALL_TOOLBAR)
         else:
-            # self.image.set_from_icon_name(Gtk.STOCK_OK, Gtk.IconSize.SMALL_TOOLBAR)
+            # self.image.set_from_icon_name('OK', Gtk.IconSize.SMALL_TOOLBAR)
             pass
         return False
 

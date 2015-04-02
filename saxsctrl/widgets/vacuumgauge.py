@@ -23,7 +23,7 @@ def get_indicator_colour(value, category):
 class VacuumGauge(ToolDialog):
     __gtype_name__ = 'SAXSCtrl_Widgets_VacuumGauge'
     def __init__(self, credo, title='Vacuum status'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, credo, title)
         vb = self.get_content_area()
 
         self._statusgrid = InstrumentStatus(self.credo.get_equipment('vacgauge'))

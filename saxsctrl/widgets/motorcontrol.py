@@ -76,10 +76,10 @@ class MotorMonitorFrame(Gtk.Frame):
 
 class SaveMotorsDialog(Gtk.Dialog):
     def __init__(self, title='Save motor configuration', parent=None):
-        Gtk.Dialog.__init__(self, title, parent, Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL, (Gtk.STOCK_SAVE, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        Gtk.Dialog.__init__(self, title, parent, destroy_with_parent=True, modal=True, buttons=('Save', Gtk.ResponseType.OK, 'Cancel', Gtk.ResponseType.CANCEL))
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.get_content_area().pack_start(hb, False, False, 0)
-        l = Gtk.Label(label='Name of configuration:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Name of configuration:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hb.pack_start(l, False, False, 0)
         self._name_entry = Gtk.Entry()
         hb.pack_start(self._name_entry, True, True, 0)
@@ -128,7 +128,7 @@ class SaveMotorsDialog(Gtk.Dialog):
 
 class MotorMonitor(ToolDialog):
     def __init__(self, credo, title='Motor positions'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, 1))
+        ToolDialog.__init__(self, credo, title, buttons=('Close', Gtk.ResponseType.CLOSE, 'Refresh', 1))
         self.mmframe = MotorMonitorFrame(self.credo)
         self.get_content_area().pack_start(self.mmframe, False, True, 0)
         f = Gtk.Frame(label='Stored motor configurations')
@@ -153,23 +153,23 @@ class MotorMonitor(ToolDialog):
         self._savedmotorstates_view.set_headers_visible(True)
         self._savedmotorstates_view.connect('row-activated', self._on_row_activated)
         b = Gtk.Button('Add')
-        b.set_image(Gtk.Image.new_from_icon_name('list-add',Gtk.IconSize.BUTTON))
+        b.set_image(Gtk.Image.new_from_icon_name('list-add', Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_add)
         b = Gtk.Button('Remove')
-        b.set_image(Gtk.Image.new_from_icon_name('list-remove',Gtk.IconSize.BUTTON))
+        b.set_image(Gtk.Image.new_from_icon_name('list-remove', Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_remove)
         b = Gtk.Button('Clear')
-        b.set_image(Gtk.Image.new_from_icon_name('edit-clear',Gtk.IconSize.BUTTON))
+        b.set_image(Gtk.Image.new_from_icon_name('edit-clear', Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_clear)
         b = Gtk.Button('Execute')
-        b.set_image(Gtk.Image.new_from_icon_name('system-run',Gtk.IconSize.BUTTON))
+        b.set_image(Gtk.Image.new_from_icon_name('system-run', Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_execute)
         b = Gtk.Button('Redefine')
-        b.set_image(Gtk.Image.new_from_icon_name('document-save-as',Gtk.IconSize.BUTTON))
+        b.set_image(Gtk.Image.new_from_icon_name('document-save-as', Gtk.IconSize.BUTTON))
         vbb.pack_start(b, True, True, 0)
         b.connect('clicked', self._on_redefine)
         self._reload_from_file()
@@ -205,18 +205,18 @@ class MotorMonitor(ToolDialog):
         return self._on_row_activated(self._savedmotorstates_view, it, None)
     def _on_redefine(self, button):
         it = self._savedmotorstates_view.get_selection().get_selected()[1]
-        row=self._motorstates_list[it]
-        ssm=self.credo.subsystems['Motors']
+        row = self._motorstates_list[it]
+        ssm = self.credo.subsystems['Motors']
         cp = ConfigParser.ConfigParser()
         cp.read(os.path.join(self.credo.subsystems['Files'].configpath, 'motorconfigs.conf'))
         if not cp.has_section(row[0]):
             return
-        motors=cp.options(row[0])[:]
+        motors = cp.options(row[0])[:]
         cp.remove_section(row[0])
         cp.add_section(row[0])
         for mname in motors:
-            motor=ssm.get(mname,casesensitive=False)
-            cp.set(row[0],mname,motor.get_parameter('Current_position'))
+            motor = ssm.get(mname, casesensitive=False)
+            cp.set(row[0], mname, motor.get_parameter('Current_position'))
 
         with open(os.path.join(self.credo.subsystems['Files'].configpath, 'motorconfigs.conf'), 'wt') as f:
             cp.write(f)
@@ -390,7 +390,7 @@ class MotorDriver(ToolDialog):
         self.motor = credo.subsystems['Motors'].get(motorname)
         if title is None:
             title = 'Adjust motor %s' % str(self.motor)
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, Gtk.STOCK_REFRESH, 1, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_SAVE, 2))
+        ToolDialog.__init__(self, credo, title, buttons=('Close', Gtk.ResponseType.CLOSE, 'Refresh', 1, 'Apply', Gtk.ResponseType.APPLY, 'Save', 2))
         self.set_resizable(False)
         self.motorconns = []
         self._entries = []
@@ -401,14 +401,14 @@ class MotorDriver(ToolDialog):
         grid = Gtk.Grid()
         f.add(grid)
         row = 0
-        l = Gtk.Label(label='Current position:'); l.set_alignment(0,0.5)
-        grid.attach(l,0,row,1,1)
+        l = Gtk.Label(label='Current position:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        grid.attach(l, 0, row, 1, 1)
 
-        self._poslabel=Gtk.Label(); self._poslabel.set_alignment(0,0.5)
-        self._poslabel.set_label('%.03f'%self.motor.get_parameter('Current_position'))
+        self._poslabel = Gtk.Label(); self._poslabel.set_halign(Gtk.Align.START); self._poslabel.set_valign(Gtk.Align.CENTER)
+        self._poslabel.set_label('%.03f' % self.motor.get_parameter('Current_position'))
         grid.attach(self._poslabel, 1, row, 1, 1)
-        row +=1
-        l = Gtk.Label(label='Move ' + motorname + ' to:'); l.set_alignment(0, 0.5)
+        row += 1
+        l = Gtk.Label(label='Move ' + motorname + ' to:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         grid.attach(hb, 1, row, 1, 1)
@@ -422,7 +422,7 @@ class MotorDriver(ToolDialog):
         row += 1
 
         self._relative_cb = Gtk.CheckButton(label='Relative move');
-        self._relative_cb.set_alignment(0, 0.5)
+        self._relative_cb.set_halign(Gtk.Align.START)
         grid.attach(self._relative_cb, 0, row, 2, 1)
         row += 1
 
@@ -445,12 +445,12 @@ class MotorDriver(ToolDialog):
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vbadvanced.pack_start(hb, False, False, 0)
         hb.set_hexpand(True)
-        img = Gtk.Image(stock=Gtk.STOCK_DIALOG_WARNING, icon_size=Gtk.IconSize.DIALOG)
+        img = Gtk.Image.new_from_icon_name('dialog-warning', icon_size=Gtk.IconSize.DIALOG)
         hb.pack_start(img, False, False, 0)
         eb = Gtk.EventBox()
         l = Gtk.Label(label='<b>WARNING! Use with extreme care!</b>\nIncorrect settings may destroy driver electronics, motor or both!')
         l.set_use_markup(True)
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         eb.add(l)
         eb.set_border_width(5)
         eb.override_background_color(Gtk.StateType.NORMAL, Gdk.RGBA(1, 0, 0, 1))
@@ -462,22 +462,22 @@ class MotorDriver(ToolDialog):
         ex = Gtk.Expander()
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         ex.set_label_widget(hb)
-        hb.pack_start(Gtk.Image(stock=Gtk.STOCK_DIALOG_WARNING, icon_size=Gtk.IconSize.MENU), False, False, 3)
+        hb.pack_start(Gtk.Image.new_from_icon_name('dialog-warning', icon_size=Gtk.IconSize.MENU), False, False, 3)
         l = Gtk.Label(label='Currents')
-        l.set_alignment(0, 0.5)
+        l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hb.pack_start(l, True, True, 0)
         vbadvanced.pack_start(ex, False, False, 0)
         grid = Gtk.Grid()
         ex.add(grid)
         row = 0
 
-        l = Gtk.Label(label='Driver units'); l.set_alignment(0.5, 0.5)
+        l = Gtk.Label(label='Driver units');
         grid.attach(l, 1, row, 1, 1)
-        l = Gtk.Label(label='Physical units'); l.set_alignment(0.5, 0.5)
+        l = Gtk.Label(label='Physical units');
         grid.attach(l, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Max RMS current (A):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Max RMS current (A):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Max_RMS_current'][0])
         self._entries.append(ep)
@@ -485,7 +485,7 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Standby RMS current (A):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Standby RMS current (A):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Standby_RMS_current'][0])
         self._entries.append(ep)
@@ -493,7 +493,7 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Freewheeling delay (msec):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Freewheeling delay (msec):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Freewheeling_delay'][0])
         self._entries.append(sb)
@@ -511,7 +511,7 @@ class MotorDriver(ToolDialog):
         grid.attach(l, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Button('Calibrate pos to:'); l.set_alignment(0, 0.5)
+        l = Gtk.Button('Calibrate pos to:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Current_position'][0])
         grid.attach(ep.rawentry, 1, row, 1, 1)
@@ -521,7 +521,7 @@ class MotorDriver(ToolDialog):
 
         row += 1
 
-        l = Gtk.Label(label='Left software limit:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Left software limit:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'soft_left'][0])
         self._entries.append(ep)
@@ -529,7 +529,7 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Right software limit:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Right software limit:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'soft_right'][0])
         self._entries.append(ep)
@@ -552,20 +552,20 @@ class MotorDriver(ToolDialog):
         grid = Gtk.Grid()
         ex.add(grid)
         row = 0
-        l = Gtk.Label(label='Driver units'); l.set_alignment(0.5, 0.5)
+        l = Gtk.Label(label='Driver units')
         grid.attach(l, 1, row, 1, 1)
-        l = Gtk.Label(label='Physical units'); l.set_alignment(0.5, 0.5)
+        l = Gtk.Label(label='Physical units')
         grid.attach(l, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Full step physical size:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Full step physical size:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'step_to_cal'][0])
         self._entries.append(sb)
         grid.attach(sb, 1, row, 2, 1)
         row += 1
 
-        l = Gtk.Label(label='Maximum speed:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Maximum speed:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Max_speed'][0])
         self._entries.append(ep)
@@ -573,7 +573,7 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Maximum acceleration:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Maximum acceleration:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         ep = EntryPair(self, [m for m in self.motor.driver().motor_params if m.name == 'Max_accel'][0])
         self._entries.append(ep)
@@ -581,21 +581,21 @@ class MotorDriver(ToolDialog):
         grid.attach(ep.physentry, 2, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label='Logarithmic microstep resolution:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Logarithmic microstep resolution:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Ustep_resol'][0])
         self._entries.append(sb)
         grid.attach(sb, 1, row, 2, 1)
         row += 1
 
-        l = Gtk.Label(label='Logarithmic pulse divisor:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Logarithmic pulse divisor:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Pulse_div'][0])
         self._entries.append(sb)
         grid.attach(sb, 1, row, 2, 1)
         row += 1
 
-        l = Gtk.Label(label='Logarithmic ramp divisor:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Logarithmic ramp divisor:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         sb = MotorParamSpinButton(self, [m for m in self.motor.driver().motor_params if m.name == 'Ramp_div'][0])
         self._entries.append(sb)
@@ -616,7 +616,7 @@ class MotorDriver(ToolDialog):
         logger.debug('Done recalculating.')
 
     def on_motor_report(self, motor, pos, speed, load):
-        self._poslabel.set_label('%.03f'%pos)
+        self._poslabel.set_label('%.03f' % pos)
         return False
 
     def on_motor_stop(self, motor):

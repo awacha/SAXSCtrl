@@ -5,7 +5,7 @@ from .widgets import ToolDialog
 class InstrumentConnections(ToolDialog):
     _filechooserdialogs = None
     def __init__(self, credo, title='Connections'):
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        ToolDialog.__init__(self, credo, title, buttons=('OK', Gtk.ResponseType.OK, 'Apply', Gtk.ResponseType.APPLY, 'Cancel', Gtk.ResponseType.CANCEL))
         self.connect('response', lambda dialog, response_id:self.hide())
         self.credo.subsystems['Equipments'].connect('equipment-connection', self._on_connect_equipment)
 
@@ -17,30 +17,30 @@ class InstrumentConnections(ToolDialog):
         self.addressentries = {}
         self.connectbuttons = {}
         for row, equipment in enumerate(self.credo.subsystems['Equipments'].known_equipments()):
-            l = Gtk.Label(label=equipment.capitalize() + ' address'); l.set_alignment(0, 0.5)
+            l = Gtk.Label(label=equipment.capitalize() + ' address'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
             tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
             self.addressentries[equipment] = Gtk.Entry()
             self.addressentries[equipment].set_text(self.credo.get_equipment(equipment).address)
             tab.attach(self.addressentries[equipment], 1, 2, row, row + 1)
-            self.connectbuttons[equipment] = Gtk.Button(stock=Gtk.STOCK_CONNECT)
+            self.connectbuttons[equipment] = Gtk.Button(label='Connect')
             tab.attach(self.connectbuttons[equipment], 2, 3, row, row + 1, Gtk.AttachOptions.FILL)
             self.connectbuttons[equipment].connect('clicked', self._equipment_connect, equipment)
 
         row += 1
-        
-        l = Gtk.Label(label='Root path:'); l.set_alignment(0, 0.5)
+
+        l = Gtk.Label(label='Root path:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.filepath_entry = Gtk.Entry()
         self.filepath_entry.set_text(self.credo.subsystems['Files'].rootpath)
         self.filepath_entry.connect('changed', self.on_entry_changed, 'rootpath', self.credo.subsystems['Files'])
         tab.attach(self.filepath_entry, 1, 2, row, row + 1)
-        self.filepath_button = Gtk.Button(stock=Gtk.STOCK_OPEN)
+        self.filepath_button = Gtk.Button(label='Open')
         tab.attach(self.filepath_button, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
         self.filepath_button.connect('clicked', self.on_pathbutton, self.filepath_entry, Gtk.FileChooserAction.SELECT_FOLDER)
         self.credo.subsystems['Files'].connect('notify::rootpath', lambda ssf, par:self.filepath_entry.set_text(ssf.rootpath))
         row += 1
 
-#         l = Gtk.Label(label='Scan file:'); l.set_alignment(0, 0.5)
+#         l = Gtk.Label(label='Scan file:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
 #         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
 #         self.scanfile_entry = Gtk.Entry()
 #         self.scanfile_entry.set_text(self.credo.subsystems['Scan'].scanfilename)
@@ -52,14 +52,14 @@ class InstrumentConnections(ToolDialog):
         self.set_button_images()
         self.set_response_sensitive(Gtk.ResponseType.APPLY, False)
         self.show_all()
-        
+
     def set_button_images(self):
         for equipment in self.connectbuttons:
             if self.credo.get_equipment(equipment).connected():
-                self.connectbuttons[equipment].set_label(Gtk.STOCK_DISCONNECT)
+                self.connectbuttons[equipment].set_label('Disconnect')
             else:
-                self.connectbuttons[equipment].set_label(Gtk.STOCK_CONNECT)
-                
+                self.connectbuttons[equipment].set_label('Connect')
+
     def _equipment_connect(self, button, equipment):
         if self.credo.subsystems['Equipments'].is_connected(equipment):
             self.credo.subsystems['Equipments'].disconnect_equipment(equipment)
@@ -71,7 +71,7 @@ class InstrumentConnections(ToolDialog):
                 md.format_secondary_text('Error message: ' + str(sse))
                 md.run()
                 md.destroy()
-    
+
     def _on_connect_equipment(self, subsys, equipment, conn_or_disconn, normal_or_abnormal):
         self.set_button_images()
 
@@ -79,7 +79,7 @@ class InstrumentConnections(ToolDialog):
         if self._filechooserdialogs is None:
             self._filechooserdialogs = {}
         if entry not in self._filechooserdialogs:
-            self._filechooserdialogs[entry] = Gtk.FileChooserDialog('Select a folder...', None, action, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+            self._filechooserdialogs[entry] = Gtk.FileChooserDialog('Select a folder...', None, action, buttons=('OK', Gtk.ResponseType.OK, 'Cancel', Gtk.ResponseType.CANCEL))
         self._filechooserdialogs[entry].set_filename(entry.get_text())
         response = self._filechooserdialogs[entry].run()
         if response == Gtk.ResponseType.OK:
@@ -87,11 +87,11 @@ class InstrumentConnections(ToolDialog):
             self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
         self._filechooserdialogs[entry].hide()
         return True
-    
+
     def on_entry_changed(self, entry, propname, propobject):
         if propobject.get_property(propname) != entry.get_text():
             self.set_response_sensitive(Gtk.ResponseType.APPLY, True)
-        
+
     def do_response(self, response):
         if response in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY):
             if self.credo.subsystems['Files'].rootpath != self.filepath_entry.get_text():

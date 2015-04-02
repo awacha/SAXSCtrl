@@ -37,23 +37,25 @@ class DataViewer(ToolDialog):
         row = 0
         self._labels = {}
         for labeltext, labelname in [('FSN:', 'fsn'), ('Sample-detector distance:', 'dist'), ('Title:', 'title'), ('Owner:', 'owner'), ('Exposure time:', 'meastime'), ('Temperature', 'temperature')]:
-            l = Gtk.Label(label=labeltext); l.set_alignment(0, 0.5)
+            l = Gtk.Label(label=labeltext); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
             grid.attach(l, 0, row, 1, 1)
             self._labels[labelname] = Gtk.Label(label='<none>')
-            self._labels[labelname].set_alignment(0, 0.5)
+            self._labels[labelname].set_halign(Gtk.Align.START)
+            self._labels[labelname].set_valign(Gtk.Align.CENTER)
             grid.attach(self._labels[labelname], 1, row, 2, 1)
             self._labels[labelname].set_hexpand(True)
             row += 1
         b = Gtk.Button(label='Data reduction...')
         grid.attach(b, 2, 0, 1, row)
         b.connect('clicked', self.do_data_reduction)
-        l = Gtk.Label(label='Mask:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Mask:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self._labels['maskid'] = Gtk.Label(label='<none>')
-        self._labels['maskid'].set_alignment(0, 0.5)
+        self._labels['maskid'].set_halign(Gtk.Align.START)
+        self._labels['maskid'].set_valign(Gtk.Align.CENTER)
         grid.attach(self._labels['maskid'], 1, row, 1, 1)
 
-        b = Gtk.Button(stock=Gtk.STOCK_EDIT)
+        b = Gtk.Button(label='Edit')
         b.connect('clicked', self._editmask)
         grid.attach(b, 2, row, 1, 1)
         row += 1

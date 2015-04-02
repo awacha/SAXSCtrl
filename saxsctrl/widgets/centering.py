@@ -6,7 +6,10 @@ from .widgets import ToolDialog
 
 class CenteringDialog(ToolDialog):
     def __init__(self, credo, title='Centering image...') :
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_OK, Gtk.ResponseType.OK, Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY, Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_EXECUTE, 1, Gtk.STOCK_SAVE, Gtk.ResponseType.YES))
+        ToolDialog.__init__(self, credo, title, buttons=(
+            'OK', Gtk.ResponseType.OK, 'Apply', Gtk.ResponseType.APPLY,
+            'Cancel', Gtk.ResponseType.CANCEL, 'Execute', 1,
+            'Save', Gtk.ResponseType.YES))
         vb = self.get_content_area()
         f = Gtk.Expander(label='Exposure')
         vb.pack_start(f, False, True, 0)
@@ -37,19 +40,19 @@ class CenteringDialog(ToolDialog):
         self.nb.append_page(tab, Gtk.Label(label='Radial peak'))
         row = 0
 
-        l = Gtk.Label(label='R min (pixel):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='R min (pixel):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.minpixel_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
         tab.attach(self.minpixel_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
 
-        l = Gtk.Label(label='R max (pixel):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='R max (pixel):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.maxpixel_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
         tab.attach(self.maxpixel_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
 
-        l = Gtk.Label(label='Drive by:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Drive by:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.driveby_combo = Gtk.ComboBoxText()
         tab.attach(self.driveby_combo, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
@@ -72,13 +75,13 @@ class CenteringDialog(ToolDialog):
         tab = Gtk.Table()
         self.nb.append_page(tab, Gtk.Label(label='Manual'))
         row = 0
-        l = Gtk.Label(label='Beam position X (vertical):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Beam position X (vertical):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.beamposx_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
         tab.attach(self.beamposx_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
         row += 1
 
-        l = Gtk.Label(label='Beam position Y (horizontal):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Beam position Y (horizontal):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, 0)
         self.beamposy_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(0, 0, 1e5, 1, 10), digits=2)
         tab.attach(self.beamposy_entry, 1, 2, row, row + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 0)
@@ -92,14 +95,14 @@ class CenteringDialog(ToolDialog):
         vb1.pack_start(f, False, True, 0)
         tab = Gtk.Table()
         f.add(tab)
-        l = Gtk.Label(label='X (vertical):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='X (vertical):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, 0, 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.beamposx_label = Gtk.Label(); l.set_alignment(0, 0.5)
+        self.beamposx_label = Gtk.Label(); self.beamposx_label.set_halign(Gtk.Align.START); self.beamposx_label.set_valign(Gtk.Align.CENTER)
         tab.attach(self.beamposx_label, 1, 2, 0, 1, xpadding=10)
 
-        l = Gtk.Label(label='Y (horizontal):'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Y (horizontal):'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         tab.attach(l, 0, 1, 1, 2, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
-        self.beamposy_label = Gtk.Label(); l.set_alignment(0, 0.5)
+        self.beamposy_label = Gtk.Label(); self.beamposy_label.set_halign(Gtk.Align.START); self.beamposy_label.set_valign(Gtk.Align.CENTER)
         tab.attach(self.beamposy_label, 1, 2, 1, 2, xpadding=10)
 
 

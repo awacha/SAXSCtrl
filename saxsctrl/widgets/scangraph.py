@@ -19,13 +19,9 @@ import itertools
 import sasgui
 import traceback
 
+itheme = Gtk.IconTheme.get_default()
+itheme.append_search_path(pkg_resources.resource_filename('saxsctrl', 'resource'))
 
-iconfactory = Gtk.IconFactory()
-for f, n in [('fitpeak.png', 'Fit peak')]:
-    basename = os.path.splitext(f)[0]
-    iconset = Gtk.IconSet(GdkPixbuf.Pixbuf.new_from_file(pkg_resources.resource_filename('saxsctrl', 'resource/%s' % f)))
-    iconfactory.add('saxsctrl_%s' % basename, iconset)
-iconfactory.add_default()
 
 class ScanGraph(ToolDialog):
     RESPONSE_DERIVATIVE = 1
@@ -36,7 +32,7 @@ class ScanGraph(ToolDialog):
         self._lines = []
         self._cursors = {}
         self._cursor_at = None
-        ToolDialog.__init__(self, credo, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE, 'Derivative', self.RESPONSE_DERIVATIVE, 'Integrate', self.RESPONSE_INTEGRATE))
+        ToolDialog.__init__(self, credo, title, buttons=('Close', Gtk.ResponseType.CLOSE, 'Derivative', self.RESPONSE_DERIVATIVE, 'Integrate', self.RESPONSE_INTEGRATE))
         vb = self.get_content_area()
         self.fig = Figure()
         self.figcanvas = FigureCanvasGTK3Agg(self.fig)
@@ -58,7 +54,7 @@ class ScanGraph(ToolDialog):
         vb.pack_start(tab, False, True, 0)
         self.figcanvas.set_size_request(640, 480)
 
-        b = Gtk.ToolButton(stock_id='saxsctrl_fitpeak')
+        b = Gtk.ToolButton(icon_name='fitpeak')
         b.set_tooltip_text('Fit a Lorentzian peak to the zoomed portion of the currently selected signal')
         self.figtoolbar.insert(b, self.figtoolbar.get_n_items() - 2)
         b.connect('clicked', self.on_fitpeak)
@@ -249,7 +245,7 @@ class ScanGraph(ToolDialog):
             self._movecursor_noreentry = True
             x = self.scan[self.xname]
             desired_index = np.interp(to, x, np.arange(len(self.scan)), 0, len(self.scan) - 1)
-            self._cursor_at = round(desired_index)
+            self._cursor_at = int(round(desired_index))
             if self._cursor_scale.get_value() != to:
                 self._cursor_scale.set_value(to)
                 self._cursor_label.set_label(unicode(to))
@@ -409,7 +405,7 @@ class ImagingGraph(ToolDialog):
     def __init__(self, scan, title='Imaging results', extent=None):
         self._axes = []
         self._extent = extent
-        ToolDialog.__init__(self, None, title, buttons=(Gtk.STOCK_CLOSE, Gtk.ResponseType.CLOSE))
+        ToolDialog.__init__(self, None, title)
         vb = self.get_content_area()
         self.fig = Figure()
         self.figcanvas = FigureCanvasGTK3Agg(self.fig)
@@ -469,7 +465,7 @@ class ImagingGraph(ToolDialog):
         vb.pack1(vb1, True, True)
         hb1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb1.pack_start(hb1, False, False, 0)
-        l = Gtk.Label(label='Number of columns:'); l.set_alignment(0, 0.5)
+        l = Gtk.Label(label='Number of columns:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         hb1.pack_start(l, False, False, 0)
         self._ncol_sb = Gtk.SpinButton(adjustment=Gtk.Adjustment(4, 1, 100, 1, 10), digits=0)
         self._ncol_sb.set_value(2)
