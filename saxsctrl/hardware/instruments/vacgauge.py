@@ -5,7 +5,7 @@ from gi.repository import GLib
 from ...utils import objwithgui
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class VacuumGaugeError(InstrumentError):
     pass

@@ -22,31 +22,44 @@ from .subsystem import SubSystem, SubSystemError
 
 __all__ = ['SubSystemExposure']
 
+
 class SubSystemExposureError(SubSystemError):
     pass
+
 
 class ExposureMessageType(object):
     End = 'end'
     Failure = 'failure'
     Image = 'image'
 
+
 class SubSystemExposure(SubSystem):
-    __gsignals__ = {'exposure-image':(GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    'exposure-fail':(GObject.SignalFlags.RUN_FIRST, None, (str,)),
-                    'exposure-end':(GObject.SignalFlags.RUN_FIRST, None, (bool,)),
-                    'notify':'override', }
-    exptime = GObject.property(type=float, minimum=0, default=1, blurb='Exposure time (sec)')
-    dwelltime = GObject.property(type=float, minimum=0.003, default=0.003, blurb='Dwell time between exposures (sec)')
-    nimages = GObject.property(type=int, minimum=1, default=1, blurb='Number of images to take (sec)')
-    operate_shutter = GObject.property(type=bool, default=True, blurb='Open/close shutter')
-    cbf_file_timeout = GObject.property(type=float, default=3, blurb='Timeout for cbf files')
-    timecriticalmode = GObject.property(type=bool, default=False, blurb='Time-critical mode')
-    default_mask = GObject.property(type=str, default='mask.mat', blurb='Default mask file')
-    dark_sample_name = GObject.property(type=str, default='Dark', blurb='Sample name for dark measurement')
+    __gsignals__ = {'exposure-image': (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+                    'exposure-fail': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+                    'exposure-end': (GObject.SignalFlags.RUN_FIRST, None, (bool,)),
+                    'notify': 'override', }
+    exptime = GObject.property(
+        type=float, minimum=0, default=1, blurb='Exposure time (sec)')
+    dwelltime = GObject.property(
+        type=float, minimum=0.003, default=0.003, blurb='Dwell time between exposures (sec)')
+    nimages = GObject.property(
+        type=int, minimum=1, default=1, blurb='Number of images to take (sec)')
+    operate_shutter = GObject.property(
+        type=bool, default=True, blurb='Open/close shutter')
+    cbf_file_timeout = GObject.property(
+        type=float, default=3, blurb='Timeout for cbf files')
+    timecriticalmode = GObject.property(
+        type=bool, default=False, blurb='Time-critical mode')
+    default_mask = GObject.property(
+        type=str, default='mask.mat', blurb='Default mask file')
+    dark_sample_name = GObject.property(
+        type=str, default='Dark', blurb='Sample name for dark measurement')
+
     def __init__(self, credo, offline=True, **kwargs):
         SubSystem.__init__(self, credo, offline)
         self._OWG_nogui_props.append('configfile')
-        self._OWG_hints['default-mask'] = {objwithgui.OWG_Hint_Type.OrderPriority:None}
+        self._OWG_hints[
+            'default-mask'] = {objwithgui.OWG_Hint_Type.OrderPriority: None}
         self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
         self._thread = None
         for k in kwargs:
@@ -54,21 +67,28 @@ class SubSystemExposure(SubSystem):
         self._stopswitch = multiprocessing.Event()
         self._queue = multiprocessing.queues.Queue()
         self._default_mask = None
+
     def do_notify(self, param):
         if param.name == 'default-mask':
             if not os.path.isabs(self.default_mask):
-                self.default_mask = os.path.join(self.credo().subsystems['Files'].maskpath, self.default_mask)
+                self.default_mask = os.path.join(
+                    self.credo().subsystems['Files'].maskpath, self.default_mask)
             else:
                 try:
-                    self._default_mask = sastool.classes.SASMask(self.default_mask)
+                    self._default_mask = sastool.classes.SASMask(
+                        self.default_mask)
                 except IOError:
-                    logger.error('Cannot load default mask from file: ' + self.default_mask)
+                    logger.error(
+                        'Cannot load default mask from file: ' + self.default_mask)
                 else:
-                    logger.debug('Loaded default mask from file: ' + self.default_mask)
+                    logger.debug(
+                        'Loaded default mask from file: ' + self.default_mask)
         else:
             logger.debug('Other parameter modified: ' + param.name)
+
     def get_mask(self):
         return self._default_mask
+
     def kill(self, stop_processing_results=True):
         try:
             self.credo().get_equipment('pilatus').stopexposure()
@@ -97,10 +117,10 @@ class SubSystemExposure(SubSystem):
         if sample is not None:
             header_template.update(sample.get_header())
         else:
-            header_template.update({'Title':'None'})
+            header_template.update({'Title': 'None'})
         header_template['__Origin__'] = 'CREDO'
         header_template['__particle__'] = 'photon'
-        dist=sastool.ErrorValue(self.credo().dist,self.credo().dist_error)
+        dist = sastool.ErrorValue(self.credo().dist, self.credo().dist_error)
         if sample is not None:
             dist = dist - sample.distminus
         header_template['Dist'] = dist.val
@@ -117,33 +137,43 @@ class SubSystemExposure(SubSystem):
         header_template['Project'] = self.credo().projectname
         header_template['SetupDescription'] = self.credo().setup_description
         header_template['Monitor'] = header_template['MeasTime']
-        header_template['MonitorError']=0
+        header_template['MonitorError'] = 0
         header_template['StartDate'] = datetime.datetime.now()
         if mask is not None:
             header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
         GLib.idle_add(self._check_if_exposure_finished)
-        logger.debug('Starting exposure of %s. Files will be named like: %s' % (str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
+        logger.debug('Starting exposure of %s. Files will be named like: %s' % (
+            str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
         self._stopswitch.clear()
         pilatus.prepare_exposure(self.exptime, self.nimages, self.dwelltime)
-        self._thread = threading.Thread(target=self._thread_worker, args=(os.path.join(self.credo().subsystems['Files'].imagespath, exposureformat),
-                                                                          os.path.join(self.credo().subsystems['Files'].parampath, headerformat),
-                                                                          self._stopswitch, self._queue, self.exptime, self.nimages, self.dwelltime,
-                                                                          fsn, self.cbf_file_timeout, header_template, mask, write_nexus
-                                                                          ))
+        self._thread = threading.Thread(
+            target=self._thread_worker, args=(
+                os.path.join(self.credo().subsystems['Files'].imagespath,
+                             exposureformat),
+                os.path.join(self.credo().subsystems['Files'].parampath,
+                             headerformat),
+                self._stopswitch, self._queue, self.exptime, self.nimages,
+                self.dwelltime, fsn, self.cbf_file_timeout, header_template,
+                mask, write_nexus))
         self._thread.daemon = True
-        if (self.operate_shutter and genix.shutter_state() == False) and (header_template['Title']!=self.dark_sample_name):
+        if ((self.operate_shutter and genix.shutter_state() == False) and
+                (header_template['Title'] != self.dark_sample_name)):
             genix.shutter_open()
-        self._pilatus_idle_handler = pilatus.connect('idle', self._pilatus_idle, genix)
+        self._pilatus_idle_handler = pilatus.connect(
+            'idle', self._pilatus_idle, genix)
         self.credo().subsystems['Files'].increment_next_fsn()
         pilatus.execute_exposure(exposureformat % fsn)
         self._thread.start()
         return fsn
+
     def _pilatus_idle(self, pilatus, genix):
         # we get this signal when the exposure is finished.
         pilatus.disconnect(self._pilatus_idle_handler)
+        del self._pilatus_idle_handler
         if self.operate_shutter:
             genix.shutter_close()
+
     def _check_if_exposure_finished(self):
         try:
             id, data = self._queue.get_nowait()
@@ -160,20 +190,25 @@ class SubSystemExposure(SubSystem):
             return True
         else:
             raise NotImplementedError('Invalid exposure message type')
+
     def do_exposure_fail(self, message):
         # this signal is emitted whenever the cbf file collector thread encounters a serious error.
-        # In this case the thread is already dead, so we have to kill the pilatus exposure sequence.
+        # In this case the thread is already dead, so we have to kill the
+        # pilatus exposure sequence.
         try:
             self.credo().get_equipment('pilatus').stopexposure()
         except PilatusError:
             # exposure already finished.
             pass
+
     def do_exposure_end(self, endstatus):
         # this is the last signal emitted during an exposure. The _check_if_exposure_finished() idle handler
         # has already deregistered itself.
         logger.debug('Exposure ended.')
+
     def do_exposure_image(self, ex):
         pass
+
     def _process_exposure(self, exposurename, headername, stopswitch, queue, headertemplate, cbf_file_timeout, mask, write_nexus):
         # try to load the header from the CBF file.
         logger.debug('process_exposure starting')
@@ -181,13 +216,14 @@ class SubSystemExposure(SubSystem):
         cbfdata = cbfheader = None
         while (time.time() - t0) < cbf_file_timeout:
             try:
-                cbfdata, cbfheader = sastool.io.twodim.readcbf(exposurename, load_header=True, load_data=True)
+                cbfdata, cbfheader = sastool.io.twodim.readcbf(
+                    exposurename, load_header=True, load_data=True)
                 break
             except IOError:
                 logger.debug('Waiting for image...')
                 if stopswitch.wait(0.01):
                     # break signaled.
-                    return False 
+                    return False
                 # continue with the next try.
         if cbfdata is None:
             # timeout.
@@ -195,22 +231,27 @@ class SubSystemExposure(SubSystem):
         # create the exposure object
         logger.debug('Creating exposure')
         if self.timecriticalmode:
-            ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
+            ex = sastool.classes.SASExposure(
+                {'Intensity': cbfdata, 'Error': cbfdata ** 0.5, 'header': sastool.classes.SASHeader(headertemplate), 'mask': mask})
         else:
-            ex = sastool.classes.SASExposure({'Intensity':cbfdata, 'Error':cbfdata ** 0.5, 'header':sastool.classes.SASHeader(headertemplate), 'mask':mask})
-        
+            ex = sastool.classes.SASExposure(
+                {'Intensity': cbfdata, 'Error': cbfdata ** 0.5, 'header': sastool.classes.SASHeader(headertemplate), 'mask': mask})
+
         # do some fine adjustments on the header template:
         # a) include the CBF header written by camserver.
         logger.debug('updating header')
         ex.header.update(cbfheader)
         # b) get instrument states
         logger.debug('Getting equipment status')
-        ex.header.update(self.credo().subsystems['Equipments'].get_current_parameters())
+        ex.header.update(
+            self.credo().subsystems['Equipments'].get_current_parameters())
         # c) readout virtual detectors
         if not self.timecriticalmode:
             logger.debug('Reading out virtual detectors')
-            vdresults = self.credo().subsystems['VirtualDetectors'].readout_all(ex, self.credo().get_equipment('genix'))
-            ex.header.update({('VirtDet_' + k): vdresults[k] for k in vdresults})
+            vdresults = self.credo().subsystems['VirtualDetectors'].readout_all(
+                ex, self.credo().get_equipment('genix'))
+            ex.header.update(
+                {('VirtDet_' + k): vdresults[k] for k in vdresults})
         # d) set the end date to the current time.
         ex.header['EndDate'] = datetime.datetime.now()
         # and save the header to the parampath.
@@ -218,17 +259,17 @@ class SubSystemExposure(SubSystem):
         ex.header.write(headername)
         logger.debug('Header %s written.' % (headername))
         if write_nexus:
-            nexusname = os.path.join(self.credo().subsystems['Files'].nexuspath , os.path.splitext(os.path.split(exposurename)[1])[0] + '.nx5')
+            nexusname = os.path.join(self.credo().subsystems[
+                                     'Files'].nexuspath, os.path.splitext(os.path.split(exposurename)[1])[0] + '.nx5')
             self.write_nexus(nexusname, cbfdata, ex.header, mask)
         queue.put((ExposureMessageType.Image, ex))
         logger.debug('Process_exposure took %f seconds.' % (time.time() - t0))
         del ex
         return True
-    
-    
+
     def update_nexustree(self, nexustree, data, header, mask):
         pass
-    
+
     def write_nexus(self, nexusname, data, header, mask):
         root = nxs.NXroot()
         root.entry = nxs.NXentry()
@@ -237,14 +278,17 @@ class SubSystemExposure(SubSystem):
         root.entry.experiment_identifier = header['Project']
         root.entry.definition = 'NXsas'
         root.entry.definition.attrs['version'] = '1.0b'
-        root.entry.definition.attrs['URL'] = 'http://svn.nexusformat.org/definitions/trunk/applications/NXsas.nxdl.xml'
-        root.entry.duration = (header['EndDate'] - header['StartDate']).total_seconds()
+        root.entry.definition.attrs[
+            'URL'] = 'http://svn.nexusformat.org/definitions/trunk/applications/NXsas.nxdl.xml'
+        root.entry.duration = (
+            header['EndDate'] - header['StartDate']).total_seconds()
         root.entry.duration.attrs['units'] = 's'
         root.entry.program_name = 'SAXSCtrl'
         root.entry.program_name.attrs['version'] = 0  # TODO
         root.entry.revision = 'raw'
         root.entry.title = header['Title']
-        # root.entry.pre_sample_flightpath=None # TODO: make this a link to the appropriate place in root.entry.instrument
+        # root.entry.pre_sample_flightpath=None # TODO: make this a link to the
+        # appropriate place in root.entry.instrument
         root.entry.user = nxs.NXuser()
         root.entry.user.name = header['Owner']
         root.entry.user.role = 'operator'
@@ -264,12 +308,14 @@ class SubSystemExposure(SubSystem):
         root.entry.instrument.source = nxs.NXsource()
         root.entry.instrument.source.current = header['GeniX_Current']
         root.entry.instrument.source.current.attrs['units'] = 'A'
-        # root.entry.instrument.source.distance=None #TODO: better collimation description.
+        # root.entry.instrument.source.distance=None #TODO: better collimation
+        # description.
         root.entry.instrument.source.name = 'GeniX3D Cu ULD'
         root.entry.instrument.source.name.attrs['short_name'] = 'GeniX'
         root.entry.instrument.source.type = 'Fixed Tube X-ray'
         root.entry.instrument.source.probe = 'x-ray'
-        root.entry.instrument.source.power = header['GeniX_HT'] * header['GeniX_Current']
+        root.entry.instrument.source.power = header[
+            'GeniX_HT'] * header['GeniX_Current']
         root.entry.instrument.source.power.attrs['units'] = 'W'
         root.entry.instrument.source.energy = header['GeniX_HT']
         root.entry.instrument.source.energy.attrs['units'] = 'eV'
@@ -282,22 +328,31 @@ class SubSystemExposure(SubSystem):
             root.entry.instrument.positioners[mot.name] = positioners[mot]
         root.entry.instrument.monochromator = nxs.NXmonochromator()
         root.entry.instrument.monochromator.wavelength = header['Wavelength']
-        root.entry.instrument.monochromator.wavelength.attrs['units'] = 'Angstrom'
-        root.entry.instrument.monochromator.wavelength_spread = root.entry.instrument.monochromator.wavelength * 0.015  # The FOX3D optics used in GeniX has a spectral purity of 97%.
-        root.entry.instrument.monochromator.wavelength_spread.attrs['units'] = 'Angstrom'
-        root.entry.instrument.monochromator.energy = scipy.constants.codata.value('Planck constant in eV s') * scipy.constants.codata.value('speed of light in vacuum') * 1e10 / header['Wavelength']
+        root.entry.instrument.monochromator.wavelength.attrs[
+            'units'] = 'Angstrom'
+        # The FOX3D optics used in GeniX has a spectral purity of 97%.
+        root.entry.instrument.monochromator.wavelength_spread = root.entry.instrument.monochromator.wavelength * \
+            0.015
+        root.entry.instrument.monochromator.wavelength_spread.attrs[
+            'units'] = 'Angstrom'
+        root.entry.instrument.monochromator.energy = scipy.constants.codata.value(
+            'Planck constant in eV s') * scipy.constants.codata.value('speed of light in vacuum') * 1e10 / header['Wavelength']
         root.entry.instrument.monochromator.energy.attrs['units'] = 'eV'
-        root.entry.instrument.monochromator.energy_spread = root.entry.instrument.monochromator.energy * 0.015
+        root.entry.instrument.monochromator.energy_spread = root.entry.instrument.monochromator.energy * \
+            0.015
         root.entry.instrument.monochromator.energy_spread.attrs['units'] = 'eV'
-        root.entry.instrument.collimator = nxs.NXcollimator()  # TODO: better description of the collimator
-        root.entry.instrument.beam_stop = nxs.NXbeam_stop()  # TODO: better description of the geometry
+        # TODO: better description of the collimator
+        root.entry.instrument.collimator = nxs.NXcollimator()
+        # TODO: better description of the geometry
+        root.entry.instrument.beam_stop = nxs.NXbeam_stop()
         root.entry.instrument.vacuum = nxs.NXsensor()
         vg = self.credo().subsystems['Equipments'].get('vacgauge')
         if vg.connected():
             try:
                 root.entry.instrument.vacuum.model = vg.get_version()
             except Exception as ex:
-                logger.warn('Cannot get version of the vacuum gauge (error: %s).'%str(ex))
+                logger.warn(
+                    'Cannot get version of the vacuum gauge (error: %s).' % str(ex))
             root.entry.instrument.vacuum.name = 'TPG-201 Handheld Pirani Gauge'
             root.entry.instrument.vacuum.short_name = 'Vacuum Gauge'
             root.entry.instrument.vacuum.measurement = 'pressure'
@@ -305,7 +360,8 @@ class SubSystemExposure(SubSystem):
             try:
                 root.entry.instrument.vacuum.value = vg.pressure
             except Exception as ex:
-                logger.warn('Cannot get pressure from the vacuum gauge (error: %s).'%str(ex))
+                logger.warn(
+                    'Cannot get pressure from the vacuum gauge (error: %s).' % str(ex))
             root.entry.instrument.vacuum.value.attrs['units'] = 'mbar'
         root.entry.instrument.thermostat = nxs.NXsensor()
         ts = self.credo().subsystems['Equipments'].get('haakephoenix')
@@ -313,7 +369,8 @@ class SubSystemExposure(SubSystem):
             try:
                 root.entry.instrument.thermostat.model = ts.get_version()
             except Exception as ex:
-                logger.warn('Cannot get version of the thermostat (error: %s).'%str(ex))
+                logger.warn(
+                    'Cannot get version of the thermostat (error: %s).' % str(ex))
             root.entry.instrument.thermostat.name = 'Haake Phoenix Circulator'
             root.entry.instrument.thermostat.short_name = 'haakephoenix'
             root.entry.instrument.thermostat.measurement = 'temperature'
@@ -322,7 +379,8 @@ class SubSystemExposure(SubSystem):
                 root.entry.instrument.thermostat.value = ts.temperature
                 root.entry.instrument.thermostat.value.attrs['units'] = '°C'
             except Exception as ex:
-                logger.warn('Cannot get temperature of the thermostat (error: %s).'%str(ex))
+                logger.warn(
+                    'Cannot get temperature of the thermostat (error: %s).' % str(ex))
         root.entry.sample = nxs.NXsample()
         root.entry.sample.name = header['Title']
         if 'Temperature' in header:
@@ -338,11 +396,14 @@ class SubSystemExposure(SubSystem):
         root.entry.sample.geometry.description = 'Sample position'
         root.entry.sample.geometry.component_index = 0
         root.entry.sample.geometry.translation = nxs.NXtranslation()
-        root.entry.sample.geometry.translation.distances = np.array([header['PosSampleX'], header['PosSample'], header['DistMinus']])
+        root.entry.sample.geometry.translation.distances = np.array(
+            [header['PosSampleX'], header['PosSample'], header['DistMinus']])
         root.entry.sample.positioners = nxs.NXcollection()
-        root.entry.sample.positioners.makelink(positioners[self.credo().subsystems['Samples'].get_xmotor()])
-        root.entry.sample.positioners.makelink(positioners[self.credo().subsystems['Samples'].get_ymotor()])
-        
+        root.entry.sample.positioners.makelink(
+            positioners[self.credo().subsystems['Samples'].get_xmotor()])
+        root.entry.sample.positioners.makelink(
+            positioners[self.credo().subsystems['Samples'].get_ymotor()])
+
         det = nxs.NXdetector()
         root.entry.instrument.insert(det)
         det.description = header['Detector']
@@ -411,19 +472,19 @@ class SubSystemExposure(SubSystem):
         try:
             nt.writefile(root)
         except ValueError as ve:
-            logger.error('Error writing nexus file: %s. Error is: %s'%(nexusname,str(ve)))
+            logger.error(
+                'Error writing nexus file: %s. Error is: %s' % (nexusname, str(ve)))
 
-        
     def _thread_worker(self, expname_template, headername_template, stopswitch, outqueue, exptime, nimages, dwelltime, firstfsn, cbf_file_timeout, header_template, mask, write_nexus):
         """Wait for the availability of scattering image files (especially when doing multiple exposures).
         If a new file is available, try to load and process it (using _process_exposure), and resume waiting.
-        
+
         The thread can be stopped in three ways:
-        
+
         1) by setting stopswitch: this by itself does not stop the exposure procedure in Pilatus.
         2) if _process_exposure() returns False.
         3) by an exception
-        
+
         """
         try:
             t0 = time.time()
@@ -445,9 +506,11 @@ class SubSystemExposure(SubSystem):
                     # process_exposure() returns False if a userbreak occurs.
                     outqueue.put((ExposureMessageType.End, False))
                     return
-                header_template['StartDate'] += datetime.timedelta(seconds=exptime + dwelltime)
+                header_template[
+                    'StartDate'] += datetime.timedelta(seconds=exptime + dwelltime)
         except Exception, exc:
-            # catch all exceptions and put an error state in the output queue, then re-raise.
+            # catch all exceptions and put an error state in the output queue,
+            # then re-raise.
             outqueue.put((ExposureMessageType.Failure, traceback.format_exc()))
             outqueue.put((ExposureMessageType.End, False))
             raise

@@ -66,6 +66,7 @@ class ObjSetupDialog(Gtk.Dialog):
             self._tab.disconnect(c)
         del self._tabconn
 
+
 class ObjSetupTable(Gtk.Table):
     __gsignals__ = {'changed': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     'apply': (GObject.SignalFlags.RUN_FIRST, None, ()),
@@ -84,7 +85,8 @@ class ObjSetupTable(Gtk.Table):
                 continue
             if self.objwithgui._OWG_entrytypes[p.name] == OWG_Param_Type.Bool:
                 self._entries[p.name] = Gtk.CheckButton(label=p.blurb)
-                self._entries[p.name].set_alignment(0, 0.5)
+                self._entries[p.name].set_halign(Gtk.Align.START)
+                self._entries[p.name].set_valign(Gtk.Align.CENTER)
                 self._entries[p.name].set_active(
                     self.objwithgui.get_property(p.name))
                 self._entries[p.name]._connection = self._entries[p.name].connect(
@@ -92,7 +94,8 @@ class ObjSetupTable(Gtk.Table):
                 self.attach(self._entries[p.name], 0, 2, row, row + 1)
             else:
                 l = Gtk.Label(label=p.blurb + ':')
-                l.set_alignment(0, 0.5)
+                l.set_halign(Gtk.Align.START)
+                l.set_valign(Gtk.Align.CENTER)
                 self.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL)
                 if self.objwithgui._OWG_entrytypes[p.name] == OWG_Param_Type.String:
                     self._entries[p.name] = Gtk.Entry()
@@ -205,6 +208,7 @@ class ObjSetupTable(Gtk.Table):
 
     def _objwithgui_notify(self, owg, prop):
         if prop.name in self._entries:
+            logger.debug('ObjWithGUI notify: ' + prop.name)
             self.revert_changes(keep_changed=False)
 
     def do_changed(self, propname):
@@ -240,40 +244,51 @@ class ObjSetupTable(Gtk.Table):
                     self._entries[pname].set_active(i + 1)
             else:
                 raise NotImplementedError
+            logger.debug('Reverted changes in entry ' + pname)
         self._changed = set()
         self.emit('revert')
 
     def apply_changes(self):
         logger.debug('OWG-apply-changes')
-        for pname in self._entries:
-            if isinstance(self._entries[pname], Gtk.CheckButton):
-                value = self._entries[pname].get_active()
-            elif isinstance(self._entries[pname], Gtk.SpinButton):
-                value = self._entries[pname].get_value()
-            elif isinstance(self._entries[pname], Gtk.Entry):
-                value = self._entries[pname].get_text()
-            elif isinstance(self._entries[pname], FileEntryWithButton):
-                value = self._entries[pname].get_filename()
-            elif isinstance(self._entries[pname], Gtk.ComboBoxText):
-                value = self._entries[pname].get_active_text()
-            else:
-                raise NotImplementedError
-            if self.objwithgui.get_property(pname) != value:
-                self.objwithgui.set_property(pname, value)
+        with self.objwithgui.freeze_notify():
+            for pname in self._entries:
+                if isinstance(self._entries[pname], Gtk.CheckButton):
+                    value = self._entries[pname].get_active()
+                elif isinstance(self._entries[pname], Gtk.SpinButton):
+                    value = self._entries[pname].get_value()
+                elif isinstance(self._entries[pname], Gtk.Entry):
+                    value = self._entries[pname].get_text()
+                elif isinstance(self._entries[pname], FileEntryWithButton):
+                    value = self._entries[pname].get_filename()
+                elif isinstance(self._entries[pname], Gtk.ComboBoxText):
+                    value = self._entries[pname].get_active_text()
+                else:
+                    raise NotImplementedError
+                if self.objwithgui.get_property(pname) != value:
+                    self.objwithgui.set_property(pname, value)
         self._changed = set()
         self.emit('apply')
 
 
 class ObjWithGUI(GObject.GObject):
-    _OWG_nogui_props = None  # a list of the names of properties which should not be represented in the GUI.
-    _OWG_nosave_props = None  # a list of the names of properties of which the values should not be saved or loaded.
-    _OWG_entrytypes = None  # a dict. Keys: property names. Values: entry types of OWG_Param_Type
-    _OWG_parts = None  # a list of parts (attributes to ObjWithGUI) which are also instances of ObjWithGUI.
-                      # In the GUI table these will be represented as buttons which open the appropriate GUI
-                      # dialog for the part. Changes in these dialogs are not forwarded per se to the parent dialog of
-                      # the parent ObjWithGUI.
-    _OWG_hints = None  # a dict of various hints assisting the correct display of entries
-    _OWG_parttab_cols = 5  # the number of columns in the table for parts in the GUI.
+    # a list of the names of properties which should not be represented in the
+    # GUI.
+    _OWG_nogui_props = None
+    # a list of the names of properties of which the values should not be
+    # saved or loaded.
+    _OWG_nosave_props = None
+    # a dict. Keys: property names. Values: entry types of OWG_Param_Type
+    _OWG_entrytypes = None
+    # a list of parts (attributes to ObjWithGUI) which are also instances of
+    # ObjWithGUI.
+    _OWG_parts = None
+    # In the GUI table these will be represented as buttons which open the appropriate GUI
+    # dialog for the part. Changes in these dialogs are not forwarded per se to the parent dialog of
+    # the parent ObjWithGUI.
+    # a dict of various hints assisting the correct display of entries
+    _OWG_hints = None
+    # the number of columns in the table for parts in the GUI.
+    _OWG_parttab_cols = 5
 
     def __init__(self):
         GObject.GObject.__init__(self)

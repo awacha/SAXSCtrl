@@ -1,3 +1,4 @@
+import collimation
 import datareduction
 import equipments
 import exposure
@@ -10,6 +11,7 @@ import virtualdetectors
 import motors
 import imaging
 
+from collimation import *
 from datareduction import *
 from equipments import *
 from exposure import *

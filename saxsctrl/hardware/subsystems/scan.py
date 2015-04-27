@@ -219,6 +219,16 @@ class SubSystemScan(SubSystem):
         self.scandevice = None
         SubSystem.__init__(self, credo, offline)
         self._init_scan_device()
+        self._ex_conn = []
+
+    def __del__(self):
+        try:
+            sse = self.credo().subsystems['Exposure']
+            for c in self._ex_conn:
+                sse.disconnect(c)
+            self._ex_conn = []
+        except (AttributeError, KeyError):
+            return
 
     def do_notify(self, prop):
         try:
@@ -281,12 +291,13 @@ class SubSystemScan(SubSystem):
         self._original_shuttermode = self.credo().subsystems[
             'Exposure'].operate_shutter
 
-        self._ex_conn = [self.credo(
-        ).subsystems[
-            'Exposure'].connect('exposure-fail', self._exposure_fail),
+        self._ex_conn = [
+            self.credo().subsystems['Exposure'].connect(
+                'exposure-fail', self._exposure_fail),
             self.credo().subsystems['Exposure'].connect(
                 'exposure-image', self._exposure_image),
-            self.credo().subsystems['Exposure'].connect('exposure-end', self._exposure_end)]
+            self.credo().subsystems['Exposure'].connect(
+                'exposure-end', self._exposure_end)]
 
         self._current_step = None
         self._header_template = header_template.copy()
@@ -354,7 +365,9 @@ class SubSystemScan(SubSystem):
             logger.debug('Very first step.')
             # we are starting:
             self._current_step = 0
-            if self._original_shuttermode and not self.operate_shutter:  # if an exposure should open the shutter but we leave it open during exposures
+            # if an exposure should open the shutter but we leave it open
+            # during exposures
+            if self._original_shuttermode and not self.operate_shutter:
                 self.credo().subsystems['Exposure'].operate_shutter = False
             # otherwise we either 1) should not touch the shutter 2) can rely
             # on the open/close behaviour of the Exposure subsystem
@@ -391,7 +404,7 @@ class SubSystemScan(SubSystem):
         try:
             self.credo().subsystems['Exposure'].kill()
         except:
-            pass
+            raise
         logger.info('Stopping scan sequence on user request.')
 
     def do_scan_end(self, status):

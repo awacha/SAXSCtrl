@@ -15,12 +15,17 @@ import numpy as np
 
 from .subsystem import SubSystem, SubSystemError
 from ...utils import objwithgui
+from inspect import ArgSpec
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
 class DataReductionError(SubSystemError):
+    pass
+
+
+class ExposureFlaggedException(Exception):
     pass
 
 
@@ -57,9 +62,7 @@ class DataReductionStep(objwithgui.ObjWithGUI):
 class BackgroundSubtraction(DataReductionStep):
     enable = GObject.property(type=bool, default=True, blurb='Enabled')
     title = GObject.property(
-        type=str, default='Empty beam', blurb='Title of background measurements')
-    association = GObject.property(
-        type=str, default='previous', blurb='Background finding method')
+        type=str, default='Empty_beam', blurb='Title of background measurements')
     distance_tolerance = GObject.property(
         type=float, default=30, blurb='Distance tolerance (mm)', minimum=0)
     energy_tolerance = GObject.property(
@@ -68,56 +71,44 @@ class BackgroundSubtraction(DataReductionStep):
     def __init__(self, chain):
         self._OWG_init_lists()
         self._OWG_hints['enable'] = {objwithgui.OWG_Hint_Type.OrderPriority: 0}
-        self._OWG_entrytypes[
-            'association'] = objwithgui.OWG_Param_Type.ListOfStrings
         self._OWG_hints['title'] = {objwithgui.OWG_Hint_Type.OrderPriority: 1}
-        self._OWG_hints['association'] = {objwithgui.OWG_Hint_Type.ChoicesList: [
-            'previous', 'next', 'nearest'], objwithgui.OWG_Hint_Type.OrderPriority: 2}
         self._OWG_hints['distance_tolerance'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 3}
         self._OWG_hints['energy_tolerance'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 4}
-
         DataReductionStep.__init__(self, chain)
+        self._lastemptybeamexposure = None
 
     def execute(self, exposure, force=False):
-        if exposure['Title'] == self.title:
-            self.message(
-                exposure, 'Not subtracting background from background.')
-            return False
         if not self.enable:
             self.message(exposure, 'Skipping background subtraction.')
             return True
-        try:
-            bgheader = self.chain.beamtimeraw.find('Title', self.title,
-                                                   'EnergyCalibrated', smn.InClosedNeighbourhood(
-                                                       exposure[
-                                                           'EnergyCalibrated'], self.energy_tolerance),
-                                                   'DistCalibrated', smn.InClosedNeighbourhood(
-                                                       exposure[
-                                                           'DistCalibrated'], self.distance_tolerance),
-                                                   returnonly=self.association, date=exposure['Date'])
-        except IndexError:
-            raise DataReductionError(
-                'Cannot find background for ' + str(exposure.header))
-        self.message(
-            exposure, 'Found background: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % bgheader)
-        try:
-            if force:
-                raise IOError()
-            bg = self.chain.beamtimereduced.load_exposure(bgheader)
-            self.message(exposure, 'Re-using previously processed data.')
-        except IOError:
+        if exposure['Title'] == self.title:
             self.message(
-                exposure, 'Loading and reducing raw data for background.')
-            bg = self.chain.beamtimeraw.load_exposure(bgheader)
-            bg = self.chain.execute(bg,
-                                    force=True, endstepclassname=self.__class__.__name__)
-        exposure -= bg
+                exposure, 'Not subtracting background from background.')
+            logger.debug('Storing exposure as last empty beam: %s' %
+                         str(exposure.header))
+            self._lastemptybeamexposure = exposure
+            return False
+        else:
+            self.message(exposure, 'Title == ' + self.title)
+        if self._lastemptybeamexposure is None:
+            raise DataReductionError('No background exposure seen yet!')
+        if ((abs(float(self._lastemptybeamexposure['EnergyCalibrated']) -
+                 float(exposure['EnergyCalibrated'])) > self.energy_tolerance) or
+            (abs(float(self._lastemptybeamexposure['DistCalibrated']) -
+                 float(exposure['DistCalibrated'])) > self.distance_tolerance)):
+            raise DataReductionError(
+                'Last seen background (FSN=%d) does not match ' %
+                (self._lastemptybeamexposure['FSN']) + str(exposure.header))
+        self.message(
+            exposure, 'Using background: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % self._lastemptybeamexposure)
+        exposure -= self._lastemptybeamexposure
         exposure.header.add_history(
-            'Subtracted background: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % bgheader)
-        exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
-        exposure['FSNempty'] = bg['FSN']
+            'Subtracted background: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % self._lastemptybeamexposure)
+        exposure.header.add_history('Maximum relative error: %g' % (
+            np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
+        exposure['FSNempty'] = self._lastemptybeamexposure['FSN']
         self.message(exposure, 'Background subtraction done.')
         return True
 
@@ -125,9 +116,7 @@ class BackgroundSubtraction(DataReductionStep):
 class AbsoluteCalibration(DataReductionStep):
     enable = GObject.property(type=bool, default=True, blurb='Enabled')
     title = GObject.property(
-        type=str, default='Glassy Carbon', blurb='Title of reference measurements')
-    association = GObject.property(
-        type=str, default='previous', blurb='Reference finding method')
+        type=str, default='Glassy_Carbon', blurb='Title of reference measurements')
     distance_tolerance = GObject.property(
         type=float, default=30, blurb='Distance tolerance (mm)')
     energy_tolerance = GObject.property(
@@ -138,11 +127,7 @@ class AbsoluteCalibration(DataReductionStep):
     def __init__(self, chain):
         self._OWG_init_lists()
         self._OWG_hints['enable'] = {objwithgui.OWG_Hint_Type.OrderPriority: 0}
-        self._OWG_entrytypes[
-            'association'] = objwithgui.OWG_Param_Type.ListOfStrings
         self._OWG_hints['title'] = {objwithgui.OWG_Hint_Type.OrderPriority: 1}
-        self._OWG_hints['association'] = {objwithgui.OWG_Hint_Type.ChoicesList: [
-            'previous', 'next', 'nearest'], objwithgui.OWG_Hint_Type.OrderPriority: 2}
         self._OWG_hints['distance-tolerance'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 3}
         self._OWG_hints['energy-tolerance'] = {
@@ -153,6 +138,7 @@ class AbsoluteCalibration(DataReductionStep):
             'reference-datafile'] = objwithgui.OWG_Param_Type.File
 
         DataReductionStep.__init__(self, chain)
+        self._lastgcexposure = None
 
     def execute(self, exposure, force=False):
         if not self.enable:
@@ -192,7 +178,8 @@ class AbsoluteCalibration(DataReductionStep):
             exposure['NormFactorError'] = float(scalefactor.err)
             exposure.header.add_history(
                 'Normalized into absolute intensity units using reference file %s' % self.reference_datafile)
-            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            exposure.header.add_history('Maximum relative error: %g' % (
+                np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             f = matplotlib.figure.Figure()
             canvas = matplotlib.backends.backend_agg.FigureCanvasAgg(f)
             ax = f.add_subplot(1, 1, 1)
@@ -207,42 +194,29 @@ class AbsoluteCalibration(DataReductionStep):
                 os.path.join(self.chain.filessubsystem.eval2dpath, 'absint_%s.png' % os.path.split(exposure['FileName'])[1]), dpi=300)
             del canvas
             del f
+            self._lastgcexposure = exposure
             return True
-        try:
-            refheader = self.chain.beamtimeraw.find('Title', self.title,
-                                                    'EnergyCalibrated', smn.InClosedNeighbourhood(
-                                                        exposure[
-                                                            'EnergyCalibrated'], self.energy_tolerance),
-                                                    'DistCalibrated', smn.InClosedNeighbourhood(
-                                                        exposure[
-                                                            'DistCalibrated'], self.distance_tolerance),
-                                                    returnonly=self.association, date=exposure['Date'])
-        except IndexError:
+        if self._lastgcexposure is None:
             raise DataReductionError(
-                'Cannot find reference dataset for ' + str(exposure.header))
+                'No intensity reference exposure seen yet!')
+        if ((abs(float(self._lastgcexposure['EnergyCalibrated']) -
+                 float(exposure['EnergyCalibrated'])) > self.energy_tolerance) or
+            (abs(float(self._lastgcexposure['DistCalibrated']) -
+                 float(exposure['DistCalibrated'])) > self.distance_tolerance)):
+            raise DataReductionError(
+                'Last seen intensity reference (FSN=%d) does not match ' %
+                (self._lastgcexposure['FSN']) + str(exposure.header))
         self.message(
-            exposure, 'Found reference: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % refheader)
-
-        try:
-            if force:
-                raise IOError()
-            ref = self.chain.beamtimereduced.load_exposure(refheader)
-            self.message(exposure, 'Re-using previously processed data.')
-        except IOError:
-            self.message(
-                exposure, 'Loading and reducing raw data for reference.')
-            ref = self.chain.beamtimeraw.load_exposure(refheader)
-            ref = self.chain.execute(ref,
-                                     force=True,
-                                     endstepclassname=self.__class__.__name__)
+            exposure, 'Using intensity reference: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % self._lastgcexposure)
         exposure *= sastool.misc.ErrorValue(
-            ref['NormFactor'], ref['NormFactorError'])
-        exposure['FSNref1'] = ref['FSN']
-        exposure['NormFactor'] = ref['NormFactor']
-        exposure['NormFactorError'] = ref['NormFactorError']
+            self._lastgcexposure['NormFactor'], self._lastgcexposure['NormFactorError'])
+        exposure['FSNref1'] = self._lastgcexposure['FSN']
+        exposure['NormFactor'] = self._lastgcexposure['NormFactor']
+        exposure['NormFactorError'] = self._lastgcexposure['NormFactorError']
         exposure.header.add_history(
-            'Used absolute intensity reference for scaling: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % refheader)
-        exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            'Used absolute intensity reference for scaling: #%(FSN)d, %(Title)s, %(DistCalibrated).2f mm, %(EnergyCalibrated).2f eV.' % self._lastgcexposure)
+        exposure.header.add_history('Maximum relative error: %g' % (
+            np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
         self.message(exposure, 'Scaled into absolute intensity units.')
         return True
 
@@ -258,6 +232,7 @@ class CorrectGeometry(DataReductionStep):
     angle_dependent_air_absorption_mu0 = GObject.property(
         type=float, default=1 / 88.349, minimum=0,
         blurb='Absorption coefficient of flight path gas at 1000 mbar (1/cm)')
+
     def __init__(self, chain):
         DataReductionStep.__init__(self, chain)
 
@@ -266,26 +241,33 @@ class CorrectGeometry(DataReductionStep):
             exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.solidangle_errorprop(
                 exposure.tth, exposure.dtth, exposure['DistCalibrated'], exposure['DistCalibratedError']))
             exposure.header.add_history('Solid-angle correction done.')
-            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            exposure.header.add_history('Maximum relative error: %g' % (
+                np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             self.message(exposure, 'Solid-angle correction done.')
         if self.angle_dependent_self_absorption:
             exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.angledependentabsorption_errorprop(
                 exposure.tth, exposure.dtth, exposure['Transm'], exposure['TransmError']))
             exposure.header.add_history(
                 'Corrected for angle-dependence of self-absorption.')
-            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            exposure.header.add_history('Maximum relative error: %g' % (
+                np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             self.message(
                 exposure, 'Corrected for angle-dependence of self-absorption')
         if self.angle_dependent_air_absorption:
             if 'Vacuum' not in exposure.header:
-                exposure.header.add_history('Could not carry out angle dependent air absorption correction: Vacuum value not known in header.')
-                exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+                exposure.header.add_history(
+                    'Could not carry out angle dependent air absorption correction: Vacuum value not known in header.')
+                exposure.header.add_history('Maximum relative error: %g' % (
+                    np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             else:
-                mu = self.angle_dependent_air_absorption_mu0 / 1000.0 * exposure['Vacuum'] * 0.1
+                mu = self.angle_dependent_air_absorption_mu0 / \
+                    1000.0 * exposure['Vacuum'] * 0.1
                 exposure *= sastool.ErrorValue(*sastool.utils2d.corrections.angledependentairtransmission_errorprop(
                     exposure.tth, exposure.dtth, mu, 0, exposure['DistCalibrated'], exposure['DistCalibratedError']))
-                exposure.header.add_history('Flight-path air absorption correction done.')
-                exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+                exposure.header.add_history(
+                    'Flight-path air absorption correction done.')
+                exposure.header.add_history('Maximum relative error: %g' % (
+                    np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             return True
 
 
@@ -302,19 +284,23 @@ class PreScaling(DataReductionStep):
 
     def execute(self, exposure, force=False):
         if self.monitor:
-            monitor=sastool.ErrorValue(exposure[self.monitorname],exposure[self.monitorname+'Error'])
+            monitor = sastool.ErrorValue(
+                exposure[self.monitorname], exposure[self.monitorname + 'Error'])
             exposure /= monitor
             exposure.header.add_history(
                 'Normalized by monitor %s' % self.monitorname)
-            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            exposure.header.add_history('Maximum relative error: %g' % (
+                np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             self.message(exposure, 'Normalized by monitor %s' %
                          self.monitorname)
         if self.transmission:
-            transm=sastool.ErrorValue(exposure['Transm'],exposure['TransmError'])
+            transm = sastool.ErrorValue(
+                exposure['Transm'], exposure['TransmError'])
             exposure /= transm
             exposure.header.add_history(
                 'Normalized by transmission: %s' % transm)
-            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            exposure.header.add_history('Maximum relative error: %g' % (
+                np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
             self.message(exposure, 'Normalized by transmission.')
         return True
 
@@ -328,12 +314,14 @@ class PostScaling(DataReductionStep):
 
     def execute(self, exposure, force=False):
         if self.thickness:
-            thickness=sastool.ErrorValue(exposure['Thickness'],exposure['ThicknessError'])
+            thickness = sastool.ErrorValue(
+                exposure['Thickness'], exposure['ThicknessError'])
             exposure /= thickness
             self.message(exposure, 'Divided by thickness: %.4f cm' %
                          exposure['Thickness'])
             exposure.header.add_history('Divided by thickness')
-            exposure.header.add_history('Maximum relative error: %g'%(np.nanmax((exposure.Error/exposure.Intensity)[exposure.mask.mask==1])))
+            exposure.header.add_history('Maximum relative error: %g' % (
+                np.nanmax((exposure.Error / exposure.Intensity)[exposure.mask.mask == 1])))
         return True
 
 
@@ -354,6 +342,7 @@ class Saving(DataReductionStep):
                 exposure, self.pixels_per_qbin)
             self.message(exposure, 'Saved radial averaged curve (pixels per q bin: %.2f).' %
                          self.pixels_per_qbin)
+        return True
 
 
 class ReductionThread(GObject.GObject):
@@ -364,16 +353,15 @@ class ReductionThread(GObject.GObject):
         'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),
         'endthread': (GObject.SignalFlags.RUN_FIRST, None, ())}
 
-    def __init__(self, beamtimeraw, beamtimereduced, filessubsystem):
+    def __init__(self, parent):
         GObject.GObject.__init__(self)
-        self.beamtimeraw = beamtimeraw
-        self.beamtimereduced = beamtimereduced
         self.inqueue = Queue.Queue()
         self.chain = []
         self._thread = threading.Thread(target=self.run)
         self._thread.daemon = True
         self._thread.start()
-        self.filessubsystem = filessubsystem
+        self.parent = parent
+        self.filessubsystem = parent.credo().subsystems['Files']
 
     def add_step(self, step):
         self.chain.append(step(self))
@@ -388,8 +376,17 @@ class ReductionThread(GObject.GObject):
             if isinstance(fsn, str) and fsn == 'KILL!':
                 break
             try:
-                exposure = self.beamtimeraw.load_exposure(fsn)
+                exposure = self.parent.load_exposure(fsn)
+                try:
+                    if exposure.header['ErrorFlags']:
+                        raise ExposureFlaggedException
+                except KeyError:
+                    # 'ErrorFlags' key not in header: this exposure has not been flagged
+                    pass
                 exposure = self.execute(exposure, force, None)
+            except ExposureFlaggedException:
+                self._threadsafe_emit('message', exposure[
+                                      'FSN'], 'Not running data reduction: this exposure is flagged as erroneous.')
             except Exception as ex:
                 logger.error(
                     'Error while reducing FSN #%d: ' % fsn + str(traceback.format_exc()))
@@ -442,15 +439,12 @@ class SubSystemDataReduction(SubSystem):
         type=str, nick='IO::File_begin', blurb='Filename prefix', default='crd')
     ndigits = GObject.property(
         type=int, nick='IO::Number_digits', blurb='Number of digits in FSN', default=5, minimum=1)
-    rawheaders_cache = GObject.property(type=str, nick='IO::Raw_cache', blurb='Cache file for raw headers', default='')
-    reducedheaders_cache = GObject.property(type=str, nick='IO::Reduced_cache', blurb='Cache file for reduced headers', default='')
     __propvalues__ = None
     _reduction_thread = None
+
     def __init__(self, credo, offline=True):
         SubSystem.__init__(self, credo, offline)
         ssf = self.credo().subsystems['Files']
-        t0 = time.time()
-        ssf.connect('new-nextfsn', self._on_new_nextfsn)
         self._reduction_thread = None
         self._OWG_init_lists()
 
@@ -459,25 +453,28 @@ class SubSystemDataReduction(SubSystem):
             objwithgui.OWG_Hint_Type.OrderPriority: 0}
         self._OWG_hints['ndigits'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 1}
+        self._restart_reductionthread()
 
-        self.beamtimeraw = None
-        self.beamtimereduced = None
+    def __del__(self):
+        try:
+            self._reduction_thread.kill()
+        except AttributeError:
+            pass
 
     def _restart_reductionthread(self):
+        logger.debug('(Re)starting reduction thread')
         if self._reduction_thread is not None:
             for c in self._thread_connections:
                 self._reduction_thread.disconnect(c)
             self._thread_connections = []
             self._reduction_thread.kill()
             self._reduction_thread = None
-        self._reduction_thread = ReductionThread(
-            self.beamtimeraw, self.beamtimereduced, self.credo().subsystems['Files'])
-        self._thread_connections = [self._reduction_thread.connect(
-            'endthread', self._on_endthread),
-            self._reduction_thread.connect(
-                'idle', self._on_idle),
-            self._reduction_thread.connect(
-                'message', self._on_message),
+            self._OWG_parts = []
+        self._reduction_thread = ReductionThread(self)
+        self._thread_connections = [
+            self._reduction_thread.connect('endthread', self._on_endthread),
+            self._reduction_thread.connect('idle', self._on_idle),
+            self._reduction_thread.connect('message', self._on_message),
             self._reduction_thread.connect('done', self._on_done)]
         self._OWG_parts = self._reduction_thread.chain
         self.add_step(PreScaling)
@@ -486,51 +483,15 @@ class SubSystemDataReduction(SubSystem):
         self.add_step(PostScaling)
         self.add_step(AbsoluteCalibration)
         self.add_step(Saving)
+        self.loadstate(self.credo().getstatefile())
 
-    def _reload_beamtimes(self, raw=True):
+    def load_exposure(self, fsn):
         ssf = self.credo().subsystems['Files']
-        t0 = time.time()
-        if raw:
-            if self.rawheaders_cache == '':
-                return
-            self.beamtimeraw = sastool.classes.SASBeamTime(
-                ssf.rawloadpath, ssf.get_exposureformat(
-                    self.filebegin, self.ndigits),
-                ssf.get_headerformat(self.filebegin, self.ndigits), cachefile=self.rawheaders_cache)
-        else:
-            if self.reducedheaders_cache == '':
-                return
-            self.beamtimereduced = sastool.classes.SASBeamTime(
-                ssf.reducedloadpath, ssf.get_eval2dformat(
-                    self.filebegin, self.ndigits),
-                ssf.get_evalheaderformat(self.filebegin, self.ndigits), cachefile=self.reducedheaders_cache)
-        self._restart_reductionthread()
+        return sastool.SASExposure(ssf.get_exposureformat(self.filebegin, self.ndigits) % fsn, dirs=ssf.rawloadpath)
 
-    def do_notify(self, prop):
-        if prop.name == 'rawheaders-cache':
-            if not os.path.isabs(self.rawheaders_cache):
-                self.rawheaders_cache = os.path.join(self.credo().subsystems['Files'].configpath, self.rawheaders_cache)
-                logger.debug('Made rawheaders_cache path absolute: ' + self.rawheaders_cache)
-                return
-            del self.beamtimeraw
-            self._reload_beamtimes(True)
-            logger.debug('Reloaded raw beamtime because the cache file property changed.')
-        if prop.name == 'reducedheaders-cache':
-            if not os.path.isabs(self.reducedheaders_cache):
-                self.reducedheaders_cache = os.path.join(self.credo().subsystems['Files'].configpath, self.reducedheaders_cache)
-                logger.debug('Made reducedheaders_cache path absolute: ' + self.reducedheaders_cache)
-                return
-            del self.beamtimereduced
-            self._reload_beamtimes(False)
-            logger.debug('Reloaded reduced beamtime because the cache file property changed.')
-
-    def _on_new_nextfsn(self, ssf, nextfsn, filebegin):
-        if filebegin.startswith(self.filebegin):
-            logger.debug('Updating beamtimeraw up to %d' % nextfsn)
-            self.beamtimeraw.update_cache_up_to(nextfsn - 1)
-        else:
-            logger.debug('New nextfsn, but not updating beamtimeraw: %s does not start with %s' %
-                         (filebegin, self.filebegin))
+    def load_header(self, fsn):
+        ssf = self.credo().subsystems['Files']
+        return sastool.SASHeader(ssf.get_headerformat(self.filebegin, self.ndigits) % fsn, dirs=ssf.rawloadpath)
 
     def add_step(self, step):
         self._reduction_thread.add_step(step)
@@ -547,15 +508,13 @@ class SubSystemDataReduction(SubSystem):
         self._reduction_thread = None
 
     def _on_message(self, thread, fsn, message):
-        logger.debug('Processing FSN #%d: %s' % (fsn, message))
+        logger.info('Processing FSN #%d: %s' % (fsn, message))
         self.emit('message', fsn, message)
 
     def _on_idle(self, thread):
         self.emit('idle')
 
     def _on_done(self, thread, fsn, exposure):
-        self.beamtimeraw.reload_header_for_fsn(fsn)
-        self.beamtimereduced.reload_header_for_fsn(fsn)
         self.emit('done', fsn, exposure)
 
     def __del__(self):

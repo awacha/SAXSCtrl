@@ -84,13 +84,13 @@ class ExposureFrame(Gtk.Frame):
         self.exposure_progress = Gtk.ProgressBar()
         self.exposure_progress.set_no_show_all(True)
         self.exposure_progress.set_show_text(True)
-        grid.attach(self.exposure_progress, 0, row, 1, 2)
+        grid.attach(self.exposure_progress, 0, row, 2, 1)
         row += 1
 
         self.nimages_progress = Gtk.ProgressBar()
         self.nimages_progress.set_no_show_all(True)
         self.nimages_progress.set_show_text(True)
-        grid.attach(self.nimages_progress, 0, row, 1, 2)
+        grid.attach(self.nimages_progress, 0, row, 2, 1)
         row += 1
 
         self._conns = []

@@ -50,8 +50,8 @@ class ScanGraph(ToolDialog):
         vb.pack_start(self.figcanvas, True, True, 0)
         self.figtoolbar = NavigationToolbar2GTK3(self.figcanvas, self)
         vb.pack_start(self.figtoolbar, False, True, 0)
-        tab = Gtk.Table()
-        vb.pack_start(tab, False, True, 0)
+#        tab = Gtk.Table()
+#        vb.pack_start(tab, False, True, 0)
         self.figcanvas.set_size_request(640, 480)
 
         b = Gtk.ToolButton(icon_name='fitpeak')

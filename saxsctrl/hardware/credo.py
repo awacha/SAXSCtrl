@@ -2,7 +2,7 @@
 import logging
 import scipy
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 import os
 import nxs
 import datetime
@@ -46,6 +46,10 @@ class Credo(objwithgui.ObjWithGUI):
         type=str, default='Anonymous', blurb='User name')
     projectname = GObject.property(
         type=str, default='No project', blurb='Project name')
+    projectid = GObject.property(
+        type=str, default='01', blurb='Project ID')
+    proposername = GObject.property(
+        type=str, default='John Doe', blurb='Main proposer')
 
     # Instrument parameters
     pixelsize = GObject.property(
@@ -58,7 +62,8 @@ class Credo(objwithgui.ObjWithGUI):
         type=float, default=0, minimum=0,
         blurb='Error of the sample-detector distance (mm)'
     )
-    setup_description = GObject.property(type=str, default='<Description of the set-up>', blurb='Description of the current set-up')
+    setup_description = GObject.property(
+        type=str, default='<Description of the set-up>', blurb='Description of the current set-up')
     beamposx = GObject.property(
         type=float, default=348.38, blurb='Beam position X (vertical, pixels)')
     beamposy = GObject.property(
@@ -66,14 +71,14 @@ class Credo(objwithgui.ObjWithGUI):
     wavelength = GObject.property(
         type=float, default=0.154182, minimum=0, blurb='X-ray wavelength (nm)')
     # Inhibiting parameters
-    shuttercontrol = GObject.property(
-        type=bool, default=True, blurb='Open/close shutter')
+#    shuttercontrol = GObject.property(
+#        type=bool, default=True, blurb='Open/close shutter')
     motorcontrol = GObject.property(
         type=bool, default=True, blurb='Move motors')
     # changing any of the properties in this list will trigger a setup-changed
     # event.
     setup_properties = [
-        'username', 'projectname', 'pixelsize', 'dist', 'dist_error', 'setup_description',
+        'username', 'projectname', 'projectid', 'pixelsize', 'dist', 'dist_error', 'setup_description',
         'beamposx', 'beamposy', 'wavelength', 'shuttercontrol',
         'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile',
                         'imagepath', 'filepath']
@@ -100,7 +105,7 @@ class Credo(objwithgui.ObjWithGUI):
         self._OWG_hints['dist'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 3,
             objwithgui.OWG_Hint_Type.Digits: 3}
-        self._OWG_hints['dist_error'] = {
+        self._OWG_hints['dist-error'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 4,
             objwithgui.OWG_Hint_Type.Digits: 3}
         self._OWG_hints['pixelsize'] = {
@@ -112,19 +117,13 @@ class Credo(objwithgui.ObjWithGUI):
             objwithgui.OWG_Hint_Type.OrderPriority: 6,
             objwithgui.OWG_Hint_Type.Digits: 5}
         self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
-        self._OWG_hints['shuttercontrol'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 7}
         self._OWG_hints['motorcontrol'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 7}
-        self._OWG_hints['bs-in'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 8,
-            objwithgui.OWG_Hint_Type.Digits: 3}
-        self._OWG_hints['bs-out'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 9,
-            objwithgui.OWG_Hint_Type.Digits: 3}
         # initialize subsystems
         logger.debug('Initializing subsystems of Credo')
         self.subsystems = {}
+        self.subsystems['Collimation'] = subsystems.SubSystemCollimation(
+            self, offline=self.offline)
         self.subsystems['Files'] = subsystems.SubSystemFiles(
             self, offline=self.offline, createdirsifnotpresent=createdirsifnotpresent)
         self.subsystems['Samples'] = subsystems.SubSystemSamples(
@@ -156,6 +155,7 @@ class Credo(objwithgui.ObjWithGUI):
                 self.subsystems['Equipments'].connect_to_all()
             except subsystems.SubSystemError as err:
                 logger.warning(str(err))
+
     def _get_classname(self):
         return 'CREDO'
 
@@ -165,21 +165,24 @@ class Credo(objwithgui.ObjWithGUI):
     def loadstate(self, configparser=None, sectionprefix=''):
         logger.debug('Loading Credo state...')
         if configparser is None:
-            configparser = ConfigParser.ConfigParser()
-            configparser.read(RCFILE)
+            configparser = self.getstatefile()
         objwithgui.ObjWithGUI.loadstate(self, configparser, sectionprefix)
 #         for ss in self.subsystems.values():
 #             ss.loadstate(cp)
         logger.debug('Credo state loaded.')
         del configparser
 
+    def getstatefile(self):
+        configparser = ConfigParser.ConfigParser()
+        configparser.read(RCFILE)
+        return configparser
+
     def savestate(self):
         if self.offline:
             logger.warning(
                 'Not saving settings, since we are in off-line mode.')
             return
-        cp = ConfigParser.ConfigParser()
-        cp.read(RCFILE)
+        cp = self.getstatefile()
         objwithgui.ObjWithGUI.savestate(self, cp)
 #         for ss in self.subsystems.values():
 #             ss.savestate(cp)

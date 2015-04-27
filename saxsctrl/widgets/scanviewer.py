@@ -12,17 +12,18 @@ class ScanViewer(ToolDialog):
     def __init__(self, credo, title='Scan viewer'):
         ToolDialog.__init__(self, credo, title)
         vb = self.get_content_area()
-        self.entrytable = Gtk.Table()
-        vb.pack_start(self.entrytable, False, True, 0)
+        self.entrygrid = Gtk.Grid()
+        vb.pack_start(self.entrygrid, False, True, 0)
         row = 0
 
         l = Gtk.Label(label='Scan file:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
-        self.entrytable.attach(l, 0, 1, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.entrygrid.attach(l, 0, row, 1, 1)
         self.scanfile_entry = FileEntryWithButton()
         self.scanfile_entry.set_filename(self.credo.subsystems['Files'].scanfilename)
-        self.entrytable.attach(self.scanfile_entry, 1, 2, row, row + 1)
+        self.scanfile_entry.set_hexpand(True)
+        self.entrygrid.attach(self.scanfile_entry, 1, row, 1, 1)
         b = Gtk.Button(label='Refresh')
-        self.entrytable.attach(b, 2, 3, row, row + 1, Gtk.AttachOptions.FILL, Gtk.AttachOptions.FILL)
+        self.entrygrid.attach(b, 2, row, 1, 1)
         b.connect('clicked', lambda b: self.reload_list())
         vp = Gtk.VPaned()
         vb.pack_start(vp, True, True, 0)

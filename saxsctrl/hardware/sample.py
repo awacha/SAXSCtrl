@@ -4,6 +4,12 @@ import ConfigParser
 from sastool.misc.errorvalue import ErrorValue
 
 
+VALID_CATEGORIES = ['calibration sample',
+                    'normalization sample', 'sample', 'sample+can', 'can', 'none']
+
+VALID_SITUATIONS = ['air', 'vacuum', 'sealed can']
+
+
 class SAXSSample(object):
     title = None
     positiony = 0.0
@@ -14,6 +20,8 @@ class SAXSSample(object):
     preparetime = None
     distminus = 0.0
     description = ''
+    category = None  # a string. Can be any element of VALID_CATEGORIES
+    situation = None  # a string. Can be any element of VALID_SITUATIONS
 
     @classmethod
     def new_from_cfg(cls, *filenames):
@@ -29,7 +37,7 @@ class SAXSSample(object):
 
     def __init__(self, title, positiony=0.0, positionx=0.0, thickness=1.0,
                  transmission=1.0, preparedby='Anonymous', preparetime=None,
-                 distminus=0.0, description=''):
+                 distminus=0.0, description='', category='sample', situation='vacuum'):
         if isinstance(title, SAXSSample):
             self.title = title.title
             self.positionx = title.positionx
@@ -40,6 +48,8 @@ class SAXSSample(object):
             self.preparetime = title.preparetime
             self.distminus = title.distminus
             self.description = title.description
+            self.category = title.category
+            self.situation = title.situation
         else:
             self.title = title
             self.positionx = positionx
@@ -47,11 +57,13 @@ class SAXSSample(object):
             self.thickness = thickness
             self.transmission = transmission
             self.preparedby = preparedby
+            self.category = category
             if preparetime is None:
                 preparetime = datetime.datetime.now()
             self.preparetime = preparetime
             self.distminus = distminus
             self.description = description
+            self.situation = situation
 
     def save_to_ConfigParser(self, cp, sectionname):
         if not cp.has_section(sectionname):
@@ -75,9 +87,11 @@ class SAXSSample(object):
         if isinstance(self.distminus, ErrorValue):
             cp.set(sectionname, 'DistminusError', self.distminus.err)
         cp.set(sectionname, 'Description', str(self.description))
+        cp.set(sectionname, 'Category', str(self.category))
+        cp.set(sectionname, 'Situation', str(self.situation))
 
     def read_from_ConfigParser(self, cp, sectionname):
-        for name, attr in [('Title', 'title'), ('Preparedby', 'preparedby'), ('Description', 'description')]:
+        for name, attr in [('Title', 'title'), ('Preparedby', 'preparedby'), ('Description', 'description'), ('Category', 'category'), ('Situation', 'situation')]:
             if cp.has_option(sectionname, name):
                 self.__setattr__(attr, cp.get(sectionname, name))
         for name, attr in [('Position', 'positiony'),
@@ -92,22 +106,22 @@ class SAXSSample(object):
                 if cp.has_option(sectionname, name + 'Error'):
                     self.__setattr__(
                         attr, ErrorValue(self.__getattribute__(attr),
-                                    cp.getfloat(sectionname, name + 'Error')))
+                                         cp.getfloat(sectionname, name + 'Error')))
         if cp.has_option(sectionname, 'Preparetime'):
             self.preparetime = dateutil.parser.parse(
                 cp.get(sectionname, 'Preparetime'))
 
     def __repr__(self):
         return 'SAXSSample(%s, (%.3f, %.3f), %.4f, %.4f)' % (self.title,
-            self.positionx, self.positiony, self.thickness, self.transmission)
+                                                             self.positionx, self.positiony, self.thickness, self.transmission)
 
     def __str__(self):
         return '%s, (%.3f, %.3f), %.4f cm, transm: %.4f' % (self.title,
-            self.positionx, self.positiony, self.thickness, self.transmission)
+                                                            self.positionx, self.positiony, self.thickness, self.transmission)
 
     def __unicode__(self):
         return u'%s, (%.3f, %.3f) %.4f cm, transm: %.4f' % (self.title,
-            self.positionx, self.positiony, self.thickness, self.transmission)
+                                                            self.positionx, self.positiony, self.thickness, self.transmission)
 
     def __eq__(self, other):
         if isinstance(other, SAXSSample):
@@ -139,7 +153,7 @@ class SAXSSample(object):
     def get_header(self):
         hed = {'Title': self.title, 'Preparedby':
                self.preparedby, 'Preparetime': self.preparetime,
-               'SampleDescription':self.description}
+               'SampleDescription': self.description}
         for attr, key in [('thickness', 'Thickness'),
                           ('transmission', 'Transm'),
                           ('positiony', 'PosSample'),

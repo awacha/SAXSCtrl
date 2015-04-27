@@ -3,7 +3,7 @@ from gi.repository import GObject
 from ...utils import objwithgui
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 class SubSystemError(StandardError):
     pass

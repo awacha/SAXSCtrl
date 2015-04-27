@@ -22,7 +22,7 @@ class InstrumentSetup(ToolDialog):
         self._tab = self.credo.create_setup_table()
         self._tabconn = [self._tab.connect(
             'changed', lambda t, parname:self.set_response_sensitive(
-                   Gtk.ResponseType.APPLY, True)),
+                Gtk.ResponseType.APPLY, True)),
             self._tab.connect(
                 'apply', lambda t:self.set_response_sensitive(
                     Gtk.ResponseType.APPLY, False)),
