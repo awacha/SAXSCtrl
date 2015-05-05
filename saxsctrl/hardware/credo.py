@@ -12,6 +12,7 @@ from gi.repository import GObject
 import ConfigParser
 import pkg_resources
 import dateutil
+import traceback
 
 from . import subsystems
 from ..utils import objwithgui
@@ -145,7 +146,7 @@ class Credo(objwithgui.ObjWithGUI):
             try:
                 self.subsystems['Equipments'].connect_to_all()
             except subsystems.SubSystemError as err:
-                logger.warning(str(err))
+                logger.warning(traceback.format_exc())
 
     def _get_classname(self):
         return 'CREDO'

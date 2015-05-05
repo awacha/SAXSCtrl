@@ -151,7 +151,7 @@ class AbsoluteCalibration(DataReductionStep):
                 refdata = sastool.classes.SASCurve(self.reference_datafile)
             except IOError:
                 raise DataReductionError(
-                    'Cannot open reference data file: ' + self.reference_datafile)
+                    'Cannot open reference data file ' + self.reference_datafile + ': ' + traceback.format_exc())
             try:
                 logger.debug('Doing radial average from measured GC data.')
                 logger.debug('Exposure.min(): %g' % exposure.Intensity.min())
@@ -163,7 +163,7 @@ class AbsoluteCalibration(DataReductionStep):
                 logger.debug('measdata qmax: %g' % measdata.q.max())
             except sastool.SASExposureException as see:
                 raise DataReductionError(
-                    'Could not make a radial average from the reference measurement: ' + str(see))
+                    'Could not make a radial average from the reference measurement: ' + traceback.format_exc())
             logger.debug('Interpolating refdata to measdata.q')
             refdata = refdata.interpolate(measdata.q)
             logger.debug('Interpolation done. Refdata len: %d' % len(refdata))

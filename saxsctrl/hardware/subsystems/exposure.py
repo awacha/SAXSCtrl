@@ -84,7 +84,7 @@ class SubSystemExposure(SubSystem):
                         self.default_mask)
                 except IOError:
                     logger.error(
-                        'Cannot load default mask from file: ' + self.default_mask)
+                        'Cannot load default mask from file: ' + self.default_mask + ' (' + traceback.format_exc() + ')')
                 else:
                     logger.debug(
                         'Loaded default mask from file: ' + self.default_mask)
@@ -97,8 +97,9 @@ class SubSystemExposure(SubSystem):
     def kill(self, stop_processing_results=True):
         try:
             self.credo().get_equipment('pilatus').stopexposure()
-        except PilatusError:
-            pass
+        except PilatusError as pe:
+            logger.warning(
+                'PilatusError while killing exposure: ' + traceback.format_exc())
         if stop_processing_results:
             self._stopswitch.set()
 
@@ -107,9 +108,11 @@ class SubSystemExposure(SubSystem):
             self._stopswitch.set()
             for s in self._subprocesses:
                 s.join()
+                self._subprocesses.remove(s)
             del self._subprocesses
-        except AttributeError:
-            pass
+        except AttributeError as ae:
+            logger.warning(
+                'AttributeError in _kill_subprocesses: ' + traceback.format_exc())
 
     def start(self, header_template=None, mask=None, write_nexus=False):
         logger.debug('Exposure subsystem: starting exposure.')
@@ -226,9 +229,10 @@ class SubSystemExposure(SubSystem):
         # pilatus exposure sequence.
         try:
             self.credo().get_equipment('pilatus').stopexposure()
-        except PilatusError:
+        except PilatusError as pe:
             # exposure already finished.
-            pass
+            logger.warn(
+                'PilatusError in do_exposure_fail:' + traceback.format_exc())
 
     def do_exposure_end(self, endstatus):
         # this is the last signal emitted during an exposure. The _check_if_exposure_finished() idle handler
@@ -296,6 +300,7 @@ class SubSystemExposure(SubSystem):
         3) by an exception
 
         """
+        cbfdata = cbfheader = None
         try:
             logger.debug(
                 'Exposure subprocess for FSN #%d started, waiting for %.2f seconds' % (fsn, waittime))
@@ -305,7 +310,6 @@ class SubSystemExposure(SubSystem):
                 raise StopSwitchException
 
             t0 = time.time()
-            cbfdata = cbfheader = None
             os.stat(imagespath)  # a work-around for NFS
             while (time.time() - t0) < cbf_file_timeout:
                 try:
@@ -345,7 +349,7 @@ class SubSystemExposure(SubSystem):
             outqueue.put((ExposureMessageType.Image, fsn))
             logger.debug('Process_exposure took %f seconds.' %
                          (time.time() - t0))
-
+            del cbfdata
         except StopSwitchException:
             # an user break occurred
             outqueue.put((ExposureMessageType.End, False))
@@ -360,4 +364,6 @@ class SubSystemExposure(SubSystem):
         else:
             if this_is_the_last:
                 outqueue.put((ExposureMessageType.End, True))
+        finally:
+            del cbfdata
         logger.debug('Exposure subprocess for FSN #%d ended.')

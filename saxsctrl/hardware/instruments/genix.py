@@ -25,6 +25,7 @@ import time
 import itertools
 from .instrument import InstrumentError, Instrument_ModbusTCP, InstrumentStatus, InstrumentProperty, InstrumentPropertyCategory
 from gi.repository import Notify, GObject
+import traceback
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -157,7 +158,9 @@ class Genix(Instrument_ModbusTCP):
         try:
             statusbits = self.get_status_bits()
             status = self.get_status(statusbits)
-        except InstrumentError:
+        except InstrumentError as ie:
+            logger.warn(
+                'InstrumentError while getting status bits from GeniX: ' + traceback.format_exc())
             for propname in self._get_instrumentproperties():
                 getattr(type(self), propname)._update(
                     self, None, InstrumentPropertyCategory.UNKNOWN)
@@ -209,6 +212,8 @@ class Genix(Instrument_ModbusTCP):
                     newstate = self.status
             self._threadsafe_set_property('status', newstate)
         except InstrumentError:
+            logger.warn(
+                'InstrumentError while getting HV and current from GeniX: ' + traceback.format_exc())
             for propname in self._get_instrumentproperties():
                 getattr(type(self), propname)._update(
                     self, None, InstrumentPropertyCategory.UNKNOWN)

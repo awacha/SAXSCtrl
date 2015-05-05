@@ -1,6 +1,7 @@
 import logging
 import os
 import ConfigParser
+import traceback
 from .subsystem import SubSystem, SubSystemError
 from ..instruments.pilatus import Pilatus
 from ..instruments.genix import Genix
@@ -122,9 +123,9 @@ class SubSystemEquipments(SubSystem):
         except InstrumentError as exc:
             if not eq.connected():
                 logger.error(
-                    'Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + str(exc))
+                    'Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + traceback.format_exc())
                 raise SubSystemError(
-                    'Cannot connect to equipment: ' + str(exc))
+                    'Cannot connect to equipment: ' + traceback.format_exc())
 
     def _equipment_connect(self, equipmentinstance):
         try:

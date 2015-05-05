@@ -4,6 +4,7 @@ from .. import sample
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import ConfigParser
+import traceback
 
 from gi.repository import GObject
 from ..sample import SAXSSample

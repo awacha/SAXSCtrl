@@ -10,6 +10,7 @@ import logging
 import sastool
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+import traceback
 
 __all__ = ['SubSystemImaging']
 
@@ -98,7 +99,7 @@ class SubSystemImaging(SubSystem):
                 raise ValueError('Invalid scan interval')
         except Exception as exc:
             raise SubSystemError(
-                'Validation of scan interval failed: ' + str(exc))
+                'Validation of scan interval failed: ' + traceback.format_exc())
 
         logger.debug('Initializing scan object.')
         # Initialize the scan object
@@ -212,7 +213,7 @@ class SubSystemImaging(SubSystem):
             self._where = [self.scandevice1.moveto(self.value_begin1 + (self.value_end1 - self.value_begin1) / (self.nstep1 - 1) * self._current_step[0]),
                            self.scandevice2.moveto(self.value_begin2 + (self.value_end2 - self.value_begin2) / (self.nstep2 - 1) * self._current_step[1])]
         except ScanDeviceError as sde:
-            self.emit('imaging-fail', str(sde))
+            self.emit('imaging-fail', traceback.format_exc())
         logger.debug('Adding timeout for starting exposure')
         GLib.timeout_add(int(self.waittime * 1000), self._start_exposure)
 
@@ -247,7 +248,8 @@ class SubSystemImaging(SubSystem):
                 self.scandevice1.moveto(self.value_begin1)
                 self.scandevice2.moveto(self.value_begin2)
             except ScanDeviceError:
-                self.emit('imaging-fail', 'Error on auto-return.')
+                self.emit(
+                    'imaging-fail', 'Error on auto-return: ' + traceback.format_exc())
         self._firsttime = None
         self._where = None
         self.currentscan.stop_record_mode()
@@ -261,7 +263,8 @@ class SubSystemImaging(SubSystem):
                         'Shutter left open at the end of scan, closing.')
                     self.credo().get_equipment('genix').shutter_close()
             except GenixError:
-                logger.warning('Error closing shutter.')
+                logger.warning(
+                    'Error closing shutter: ' + traceback.format_exc())
         logger.info('Imaging #%d finished.' % self.currentscan.fsn)
         if Notify.is_initted():
             if status:

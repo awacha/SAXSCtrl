@@ -11,6 +11,7 @@ import pkg_resources
 from ..instruments import InstrumentError
 import scipy.constants
 import time
+import traceback
 
 from gi.repository import GObject
 from gi.repository import Gio
@@ -511,7 +512,7 @@ class SubSystemFiles(SubSystem):
                         sample['temperature'].attrs['units'] = 'degC'
                 except InstrumentError as ie:
                     logger.warn(
-                        'Cannot contact Haake Phoenix circulator while saving NeXus file: ', str(ie))
+                        'Cannot contact Haake Phoenix circulator while saving NeXus file: ', traceback.format_exc())
             monitor = entry.create_group('monitor')
             monitor.attrs['NX_class'] = 'NXmonitor'
             monitor['mode'] = 'timer'
@@ -651,7 +652,8 @@ class SubSystemFiles(SubSystem):
                 source['current'] = curr * 1e-3
                 source['current'].attrs['units'] = 'A'
             except InstrumentError:
-                logger.warn('Could not contact GeniX for saving NeXus file.')
+                logger.warn(
+                    'Could not contact GeniX for saving NeXus file: ' + traceback.format_exc())
             source['target_material'] = 'Cu'
             sensors = instrument.create_group('sensors')
             sensors.attrs['NX_class'] = 'NXcollection'
@@ -672,7 +674,7 @@ class SubSystemFiles(SubSystem):
                 vacuum['run_control'] = False
             except InstrumentError:
                 logger.warn(
-                    'Cannot contact vacuum gauge on saving NeXus file.')
+                    'Cannot contact vacuum gauge on saving NeXus file: ' + traceback.format_exc())
             detector = instrument.create_group('detector')
             detector.attrs['NX_class'] = 'NXdetector'
             detector['distance'] = sd
@@ -751,7 +753,7 @@ class SubSystemFiles(SubSystem):
 
             except InstrumentError:
                 logger.warn(
-                    'Cannot contact pilatus for data retrieval on saving NeXus file.')
+                    'Cannot contact pilatus for data retrieval on saving NeXus file: ' + traceback.format_exc())
             data = entry.create_group('data')
             data.attrs['NX_class'] = 'NXdata'
 

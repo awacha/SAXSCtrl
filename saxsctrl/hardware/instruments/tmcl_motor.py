@@ -198,16 +198,17 @@ class TMCMModule(Instrument_TCP):
             except MotorError as exc:
                 if not i:  # all retries exhausted
                     raise exc
-                logger.warning('Communication error: ' + str(exc) +
-                               '(type: ' + str(type(exc)) + '); retrying (%d retries left)' % i)
+                logger.warning(
+                    'Communication error; retrying (%d retries left): ' % i + traceback.format_exc())
             except (ConnectionBrokenError, InstrumentError) as exc:
                 logger.error('Connection of instrument %s broken: ' %
-                             self._get_classname() + str(exc))
-                raise MotorError('Connection broken: ' + str(exc))
+                             self._get_classname() + traceback.format_exc())
+                raise MotorError(
+                    'Connection broken: ' + traceback.format_exc())
             except Exception as exc:
                 logger.error('Instrument error on module %s: ' %
-                             self.hwtype + str(exc))
-                raise MotorError('Instrument error: ' + str(exc))
+                             self.hwtype + traceback.format_exc())
+                raise MotorError('Instrument error: ' + traceback.format_exc())
 
         # logger.debug('Got message from TMCM module: 0x' + ''.join('%x' % ord(x) for x in result) + '; interpreted value: ' + str(value))
         # logger.debug('Got TMCL result: ' + ''.join(('%02x' % ord(x)) for x in result))
@@ -307,7 +308,7 @@ class TMCMModule(Instrument_TCP):
                 self.load_settings(self.configfile)
             except Exception as exc:
                 logger.error(
-                    'Error while calling TMCMModule.load_settings() from do_notify: ' + str(exc))
+                    'Error while calling TMCMModule.load_settings() from do_notify: ' + traceback.format_exc())
 
     def __iter__(self):
         return self.motors.itervalues()
@@ -702,7 +703,7 @@ class StepperMotor(GObject.GObject):
                 return False
         except Exception as exc:
             logger.critical(
-                'Exception swallowed in StepperMotor.motor_monitor(): ' + str(exc))
+                'Exception swallowed in StepperMotor.motor_monitor(): ' + traceback.format_exc())
             return True
 
     def save_to_configparser(self, cp):

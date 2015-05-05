@@ -3,6 +3,7 @@ from gi.repository import GObject
 from gi.repository import GLib
 import weakref
 import logging
+import traceback
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 

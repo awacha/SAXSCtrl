@@ -12,6 +12,7 @@ import logging
 import sastool
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+import traceback
 
 __all__ = ['SubSystemScan']
 
@@ -105,7 +106,8 @@ class ScanDeviceMotor(ScanDevice):
             self.motor.moveto(position)
             self.motor.driver().wait_for_idle()
         except MotorError as me:
-            raise ScanDeviceError('Positioning failure: ' + str(me))
+            raise ScanDeviceError(
+                'Positioning failure: ' + traceback.format_exc())
         return self.where()
 
     def where(self):
@@ -159,7 +161,8 @@ class ScanDevicePilatus(ScanDevice):
             self.credo().get_equipment('pilatus').set_threshold(position)
             self.credo().get_equipment('pilatus').wait_for_idle()
         except PilatusError as pe:
-            raise ScanDeviceError('Error setting threshold: ' + str(pe))
+            raise ScanDeviceError(
+                'Error setting threshold: ' + traceback.format_exc())
         return self.where()
 
     def where(self):
@@ -258,7 +261,7 @@ class SubSystemScan(SubSystem):
                 raise ValueError('Invalid scan interval')
         except Exception as exc:
             raise SubSystemError(
-                'Validation of scan interval failed: ' + str(exc))
+                'Validation of scan interval failed: ' + traceback.format_exc())
 
         logger.debug('Initializing scan object.')
         # Initialize the scan object
@@ -382,7 +385,8 @@ class SubSystemScan(SubSystem):
             self._where = self.scandevice.moveto(
                 self.value_begin + (self.value_end - self.value_begin) / (self.nstep - 1) * self._current_step)
         except ScanDeviceError as sde:
-            self.emit('scan-fail', 'Scan device error: ' + str(sde))
+            self.emit(
+                'scan-fail', 'Scan device error: ' + traceback.format_exc())
         logger.debug('Adding timeout for starting exposure')
         GLib.timeout_add(int(self.waittime * 1000), self._start_exposure)
 
@@ -417,7 +421,8 @@ class SubSystemScan(SubSystem):
             try:
                 self.scandevice.moveto(self._autoreturn_to)
             except ScanDeviceError:
-                self.emit('scan-fail', 'Error on auto-return.')
+                self.emit(
+                    'scan-fail', 'Error on auto-return: ' + traceback.format_exc())
         self._firsttime = None
         self._where = None
         self.currentscan.stop_record_mode()
@@ -431,7 +436,8 @@ class SubSystemScan(SubSystem):
                         'Shutter left open at the end of scan, closing.')
                     self.credo().get_equipment('genix').shutter_close()
             except GenixError:
-                logger.warning('Error closing shutter.')
+                logger.warning(
+                    'Error closing shutter: ' + traceback.format_exc())
         logger.info('Scan #%d finished.' % self.currentscan.fsn)
         if Notify.is_initted():
             if status:

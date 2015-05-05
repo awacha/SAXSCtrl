@@ -45,10 +45,10 @@ class Tool(object):
         if self.window is None:
             try:
                 self.window = self.windowclass(self.credo, self.windowname)
-            except:
+            except Exception as ex:
                 del self.window
                 self.window = None
-                raise
+                raise ex
             else:
                 self._windowconn.append(
                     self.window.connect('delete-event', self.on_delete, 'delete-event'))
