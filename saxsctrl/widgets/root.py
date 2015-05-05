@@ -3,6 +3,7 @@ from gi.repository import Gdk
 from gi.repository import GLib
 from gi.repository import Notify
 
+import gc
 import logging
 import time
 import resource
@@ -218,9 +219,10 @@ class RootWindow(Gtk.Window):
         menus['File'].append(mi)
         mi.connect('activate', lambda menuitem: Gtk.main_quit())
 
-        self.statuslabel_memory = Gtk.Label(label='')
+        self.statuslabel_memory = Gtk.Button(label='')
         self.statuslabel_memory.set_halign(Gtk.Align.START)
         self.statuslabel_memory.set_valign(Gtk.Align.CENTER)
+        self.statuslabel_memory.connect('clicked', lambda b: gc.collect())
         hb.pack_start(self.statuslabel_memory, False, False, 3)
         self.statuslabel_uptime = Gtk.Label(label='')
         self.statuslabel_uptime.set_halign(Gtk.Align.START)
@@ -359,7 +361,7 @@ class RootWindow(Gtk.Window):
     def update_statuslabels(self):
         self._memusage = resource.getrusage(
             resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-        self.statuslabel_memory.set_text('%.1f MB' % (self._memusage / 1024))
+        self.statuslabel_memory.set_label('%.2f MB' % (self._memusage / 1024))
         self._uptime = int(time.time() - self._starttime)
         self.statuslabel_uptime.set_text('%02d:%02d:%02d' % (
             self._uptime / 3600, (self._uptime % 3600) / 60, self._uptime % 60))

@@ -1,20 +1,22 @@
 # coding: utf-8
-import threading
+import multiprocessing
 import multiprocessing.queues
 import sastool
 import datetime
+import dateutil.tz
+import dateutil.parser
 from ..instruments.pilatus import PilatusError
 import logging
 import os
 import time
 from ...utils import objwithgui
-import nxs
+import h5py
 import numpy as np
 import scipy
 import traceback
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 from gi.repository import GObject
 from gi.repository import GLib
@@ -24,6 +26,10 @@ __all__ = ['SubSystemExposure']
 
 
 class SubSystemExposureError(SubSystemError):
+    pass
+
+
+class StopSwitchException(Exception):
     pass
 
 
@@ -43,7 +49,7 @@ class SubSystemExposure(SubSystem):
     dwelltime = GObject.property(
         type=float, minimum=0.003, default=0.003, blurb='Dwell time between exposures (sec)')
     nimages = GObject.property(
-        type=int, minimum=1, default=1, blurb='Number of images to take (sec)')
+        type=int, minimum=1, default=1, blurb='Number of images to take (sec)', maximum=20)
     operate_shutter = GObject.property(
         type=bool, default=True, blurb='Open/close shutter')
     cbf_file_timeout = GObject.property(
@@ -61,7 +67,6 @@ class SubSystemExposure(SubSystem):
         self._OWG_hints[
             'default-mask'] = {objwithgui.OWG_Hint_Type.OrderPriority: None}
         self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
-        self._thread = None
         for k in kwargs:
             self.set_property(k, kwargs[k])
         self._stopswitch = multiprocessing.Event()
@@ -97,6 +102,15 @@ class SubSystemExposure(SubSystem):
         if stop_processing_results:
             self._stopswitch.set()
 
+    def _kill_subprocesses(self):
+        try:
+            self._stopswitch.set()
+            for s in self._subprocesses:
+                s.join()
+            del self._subprocesses
+        except AttributeError:
+            pass
+
     def start(self, header_template=None, mask=None, write_nexus=False):
         logger.debug('Exposure subsystem: starting exposure.')
         pilatus = self.credo().get_equipment('pilatus')
@@ -104,12 +118,10 @@ class SubSystemExposure(SubSystem):
         sample = self.credo().subsystems['Samples'].get()
         if not pilatus.is_idle():
             raise SubSystemExposureError('Detector is busy.')
+        self._kill_subprocesses()
         if mask is None:
             mask = self._default_mask
-
         fsn = self.credo().subsystems['Files'].get_next_fsn()
-        exposureformat = self.credo().subsystems['Files'].get_exposureformat()
-        headerformat = self.credo().subsystems['Files'].get_headerformat()
         if header_template is None:
             header_template = {}
         else:
@@ -139,6 +151,8 @@ class SubSystemExposure(SubSystem):
         header_template['Monitor'] = header_template['MeasTime']
         header_template['MonitorError'] = 0
         header_template['StartDate'] = datetime.datetime.now()
+        header_template.update(
+            self.credo().subsystems['Equipments'].get_current_parameters())
         if mask is not None:
             header_template['maskid'] = mask.maskid
         logger.debug('Header prepared.')
@@ -147,24 +161,36 @@ class SubSystemExposure(SubSystem):
             str(sample), self.credo().subsystems['Files'].get_fileformat() % fsn))
         self._stopswitch.clear()
         pilatus.prepare_exposure(self.exptime, self.nimages, self.dwelltime)
-        self._thread = threading.Thread(
-            target=self._thread_worker, args=(
-                os.path.join(self.credo().subsystems['Files'].imagespath,
-                             exposureformat),
-                os.path.join(self.credo().subsystems['Files'].parampath,
-                             headerformat),
-                self._stopswitch, self._queue, self.exptime, self.nimages,
-                self.dwelltime, fsn, self.cbf_file_timeout, header_template,
-                mask, write_nexus))
-        self._thread.daemon = True
+        self._subprocesses = []
+        for idx in range(self.nimages):
+            if write_nexus:
+                self.credo().subsystems[
+                    'Files'].create_nexus_template(fsn + idx)
+                logger.debug(
+                    'Created NeXus template file for FSN #%d' % (fsn + idx))
+            self._subprocesses.append(multiprocessing.Process(
+                target=self._thread_worker, args=(
+                    self.credo().subsystems['Files'].imagespath,
+                    self.credo().subsystems['Files'].parampath,
+                    self.credo().subsystems['Files'].nexuspath,
+                    self.credo().subsystems['Files'].filebegin,
+                    self.credo().subsystems['Files'].ndigits,
+                    self._stopswitch, self._queue, self.exptime +
+                    (self.exptime + self.dwelltime) * idx, fsn + idx,
+                    self.cbf_file_timeout, header_template.copy(
+                    ), mask.mask, write_nexus,
+                    idx == self.nimages - 1)))
+            self._subprocesses[-1].daemon = True
         if ((self.operate_shutter and genix.shutter_state() == False) and
                 (header_template['Title'] != self.dark_sample_name)):
             genix.shutter_open()
         self._pilatus_idle_handler = pilatus.connect(
             'idle', self._pilatus_idle, genix)
         self.credo().subsystems['Files'].increment_next_fsn()
-        pilatus.execute_exposure(exposureformat % fsn)
-        self._thread.start()
+        pilatus.execute_exposure(
+            self.credo().subsystems['Files'].get_exposureformat() % fsn)
+        for s in self._subprocesses:
+            s.start()
         return fsn
 
     def _pilatus_idle(self, pilatus, genix):
@@ -186,7 +212,10 @@ class SubSystemExposure(SubSystem):
             self.emit('exposure-end', data)
             return False
         elif id == ExposureMessageType.Image:
-            self.emit('exposure-image', data)
+            ex = sastool.SASExposure(self.credo().subsystems['Files'].get_exposureformat(
+            ) % data, dirs=self.credo().subsystems['Files'].rawloadpath)
+            self.emit('exposure-image', ex)
+            del ex
             return True
         else:
             raise NotImplementedError('Invalid exposure message type')
@@ -205,277 +234,58 @@ class SubSystemExposure(SubSystem):
         # this is the last signal emitted during an exposure. The _check_if_exposure_finished() idle handler
         # has already deregistered itself.
         logger.debug('Exposure ended.')
+        self._kill_subprocesses()
 
-    def do_exposure_image(self, ex):
+    def do_exposure_image(self, fsn):
         pass
 
-    def _process_exposure(self, exposurename, headername, stopswitch, queue, headertemplate, cbf_file_timeout, mask, write_nexus):
-        # try to load the header from the CBF file.
-        logger.debug('process_exposure starting')
-        t0 = time.time()
-        cbfdata = cbfheader = None
-        while (time.time() - t0) < cbf_file_timeout:
-            try:
-                cbfdata, cbfheader = sastool.io.twodim.readcbf(
-                    exposurename, load_header=True, load_data=True)
-                break
-            except IOError:
-                logger.debug('Waiting for image...')
-                if stopswitch.wait(0.01):
-                    # break signaled.
-                    return False
-                # continue with the next try.
-        if cbfdata is None:
-            # timeout.
-            raise SubSystemExposureError('Timeout on waiting for CBF file.')
-        # create the exposure object
-        logger.debug('Creating exposure')
-        if self.timecriticalmode:
-            ex = sastool.classes.SASExposure(
-                {'Intensity': cbfdata, 'Error': cbfdata ** 0.5, 'header': sastool.classes.SASHeader(headertemplate), 'mask': mask})
-        else:
-            ex = sastool.classes.SASExposure(
-                {'Intensity': cbfdata, 'Error': cbfdata ** 0.5, 'header': sastool.classes.SASHeader(headertemplate), 'mask': mask})
+    def update_nexusfile(self, nexusfile, data, header, waittime):
+        with h5py.File(nexusfile, 'r+') as f:
+            starttime = dateutil.parser.parse(
+                f['entry/monitor/start_time'].value)
+            f['entry/monitor/start_time'][()] = (starttime + datetime.timedelta(
+                waittime - f['entry/monitor/count_time'].value)).isoformat()
+            f['entry/monitor/end_time'] = datetime.datetime.now(
+                dateutil.tz.tzlocal()).isoformat()
+            f['entry/end_time'] = f['entry/monitor/end_time']
+            f['entry/duration'] = (dateutil.parser.parse(f['entry/end_time'].value) -
+                                   dateutil.parser.parse(f['entry/start_time'].value)).total_seconds()
+            f['entry/duration'].attrs['units'] = 's'
+            f['entry/instrument/detector'].create_dataset(
+                'data', data=data, compression='gzip')
+            f['entry/instrument/detector']['data'].attrs['signal'] = 1
+            f['entry/instrument/detector']['data'].attrs[
+                'axes'] = 'x_pixel_offset:y_pixel_offset'
+            f['entry/instrument/detector']['data'].attrs['units'] = 'counts'
+            f['entry/instrument/detector']['data'].attrs['long_name'] = 'Detector counts'
+            f['entry/instrument/detector']['data'].attrs['check_sum'] = data.sum()
+            err = data.copy()
+            idx = err > 0
+            err[idx] = err[idx]**0.5
+            err[-idx] = np.nan
+            f['entry/instrument/detector'].create_dataset(
+                'data_error', data=err, compression='gzip')
+            f['entry/instrument/detector']['data_error'].attrs['units'] = 'counts'
+            f['entry/instrument/detector']['data'].attrs[
+                'long_name'] = 'Standard deviation of detector counts'
+            f['entry/instrument/detector']['data'].attrs[
+                'check_sum'] = np.nansum(err)
+            f['entry/instrument/detector'].create_dataset(
+                'x_pixel_offset', data=np.arange(data.shape[1]))
+            f['entry/instrument/detector/x_pixel_offset'].attrs['primary'] = 1
+            f['entry/instrument/detector/x_pixel_offset'].attrs[
+                'long_name'] = 'Horizontal pixel coordinate (column index)'
+            f['entry/instrument/detector'].create_dataset(
+                'y_pixel_offset', data=np.arange(data.shape[0]))
+            f['entry/instrument/detector/y_pixel_offset'].attrs['primary'] = 1
+            f['entry/instrument/detector/y_pixel_offset'].attrs[
+                'long_name'] = 'Vertical pixel coordinate (row index)'
+            f['entry/data/data'] = f['entry/instrument/detector/data']
+            f['entry/data/errors'] = f['entry/instrument/detector/data_error']
+            f['entry/data/x_pixel_offset'] = f['entry/instrument/detector/x_pixel_offset']
+            f['entry/data/y_pixel_offset'] = f['entry/instrument/detector/y_pixel_offset']
 
-        # do some fine adjustments on the header template:
-        # a) include the CBF header written by camserver.
-        logger.debug('updating header')
-        ex.header.update(cbfheader)
-        # b) get instrument states
-        logger.debug('Getting equipment status')
-        ex.header.update(
-            self.credo().subsystems['Equipments'].get_current_parameters())
-        # c) readout virtual detectors
-        if not self.timecriticalmode:
-            logger.debug('Reading out virtual detectors')
-            vdresults = self.credo().subsystems['VirtualDetectors'].readout_all(
-                ex, self.credo().get_equipment('genix'))
-            ex.header.update(
-                {('VirtDet_' + k): vdresults[k] for k in vdresults})
-        # d) set the end date to the current time.
-        ex.header['EndDate'] = datetime.datetime.now()
-        # and save the header to the parampath.
-        logger.debug('Writing header')
-        ex.header.write(headername)
-        logger.debug('Header %s written.' % (headername))
-        if write_nexus:
-            nexusname = os.path.join(self.credo().subsystems[
-                                     'Files'].nexuspath, os.path.splitext(os.path.split(exposurename)[1])[0] + '.nx5')
-            self.write_nexus(nexusname, cbfdata, ex.header, mask)
-        queue.put((ExposureMessageType.Image, ex))
-        logger.debug('Process_exposure took %f seconds.' % (time.time() - t0))
-        del ex
-        return True
-
-    def update_nexustree(self, nexustree, data, header, mask):
-        pass
-
-    def write_nexus(self, nexusname, data, header, mask):
-        root = nxs.NXroot()
-        root.entry = nxs.NXentry()
-        root.entry.start_time = header['StartDate'].isoformat()
-        root.entry.end_time = header['EndDate'].isoformat()
-        root.entry.experiment_identifier = header['Project']
-        root.entry.definition = 'NXsas'
-        root.entry.definition.attrs['version'] = '1.0b'
-        root.entry.definition.attrs[
-            'URL'] = 'http://svn.nexusformat.org/definitions/trunk/applications/NXsas.nxdl.xml'
-        root.entry.duration = (
-            header['EndDate'] - header['StartDate']).total_seconds()
-        root.entry.duration.attrs['units'] = 's'
-        root.entry.program_name = 'SAXSCtrl'
-        root.entry.program_name.attrs['version'] = 0  # TODO
-        root.entry.revision = 'raw'
-        root.entry.title = header['Title']
-        # root.entry.pre_sample_flightpath=None # TODO: make this a link to the
-        # appropriate place in root.entry.instrument
-        root.entry.user = nxs.NXuser()
-        root.entry.user.name = header['Owner']
-        root.entry.user.role = 'operator'
-        # TODO: user management.
-        root.entry.control = nxs.NXmonitor()
-        root.entry.control.mode = 'timer'
-        root.entry.control.start_time = header['StartDate'].isoformat()
-        root.entry.control.end_time = header['EndDate'].isoformat()
-        root.entry.control.preset = header['MeasTime']
-        root.entry.control.distance = np.nan
-        root.entry.control.integral = header['MeasTime']
-        root.entry.control.data = header['MeasTime']
-        root.entry.control.count_time = header['MeasTime']
-        root.entry.instrument = nxs.NXinstrument()
-        root.entry.instrument.name = 'Creative Research Equipment for DiffractiOn'
-        root.entry.instrument.name.attrs['short_name'] = 'CREDO'
-        root.entry.instrument.source = nxs.NXsource()
-        root.entry.instrument.source.current = header['GeniX_Current']
-        root.entry.instrument.source.current.attrs['units'] = 'A'
-        # root.entry.instrument.source.distance=None #TODO: better collimation
-        # description.
-        root.entry.instrument.source.name = 'GeniX3D Cu ULD'
-        root.entry.instrument.source.name.attrs['short_name'] = 'GeniX'
-        root.entry.instrument.source.type = 'Fixed Tube X-ray'
-        root.entry.instrument.source.probe = 'x-ray'
-        root.entry.instrument.source.power = header[
-            'GeniX_HT'] * header['GeniX_Current']
-        root.entry.instrument.source.power.attrs['units'] = 'W'
-        root.entry.instrument.source.energy = header['GeniX_HT']
-        root.entry.instrument.source.energy.attrs['units'] = 'eV'
-        root.entry.instrument.source.voltage = header['GeniX_HT']
-        root.entry.instrument.source.voltage.attrs['units'] = 'V'
-        root.entry.instrument.positioners = nxs.NXcollection()
-        positioners = {}
-        for mot in self.credo().subsystems['Motors']:
-            positioners[mot] = mot.to_NeXus()
-            root.entry.instrument.positioners[mot.name] = positioners[mot]
-        root.entry.instrument.monochromator = nxs.NXmonochromator()
-        root.entry.instrument.monochromator.wavelength = header['Wavelength']
-        root.entry.instrument.monochromator.wavelength.attrs[
-            'units'] = 'Angstrom'
-        # The FOX3D optics used in GeniX has a spectral purity of 97%.
-        root.entry.instrument.monochromator.wavelength_spread = root.entry.instrument.monochromator.wavelength * \
-            0.015
-        root.entry.instrument.monochromator.wavelength_spread.attrs[
-            'units'] = 'Angstrom'
-        root.entry.instrument.monochromator.energy = scipy.constants.codata.value(
-            'Planck constant in eV s') * scipy.constants.codata.value('speed of light in vacuum') * 1e10 / header['Wavelength']
-        root.entry.instrument.monochromator.energy.attrs['units'] = 'eV'
-        root.entry.instrument.monochromator.energy_spread = root.entry.instrument.monochromator.energy * \
-            0.015
-        root.entry.instrument.monochromator.energy_spread.attrs['units'] = 'eV'
-        # TODO: better description of the collimator
-        root.entry.instrument.collimator = nxs.NXcollimator()
-        # TODO: better description of the geometry
-        root.entry.instrument.beam_stop = nxs.NXbeam_stop()
-        root.entry.instrument.vacuum = nxs.NXsensor()
-        vg = self.credo().subsystems['Equipments'].get('vacgauge')
-        if vg.connected():
-            try:
-                root.entry.instrument.vacuum.model = vg.get_version()
-            except Exception as ex:
-                logger.warn(
-                    'Cannot get version of the vacuum gauge (error: %s).' % str(ex))
-            root.entry.instrument.vacuum.name = 'TPG-201 Handheld Pirani Gauge'
-            root.entry.instrument.vacuum.short_name = 'Vacuum Gauge'
-            root.entry.instrument.vacuum.measurement = 'pressure'
-            root.entry.instrument.vacuum.type = 'Pirani'
-            try:
-                root.entry.instrument.vacuum.value = vg.pressure
-            except Exception as ex:
-                logger.warn(
-                    'Cannot get pressure from the vacuum gauge (error: %s).' % str(ex))
-            root.entry.instrument.vacuum.value.attrs['units'] = 'mbar'
-        root.entry.instrument.thermostat = nxs.NXsensor()
-        ts = self.credo().subsystems['Equipments'].get('haakephoenix')
-        if ts.connected():
-            try:
-                root.entry.instrument.thermostat.model = ts.get_version()
-            except Exception as ex:
-                logger.warn(
-                    'Cannot get version of the thermostat (error: %s).' % str(ex))
-            root.entry.instrument.thermostat.name = 'Haake Phoenix Circulator'
-            root.entry.instrument.thermostat.short_name = 'haakephoenix'
-            root.entry.instrument.thermostat.measurement = 'temperature'
-            root.entry.instrument.thermostat.type = 'Pt100'
-            try:
-                root.entry.instrument.thermostat.value = ts.temperature
-                root.entry.instrument.thermostat.value.attrs['units'] = '°C'
-            except Exception as ex:
-                logger.warn(
-                    'Cannot get temperature of the thermostat (error: %s).' % str(ex))
-        root.entry.sample = nxs.NXsample()
-        root.entry.sample.name = header['Title']
-        if 'Temperature' in header:
-            root.entry.sample.temperature = header['Temperature']
-        else:
-            root.entry.sample.temperature = np.nan
-        root.entry.sample.temperature.attrs['units'] = '°C'
-        root.entry.sample.preparation_date = header['Preparetime'].isoformat()
-        root.entry.sample.thickness = header['Thickness']
-        root.entry.sample.thickness.attrs['units'] = 'cm'
-        root.entry.sample.transmission = float(header['Transm'])
-        root.entry.sample.geometry = nxs.NXgeometry()
-        root.entry.sample.geometry.description = 'Sample position'
-        root.entry.sample.geometry.component_index = 0
-        root.entry.sample.geometry.translation = nxs.NXtranslation()
-        root.entry.sample.geometry.translation.distances = np.array(
-            [header['PosSampleX'], header['PosSample'], header['DistMinus']])
-        root.entry.sample.positioners = nxs.NXcollection()
-        root.entry.sample.positioners.makelink(
-            positioners[self.credo().subsystems['Samples'].get_xmotor()])
-        root.entry.sample.positioners.makelink(
-            positioners[self.credo().subsystems['Samples'].get_ymotor()])
-
-        det = nxs.NXdetector()
-        root.entry.instrument.insert(det)
-        det.description = header['Detector']
-        det.type = 'pixel'
-        det.layout = 'area'
-        det.aequatorial_angle = 0
-        det.azimuthal_angle = 0
-        det.polar_angle = 0
-        det.rotation_angle = 0
-        det.beam_center_x = header['BeamPosX'] * header['XPixel']
-        det.beam_center_y = header['BeamPosY'] * header['YPixel']
-        det.distance = header['Dist']
-        det.count_time = header['Exposure_time']
-        det.count_time.attrs['units'] = 's'
-        det.saturation_value = header['Count_cutoff']
-        det.saturation_value.attrs['units'] = 'count'
-        det.sensor_material = 'Si'
-        det.sensor_thickness = header['Silicon sensor, thickness']
-        det.sensor_thickness.attrs['units'] = 'micron'
-        if header['Threshold_setting'] == 'not set':
-            det.threshold_energy = np.nan
-        else:
-            det.threshold_energy = header['Threshold_setting']
-        det.threshold_energy.attrs['units'] = 'eV'
-        det.gain_setting = header['Gain_setting']
-        det.frame_time = header['Exposure_period']
-        det.bit_depth_readout = 20
-        det.angular_calibration_applied = 0
-        det.acquisition_mode = 'summed'
-        det.dead_time = header['Tau']
-        det.dead_time.attrs['units'] = 's'
-        det.x_pixel_size = header['XPixel']
-        det.x_pixel_size.attrs['units'] = 'micron'
-        det.y_pixel_size = header['YPixel']
-        det.y_pixel_size.attrs['units'] = 'micron'
-        det.data = np.require(data, requirements='C')
-        det.data.attrs['signal'] = 1
-        det.data.attrs['long_name'] = 'Counts'
-        det.data.attrs['axes'] = 'x:y'
-        det.data.attrs['units'] = 'count'
-        det.data.attrs['calibration_status'] = 'Measured'
-        det.data.attrs['interpretation'] = 'image'
-        det.x = np.arange(data.shape[0])
-        det.y = np.arange(data.shape[1])
-        det.detector_readout_time = 2.3
-        det.detector_readout_time.attrs['units'] = 'ms'
-        if header['Excluded_pixels'] == '(nil)':
-            det.pixel_mask_applied = 0
-        else:
-            det.pixel_mask_applied = 1
-        det.pixel_mask = (mask == 0) << 6
-        if header['Tau'] == 0:
-            det.countrate_correction_applied = 0
-        else:
-            det.countrate_correction_applied = 1
-        if header['Flat_field'] == '(nil)':
-            det.flatfield_applied = 0
-        else:
-            det.flatfield_applied = 1
-        nxdata = nxs.NXdata()
-        root.entry.insert(nxdata)
-        nxdata.makelink(root.entry.instrument.detector.data)
-        nxdata.makelink(root.entry.instrument.detector.x)
-        nxdata.makelink(root.entry.instrument.detector.y)
-        nt = nxs.NeXusTree(nexusname, 'w5')
-        try:
-            nt.writefile(root)
-        except ValueError as ve:
-            logger.error(
-                'Error writing nexus file: %s. Error is: %s' % (nexusname, str(ve)))
-
-    def _thread_worker(self, expname_template, headername_template, stopswitch, outqueue, exptime, nimages, dwelltime, firstfsn, cbf_file_timeout, header_template, mask, write_nexus):
+    def _thread_worker(self, imagespath, parampath, nexuspath, filebegin, ndigits, stopswitch, outqueue, waittime, fsn, cbf_file_timeout, header_template, maskmatrix, write_nexus, this_is_the_last=False):
         """Wait for the availability of scattering image files (especially when doing multiple exposures).
         If a new file is available, try to load and process it (using _process_exposure), and resume waiting.
 
@@ -487,32 +297,67 @@ class SubSystemExposure(SubSystem):
 
         """
         try:
+            logger.debug(
+                'Exposure subprocess for FSN #%d started, waiting for %.2f seconds' % (fsn, waittime))
+            is_userbreak = stopswitch.wait(waittime)
+            header_template['FSN'] = fsn
+            if is_userbreak:
+                raise StopSwitchException
+
             t0 = time.time()
-            for i in range(0, nimages):
-                # wait for each exposure. Check for user break inbetween.
-                t1 = time.time()
-                nextend = t0 + exptime * (i + 1) + dwelltime * i
-                wait = nextend - t1
-                if wait > 0:
-                    logger.debug('Sleeping %f seconds' % wait)
-                    is_userbreak = stopswitch.wait(wait)
-                else:
-                    logger.warning('Exposure lag: %f seconds' % (-wait))
-                    is_userbreak = stopswitch.is_set()
-                header_template['FSN'] = (firstfsn + i)
-                result = self._process_exposure(expname_template % (firstfsn + i), headername_template % (firstfsn + i),
-                                                stopswitch, outqueue, header_template, cbf_file_timeout, mask, write_nexus)
-                if is_userbreak or not result:
-                    # process_exposure() returns False if a userbreak occurs.
-                    outqueue.put((ExposureMessageType.End, False))
-                    return
-                header_template[
-                    'StartDate'] += datetime.timedelta(seconds=exptime + dwelltime)
+            cbfdata = cbfheader = None
+            os.stat(imagespath)  # a work-around for NFS
+            while (time.time() - t0) < cbf_file_timeout:
+                try:
+                    cbfdata, cbfheader = sastool.io.twodim.readcbf(os.path.join(imagespath,
+                                                                                self.credo().subsystems['Files'].get_exposureformat() % fsn), load_header=True, load_data=True, for_nexus=True)
+                    break
+                except IOError:
+                    logger.debug('Waiting for image...')
+                    if stopswitch.wait(0.01):
+                        # break signaled.
+                        raise StopSwitchException
+                # continue with the next try.
+            if cbfdata is None:
+                # timeout.
+                raise SubSystemExposureError(
+                    'Timeout on waiting for CBF file.')
+            # create the exposure object
+            logger.debug('Creating exposure')
+            header = sastool.classes.SASHeader(header_template)
+            # do some fine adjustments on the header template:
+            # a) include the CBF header written by camserver.
+            logger.debug('updating header')
+            header.update(cbfheader)
+            # d) set the end date to the current time.
+            header['EndDate'] = datetime.datetime.now()
+            # and save the header to the parampath.
+            logger.debug('Writing header')
+            headername = os.path.join(parampath, self.credo().subsystems[
+                                      'Files'].get_headerformat(filebegin, ndigits) % fsn)
+            header.write(headername)
+            logger.debug('Header %s written.' % (headername))
+            if write_nexus:
+                nexusname = os.path.join(nexuspath, self.credo().subsystems[
+                                         'Files'].get_nexusformat(filebegin, ndigits) % fsn)
+                self.update_nexusfile(
+                    nexusname, cbfdata, header, waittime=waittime)
+            outqueue.put((ExposureMessageType.Image, fsn))
+            logger.debug('Process_exposure took %f seconds.' %
+                         (time.time() - t0))
+
+        except StopSwitchException:
+            # an user break occurred
+            outqueue.put((ExposureMessageType.End, False))
+            return
+
         except Exception, exc:
             # catch all exceptions and put an error state in the output queue,
             # then re-raise.
             outqueue.put((ExposureMessageType.Failure, traceback.format_exc()))
             outqueue.put((ExposureMessageType.End, False))
             raise
-        outqueue.put((ExposureMessageType.End, True))
-        logger.debug('Returning from work.')
+        else:
+            if this_is_the_last:
+                outqueue.put((ExposureMessageType.End, True))
+        logger.debug('Exposure subprocess for FSN #%d ended.')

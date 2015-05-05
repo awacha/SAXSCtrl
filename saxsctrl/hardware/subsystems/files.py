@@ -9,6 +9,8 @@ import datetime
 import dateutil.tz
 import pkg_resources
 from ..instruments import InstrumentError
+import scipy.constants
+import time
 
 from gi.repository import GObject
 from gi.repository import Gio
@@ -16,9 +18,12 @@ from gi.repository import Gio
 __all__ = ['SubSystemFiles']
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 DEFAULT_FILEPREFIXES = ['crd', 'tst', 'scn', 'tra']
+
+HC = scipy.constants.codata.value(
+    'Planck constant in eV s') * scipy.constants.codata.value('speed of light in vacuum') * 1e9  # nm*eV
 
 
 class SubSystemFiles(SubSystem):
@@ -314,6 +319,12 @@ class SubSystemFiles(SubSystem):
     def get_headerformat(self, filebegin=None, ndigits=None):
         return self.get_fileformat(filebegin, ndigits) + '.param'
 
+    def get_nexusformat(self, filebegin=None, ndigits=None):
+        return self.get_fileformat(filebegin, ndigits) + '.nx5'
+
+    def get_nexusformat_re(self, strict=False):
+        return re.compile(self.get_fileformat_re().pattern + '\.nx5', strict)
+
     def get_exposureformat(self, filebegin=None, ndigits=None):
         return self.get_fileformat(filebegin, ndigits) + '.cbf'
 
@@ -385,14 +396,30 @@ class SubSystemFiles(SubSystem):
                     raise SubSystemError(
                         'Cannot create subdirectory, please run program with the "createdirs" command-line option!')
 
-    def create_nexus_template(self, fsn, filebegin=None, ndigits=None):
+    def create_nexus_template(self, fsn, filebegin=None, ndigits=None, nscan=None):
         if filebegin is None:
             filebegin = self.filebegin
         if ndigits is None:
             ndigits = self.ndigits
-        return self._create_nexus_template_file(os.path.join(self.nexuspath, self.get_fileformat(filebegin, ndigits)) + '.nx5')
+        return self._create_nexus_template_file(os.path.join(self.nexuspath, self.get_nexusformat(filebegin, ndigits) % fsn), fsn, nscan)
 
-    def _create_nexus_template_file(self, filename):
+    def _create_nexus_template_file(self, filename, fsn=None, nscan=None):
+        """Creates a NeXus file, just before an exposure. All subsystems are
+        considered set-up and ready for the start.
+
+        Inputs:
+            filename: string
+                the file name to write.
+            fsn: integer 
+                the file sequence number, if applicable. Either the FSN of an
+                exposure or the scan number, see `nscan`.
+            nscan: None or integer
+                If None, a NeXus file for a single exposure is saved. If an integer,
+                this is the number of expected scan points. The NeXus file will
+                have the scheme of a scan file. `fsn` will be in this case the scan
+                number.
+        """
+        t0 = time.time()
         with h5py.File(filename, 'w') as f:
             f.attrs['NX_class'] = 'NXroot'
             f.attrs['creator'] = 'SAXSCtrl@CREDO'
@@ -402,139 +429,335 @@ class SubSystemFiles(SubSystem):
             f.attrs['HDF5_version'] = h5py.version.hdf5_version
             f.attrs['default'] = 'entry'
             f.attrs['NeXus_version'] = '4.4.0'
-            entry = f.createGroup('entry')
+            entry = f.create_group('entry')
             entry.attrs['NX_class'] = 'NXentry'
             entry.attrs['default'] = 'data'
             entry['title'] = os.path.splitext(os.path.split(filename)[-1])
             entry['entry_identifier'] = os.path.splitext(
-                os.path.split(filename)[-1])
+                os.path.split(filename)[-1])[0]
             entry['experiment_identifier'] = self.credo().projectid
             entry['experiment_description'] = self.credo().projectname
-            entry['definition'] = 'NXsas'
-            entry['definition'].attrs['version'] = '1.0b'
-            entry['definition'].attrs[
-                'URL'] = 'https://github.com/nexusformat/definitions/blob/master/applications/NXsas.nxdl.xml'
-            # entry['start_time']
-            # entry['end_time']
-            # entry['duration']
-            entry['collection_time'] = self.credo().subsystems[
-                'Exposure'].exptime
-            entry['collection_time'].attrs['units'] = 's'
+            if nscan is None:
+                entry['definition'] = 'NXsas'
+                entry['definition'].attrs['version'] = '1.0b'
+                entry['definition'].attrs[
+                    'URL'] = 'https://github.com/nexusformat/definitions/blob/master/applications/NXsas.nxdl.xml'
+                entry['collection_time'] = self.credo().subsystems[
+                    'Exposure'].exptime
+                entry['collection_time'].attrs['units'] = 's'
+            else:
+                entry['definition'] = 'CREDOscan'
+                entry['collection_time'] = self.credo().subsystems[
+                    'Exposure'].exptime * nscan
             entry['run_cycle'] = str(datetime.date.today().year)
             entry['program_name'] = 'SAXSCtrl'
             entry['program_name'].attrs[
                 'version'] = pkg_resources.get_distribution('saxsctrl').version
             entry['revision'] = '0'
-            operator = entry.createGroup('operator')
+            operator = entry.create_group('operator')
             operator.attrs['NX_class'] = 'NXuser'
             operator['name'] = self.credo().username
             operator['role'] = 'local_contact'
 
-            proposer = entry.createGroup('proposer')
+            proposer = entry.create_group('proposer')
             proposer.attrs['NX_class'] = 'NXuser'
             proposer['name'] = self.credo().proposername
             proposer['role'] = 'proposer'
 
             sam = self.credo().subsystems['Samples'].get()
+            if sam is not None:
+                samplefrom = entry.create_group('sample_from')
+                samplefrom.attrs['NX_class'] = 'NXuser'
+                samplefrom['name'] = sam.preparedby
+                samplefrom['role'] = 'sample_preparator'
 
-            samplefrom = entry.createGroup('sample_from')
-            samplefrom.attrs['NX_class'] = 'NXuser'
-            samplefrom['name'] = sam.preparedby
-            samplefrom['role'] = 'sample_preparator'
+                sample = entry.create_group('sample')
+                sample.attrs['NX_class'] = 'NXsample'
+                sample['name'] = sam.title
+                sample['type'] = sam.category
+                sample['situation'] = sam.situation
+                sample['description'] = sam.description
+                sample['preparation_date'] = sam.preparetime.isoformat()
+                sample['thickness'] = float(sam.thickness)
+                sample['thickness'].attrs['units'] = 'cm'
+                try:
+                    sample['thickness_error'] = sam.thickness.err
+                    sample['thickness_error'].attrs['units'] = 'cm'
+                except AttributeError:
+                    pass
+                sample['short_title'] = sample['name']
+                sample['prepared_by'] = samplefrom
+                sample['distance'] = float(sam.distminus)
+                sample['distance'].attrs['units'] = 'mm'
+                try:
+                    sample['distance_error'] = sam.distminus.err
+                    sample['distance_error'].attrs['units'] = 'mm'
+                except AttributeError:
+                    pass
+                sample.create_group('transmission')
+                sample['transmission'].attrs['NX_class'] = 'NXdata'
+                sample['transmission']['data'] = float(sam.transmission)
+                try:
+                    sample['transmission']['errors'] = sam.transmission.err
+                    sample['transmission']['data'].attrs[
+                        'uncertainties'] = 'errors'
+                except AttributeError:
+                    pass
+                try:
+                    haakephoenix = self.credo().subsystems['Equipments'].get(
+                        'haakephoenix')
+                    if haakephoenix.connected():
+                        sample['temperature'] = haakephoenix.temperature
+                        sample['temperature'].attrs['units'] = 'degC'
+                except InstrumentError as ie:
+                    logger.warn(
+                        'Cannot contact Haake Phoenix circulator while saving NeXus file: ', str(ie))
+            monitor = entry.create_group('monitor')
+            monitor.attrs['NX_class'] = 'NXmonitor'
+            monitor['mode'] = 'timer'
+            monitor['preset'] = self.credo().subsystems[
+                'Exposure'].exptime
+            monitor['preset'].attrs['units'] = 's'
+            monitor['nominal'] = self.credo().subsystems[
+                'Exposure'].exptime
+            monitor['nominal'].attrs['units'] = 's'
+            monitor['type'] = 'timer'
+            monitor['count_time'] = self.credo().subsystems['Exposure'].exptime
+            monitor['count_time'].attrs['units'] = 's'
+            instrument = entry.create_group('instrument')
+            instrument.attrs['NX_class'] = 'NXinstrument'
+            instrument['name'] = 'Creative Research Equipment for DiffractiOn'
+            instrument['name'].attrs['short_name'] = 'CREDO'
+            instrument['URL'] = 'http://credo.ttk.mta.hu'
+            l0 = self.credo().subsystems['Collimation'].l0
+            l1 = self.credo().subsystems['Collimation'].l1
+            l2 = self.credo().subsystems['Collimation'].l2
+            ls = self.credo().subsystems['Collimation'].ls
+            lbs = self.credo().subsystems['Collimation'].lbs
+            dbs = self.credo().subsystems['Collimation'].dbs
+            sd = self.credo().dist
+            beamstop = instrument.create_group('beam_stop')
+            beamstop.attrs['NX_class'] = 'NXbeam_stop'
+            beamstop['description'] = 'circular'
+            beamstop['size'] = dbs
+            beamstop['size'].attrs['units'] = 'mm'
+            beamstop['distance_to_detector'] = lbs
+            beamstop['distance_to_detector'].attrs['units'] = 'mm'
+            coll = instrument.create_group('collimator')
+            coll.attrs['NX_class'] = 'NXcollimator'
+            for idx, description, dist in [(1, 'Entrance', -(l1 + l2 + ls)),
+                                           (2, 'Beam defining', (-(l2 + ls))),
+                                           (3, 'Guard', (-ls))]:
+                ph = coll.create_group('aperture_%d' % idx)
+                ph.attrs['NX_class'] = 'NXaperture'
+                ph['material'] = 'Pt-Ir'
+                ph['description'] = description + ' pinhole'
+                geo = ph.create_group('geometry')
+                geo.attrs['NX_class'] = 'NXgeometry'
+                geo['component_index'] = idx - 4
+                shape = geo.create_group('shape')
+                shape.attrs['NX_class'] = 'NXshape'
+                shape['shape'] = 'nxcylinder'
+                shape.create_dataset('size', data=np.array(
+                    [[getattr(self.credo().subsystems['Collimation'], 'aperture%d' % idx) * 1e-3, 0.2, 0, 0, 1.]]))
+                shape['size'].attrs['units'] = 'mm'
+                trans = geo.create_group('translation')
+                trans.attrs['NX_class'] = 'NXtranslation'
 
-            sample = entry.createGroup('sample')
-            sample.attrs['NX_class'] = 'NXsample'
-            sample['name'] = sam.title
-            sample['type'] = sam.category
-            sample['situation'] = sam.situation
-            sample['description'] = sam.description
-            sample['preparation_date'] = sam.preparetime
-            sample['thickness'] = float(sam.thickness)
-            sample['thickness'].attrs['units'] = 'cm'
-            try:
-                sample['thickness_error'] = sam.thickness.err
-                sample['thickness_error'].attrs['units'] = 'cm'
-            except AttributeError:
-                pass
-            sample['short_title'] = sample['name']
-            sample['prepared_by'] = samplefrom
-            sample['distance'] = float(sam.distminus)
-            sample['distance'].attrs['units'] = 'mm'
-            try:
-                sample['distance_error'] = sam.distminus.err
-                sample['distance_error'].attrs['units'] = 'mm'
-            except AttributeError:
-                pass
-            sample.createGroup('transmission')
-            sample['transmission'].attrs['NX_class'] = 'NXdata'
-            sample['transmission']['data'] = float(sam.transmission)
-            try:
-                sample['transmission']['errors'] = sam.transmission.err
-                sample['transmission']['data'].attrs[
-                    'uncertainties'] = 'errors'
-            except AttributeError:
-                pass
-            try:
-                haakephoenix = self.credo().subsystems['Equipments'].get(
-                    'haakephoenix')
-                if haakephoenix.connected():
-                    sample['temperature'] = haakephoenix.temperature
-                    sample['temperature'].attrs['units'] = 'degC'
-            except InstrumentError as ie:
-                logger.warn(
-                    'Cannot contact Haake Phoenix circulator while saving NeXus file: ', str(ie))
-            monitor=entry.createGroup('monitor')
-            monitor.attrs['NX_class']='NXmonitor'
-            monitor['mode']='timer'
-            monitor['preset']=self.credo().subsystems[
-                'Exposure'].exptime
-            monitor['preset'].attrs['units']='s'
-            monitor['nominal']=self.credo().subsystems[
-                'Exposure'].exptime
-            monitor['nominal'].attrs['units']='s'
-            monitor['type']='timer'
-            monitor['count_time']=self.credo().subsystems['Exposure'].exptime
-            monitor['count_time'].attrs['units']='s'
-            instrument=entry.createGroup('instrument')
-            instrument.attrs['NX_class']='NXinstrument'
-            instrument.name='Creative Research Equipment for DiffractiOn'
-            instrument.name.attrs['short_name']='CREDO'
-            instrument.URL='http://credo.ttk.mta.hu'
-            motors=instrument.createGroup('motors')
-            motors.attrs['NX_class']='NXcollection'
+                trans.create_dataset(
+                    'distances', data=np.array([[0, 0, dist]]))
+                trans['distances'].attrs['units'] = 'mm'
+
+            motors = instrument.create_group('motors')
+            motors.attrs['NX_class'] = 'NXcollection'
             for m in self.credo().subsystems['Motors']:
-                motor=self.credo().subsystems['Motors'][m]
-                mot=motors.createGroup(motor.name)
-                mot.attrs['NX_class']='NXpositioner'
-                mot['name']=motor.name
-                mot['description']=motor.alias
-                mot['value']=motor.get_parameter('Current_position',raw=False)
-                mot['value'].attrs['units']='mm'
-                mot['raw_value']=motor.get_parameter('Current_position',raw=True)
-                mot['raw_value'].attrs['units']=''
-                mot['soft_limit_min']=motor.get_parameter('soft_left',raw=False)
-                mot['soft_limit_min'].attrs['units']='mm'
-                mot['soft_limit_max']=motor.get_parameter('soft_right',raw=False)
-                mot['soft_limit_max'].attrs['units']='mm'
+                motor = self.credo().subsystems['Motors'].get(m)
+                mot = motors.create_group(motor.name)
+                mot.attrs['NX_class'] = 'NXpositioner'
+                mot['name'] = motor.name
+                mot['description'] = motor.alias
+                mot['value'] = motor.get_parameter(
+                    'Current_position', raw=False)
+                mot['value'].attrs['units'] = 'mm'
+                mot['raw_value'] = motor.get_parameter(
+                    'Current_position', raw=True)
+                mot['raw_value'].attrs['units'] = ''
+                mot['soft_limit_min'] = motor.get_parameter(
+                    'soft_left', raw=False)
+                mot['soft_limit_min'].attrs['units'] = 'mm'
+                mot['soft_limit_max'] = motor.get_parameter(
+                    'soft_right', raw=False)
+                mot['soft_limit_max'].attrs['units'] = 'mm'
                 if motor == self.credo().subsystems['Samples'].motor_samplex:
-                    sample['positioner_x']=mot
-                    sample['x_translation']=mot['value']
-                if motor == self.credo().subsystems['Samples'].motor_sampley:
-                    sample['positioner_y']=mot
-                    sample['y_translation']=mot['value']
-            coll=instrument.createGroup('collimator')
-            coll.attrs['NX_class']='NXcollimator'
-            for idx, description in [(1,'Entrance'), (2,'Beam defining'), (3,'Guard')]:
-                ph=coll.createGroup('aperture_%d'%idx)
-                ph.attrs['NX_class']='NXaperture'
-                ph['material']='Pt-Ir'
-                ph['description']=description+' pinhole'
-                geo=ph.creategroup('geometry')
-                geo.attrs['NX_class']='NXgeometry'
-                geo['component_index']=idx-4
-                shape=geo.creategroup('shape')
-                shape.attrs['NX_class']='NXshape'
-                shape['shape']='nxcylinder'
-                shape['size']=
-            
-            
+                    sample['positioner_x'] = mot
+                    sample['x_translation'] = mot['value']
+                elif motor == self.credo().subsystems['Samples'].motor_sampley:
+                    sample['positioner_y'] = mot
+                    sample['y_translation'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_beamstopx:
+                    beamstop['positioner_x'] = mot
+                    beamstop['x'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_beamstopy:
+                    beamstop['positioner_y'] = mot
+                    beamstop['y'] = mot['value']
+                    beamstop['status'] = ['out', 'in'][
+                        (mot['value'] < self.credo().subsystems['Collimation'].beamstop_in_ymax) and
+                        (mot['value'] > self.credo().subsystems['Collimation'].beamstop_in_min)]
+                elif motor == self.credo().subsystems['Collimation'].motor_ph1x:
+                    coll['aperture_1']['positioner_x'] = mot
+                    coll['aperture_1']['x'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_ph1y:
+                    coll['aperture_1']['positioner_y'] = mot
+                    coll['aperture_1']['y'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_ph2x:
+                    coll['aperture_2']['positioner_x'] = mot
+                    coll['aperture_2']['x'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_ph2y:
+                    coll['aperture_2']['positioner_y'] = mot
+                    coll['aperture_2']['y'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_ph3x:
+                    coll['aperture_3']['positioner_x'] = mot
+                    coll['aperture_3']['x'] = mot['value']
+                elif motor == self.credo().subsystems['Collimation'].motor_ph3y:
+                    coll['aperture_3']['positioner_y'] = mot
+                    coll['aperture_3']['y'] = mot['value']
+            monochromator = instrument.create_group('monochromator')
+            monochromator.attrs['NX_class'] = 'NXmonochromator'
+            monochromator['wavelength'] = self.credo().wavelength
+            monochromator['wavelength'].attrs['units'] = 'nm'
+            monochromator['wavelength_error'] = self.credo().wavelength *\
+                self.credo().wavelength_spread
+            monochromator['wavelength_error'].attrs['units'] = 'nm'
+            monochromator['energy'] = HC / self.credo().wavelength
+            monochromator['energy'].attrs['units'] = 'eV'
+            monochromator['energy_error'] = monochromator[
+                'energy'].value * self.credo().wavelength_spread
+            monochromator['energy_error'].attrs['units'] = 'eV'
+            source = instrument.create_group('source')
+            source.attrs['NX_class'] = 'NXsource'
+            source['distance'] = -ls - l2 - l1 - l0
+            source['name'] = 'Xenocs GeniX3D Cu ULD'
+            source['name'].attrs['short_name'] = 'GeniX'
+            source['type'] = 'Fixed Tube X-ray'
+            source['probe'] = 'x-ray'
+            try:
+                genix = self.credo().subsystems['Equipments'].get('genix')
+                ht = genix.ht
+                curr = genix.current
+                source['power'] = ht * curr
+                source['power'].attrs['units'] = 'W'
+                source['energy'] = ht * 1000
+                source['energy'].attrs['units'] = 'eV'
+                source['current'] = curr * 1e-3
+                source['current'].attrs['units'] = 'A'
+            except InstrumentError:
+                logger.warn('Could not contact GeniX for saving NeXus file.')
+            source['target_material'] = 'Cu'
+            sensors = instrument.create_group('sensors')
+            sensors.attrs['NX_class'] = 'NXcollection'
+            try:
+                vacgauge = self.credo().subsystems['Equipments'].get(
+                    'vacgauge')
+                p = vacgauge.pressure
+                vacuum = sensors.create_group('vacuum')
+                vacuum.attrs['NX_class'] = 'NXsensor'
+                vacuum['value'] = p
+                vacuum['value'].attrs['units'] = 'mbar'
+                vacuum['model'] = vacgauge.get_version()
+                vacuum['name'] = 'Pirani Vacuum Gauge'
+                vacuum['short_name'] = 'vacgauge'
+                vacuum['attached_to'] = 'flight path'
+                vacuum['measurement'] = 'pressure'
+                vacuum['type'] = 'Pirani'
+                vacuum['run_control'] = False
+            except InstrumentError:
+                logger.warn(
+                    'Cannot contact vacuum gauge on saving NeXus file.')
+            detector = instrument.create_group('detector')
+            detector.attrs['NX_class'] = 'NXdetector'
+            detector['distance'] = sd
+            detector['distance'].attrs['units'] = 'mm'
+            detector['polar_angle'] = 0
+            detector['polar_angle'].attrs['units'] = 'rad'
+            detector['azimuthal_angle'] = 0
+            detector['azimuthal_angle'].attrs['units'] = 'rad'
+            detector['local_name'] = 'pilatus300k'
+            detector['x_pixel_size'] = 0.172
+            detector['x_pixel_size'].attrs['units'] = 'mm'
+            detector['y_pixel_size'] = 0.172
+            detector['y_pixel_size'].attrs['units'] = 'mm'
+            detector['type'] = 'CMOS'
+            detector['layout'] = 'area'
+            detector['count_time'] = self.credo().subsystems[
+                'Exposure'].exptime
+            detector['count_time'].attrs['units'] = 's'
+            if fsn is not None:
+                detector['sequence_number'] = fsn
+            detector['beam_center_x'] = self.credo().beamposy * \
+                detector['x_pixel_size'].value
+            detector['beam_center_x'].attrs['units'] = 'mm'
+            detector['beam_center_y'] = self.credo().beamposx * \
+                detector['y_pixel_size'].value
+            detector['beam_center_y'].attrs['units'] = 'mm'
+            detector['acquisition_mode'] = 'summed'
+            detector['angular_calibration_applied'] = False
+            detector['flatfield_applied'] = True
+            detector.create_dataset('pixel_mask', data=(
+                self.credo().subsystems['Exposure'].get_mask().mask == 0) << 6)
+            detector['pixel_mask'].attrs[
+                'file_name'] = self.credo().subsystems['Exposure'].default_mask
+            detector['countrate_correction_applied'] = True
+            detector['bit_depth_readout'] = 20
+            detector['detector_readout_time'] = 2.3
+            detector['detector_readout_time'].attrs['units'] = 'ms'
+            detector['sensor_material'] = 'Si'
+            detector['sensor_thickness'] = 450e-3
+            detector['sensor_thickness'].attrs['units'] = 'mm'
+            try:
+                pilatus = self.credo().subsystems['Equipments'].get('pilatus')
+                detector[
+                    'description'] = 'Dectris Pilatus-300k SN: %s' % pilatus.camerasn
+                detector['comparator_voltage'] = pilatus.vcmp
+                detector['comparator_voltage'].attrs['units'] = 'V'
+                detector['dead_time'] = pilatus.tau * 1e9
+                detector['dead_time'].attrs['units'] = 'ns'
+                detector['gain_setting'] = pilatus.gain
+                detector['threshold_energy'] = pilatus.threshold
+                detector['threshold_energy'].attrs['units'] = 'eV'
+                detector['saturation_value'] = pilatus.cutoff
+                for i, attached_to in zip(range(3), ['power board', 'base plate', 'sensor']):
+                    hum = sensors.create_group('detector_humidity%d' % i)
+                    hum.attrs['NX_class'] = 'NXsensor'
+                    hum['value'] = getattr(pilatus, 'humidity%d' % i)
+                    hum['value'].attrs['units'] = '%'
+                    hum['model'] = 'Pilatus-300k'
+                    hum['name'] = 'Humidity sensor, channel #%d' % (12 + i)
+                    hum['short_name'] = 'Humidity #%d' % i
+                    hum['attached_to'] = 'Detector power board'
+                    hum['measurement'] = 'humidity'
+                    hum['type'] = 'combined temperature and humidity sensor'
+                    hum['run_control'] = False
+                    temp = sensors.create_group('detector_temperature%d' % i)
+                    temp.attrs['NX_class'] = 'NXsensor'
+                    temp['value'] = getattr(pilatus, 'temperature%d' % i)
+                    temp['value'].attrs['units'] = 'deg_C'
+                    temp['model'] = 'Pilatus-300k'
+                    temp['name'] = 'Temperature sensor, channel #%d' % (12 + i)
+                    temp['short_name'] = 'Temperature #%d' % i
+                    temp['attached_to'] = 'Detector ' + attached_to
+                    temp['measurement'] = 'temperature'
+                    temp['type'] = 'combined temperature and humidity sensor'
+                    temp['run_control'] = False
+
+            except InstrumentError:
+                logger.warn(
+                    'Cannot contact pilatus for data retrieval on saving NeXus file.')
+            data = entry.create_group('data')
+            data.attrs['NX_class'] = 'NXdata'
+
+            monitor['start_time'] = datetime.datetime.now(
+                dateutil.tz.tzlocal()).isoformat()
+            entry['start_time'] = monitor['start_time']
+        logger.debug('Created NeXus template file %s in %.2f seconds' %
+                     (filename, time.time() - t0))
+        return

@@ -70,22 +70,10 @@ class Credo(objwithgui.ObjWithGUI):
         type=float, default=242.47, blurb='Beam position Y (horizontal, pixels')
     wavelength = GObject.property(
         type=float, default=0.154182, minimum=0, blurb='X-ray wavelength (nm)')
-    # Inhibiting parameters
-#    shuttercontrol = GObject.property(
-#        type=bool, default=True, blurb='Open/close shutter')
+    wavelength_spread = GObject.property(
+        type=float, default=0.03, minimum=0, blurb='Relative wavelength spread (Dlambda/lambda)')
     motorcontrol = GObject.property(
         type=bool, default=True, blurb='Move motors')
-    # changing any of the properties in this list will trigger a setup-changed
-    # event.
-    setup_properties = [
-        'username', 'projectname', 'projectid', 'pixelsize', 'dist', 'dist_error', 'setup_description',
-        'beamposx', 'beamposy', 'wavelength', 'shuttercontrol',
-        'motorcontrol', 'scanfile', 'scandevice', 'virtdetcfgfile',
-                        'imagepath', 'filepath']
-
-    # changing any of the properties in this list will trigger a path-changed
-    # event.
-    path_properties = ['filepath', 'imagepath']
 
     def __init__(self, offline=True, createdirsifnotpresent=False):
         objwithgui.ObjWithGUI.__init__(self)
@@ -113,12 +101,15 @@ class Credo(objwithgui.ObjWithGUI):
         self._OWG_hints['wavelength'] = {
             objwithgui.OWG_Hint_Type.OrderPriority: 6,
             objwithgui.OWG_Hint_Type.Digits: 4}
+        self._OWG_hints['wavelength-spread'] = {
+            objwithgui.OWG_Hint_Type.OrderPriority: 7,
+            objwithgui.OWG_Hint_Type.Digits: 4}
         self._OWG_hints['default-mask'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 6,
+            objwithgui.OWG_Hint_Type.OrderPriority: 8,
             objwithgui.OWG_Hint_Type.Digits: 5}
         self._OWG_entrytypes['default-mask'] = objwithgui.OWG_Param_Type.File
         self._OWG_hints['motorcontrol'] = {
-            objwithgui.OWG_Hint_Type.OrderPriority: 7}
+            objwithgui.OWG_Hint_Type.OrderPriority: 9}
         # initialize subsystems
         logger.debug('Initializing subsystems of Credo')
         self.subsystems = {}

@@ -10,6 +10,10 @@ from gi.repository import GObject
 from .widgets import ToolDialog, ErrorValueEntry
 import sastool
 
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 class SampleSetup(Gtk.Dialog):
 
@@ -505,19 +509,20 @@ class SampleListDialog(ToolDialog):
 
 
 class SampleSelector(Gtk.ComboBoxText):
+    __gtype_name__ = "SAXSCtrl_SampleSelector"
     __gsignals__ = {'sample-changed': (GObject.SignalFlags.RUN_FIRST, None, (object,)),
-                    }
+                    'destroy': 'override'}
     autorefresh = GObject.property(type=bool, default=True)
 
     def __init__(self, credo, autorefresh=True, shortnames=False):
         Gtk.ComboBox.__init__(self)
         self.credo = credo
-        self.credo.subsystems['Samples'].connect(
-            'changed', lambda sss: self.reload_samples())
+        self._conns = [(self.credo.subsystems['Samples'], self.credo.subsystems['Samples'].connect(
+            'changed', lambda sss: self.reload_samples()))]
         self.autorefresh = autorefresh
         self.shortnames = shortnames
-        self.credo.subsystems['Samples'].connect('selected',
-                                                 lambda sss, sam: (self.autorefresh) and self.set_sample(sam))
+        self._conns.append((self.credo.subsystems['Samples'], self.credo.subsystems['Samples'].connect('selected',
+                                                                                                       lambda sss, sam: (self.autorefresh) and self.set_sample(sam))))
         self.samplelist = Gtk.ListStore(
             GObject.TYPE_STRING, GObject.TYPE_PYOBJECT)
         self.set_model(self.samplelist)
@@ -527,9 +532,22 @@ class SampleSelector(Gtk.ComboBoxText):
             self.set_sample(self.credo.subsystems['Samples'].get())
         self.show_all()
 
+    def do_destroy(self):
+        logger.debug(
+            'Destroying a SampleSelector, disconnecting signal connections')
+        try:
+            for obj, connection in self._conns:
+                obj.disconnect(connection)
+            del self._conns
+            logger.debug(
+                'Disconnected signal connections for a SampleSelector under destroying')
+        except AttributeError:
+            pass
+        return Gtk.ComboBoxText.do_destroy(self)
+
     def reload_samples(self):
         if self.get_active() >= 0 and self.get_active() < len(self.samplelist):
-            sam_before = self.samplelist[self.get_active()][-1]['Title']
+            sam_before = self.samplelist[self.get_active()][-1].title
         else:
             sam_before = None
         self.samplelist.clear()
@@ -542,7 +560,7 @@ class SampleSelector(Gtk.ComboBoxText):
                 self.samplelist.append((sam.title, sam))
             else:
                 self.samplelist.append((str(sam), sam))
-        if self.samplelist[self.get_active()][-1]['Title'] != sam_before:
+        if self.samplelist[self.get_active()][-1].title != sam_before:
             self.emit('sample-changed', self.samplelist[self.get_active()][-1])
 
     def set_sample(self, sam):
