@@ -13,6 +13,7 @@ import os
 import pkg_resources
 import logging
 import traceback
+from functools import reduce
 
 aseq_language_def_path = pkg_resources.resource_filename(
     'saxsctrl', 'resource/language-specs')
@@ -44,11 +45,11 @@ class ErrorSeverity(object):
     fatal = 2
 
 
-class SequenceSyntaxError(StandardError):
+class SequenceSyntaxError(Exception):
     pass
 
 
-class SequenceError(StandardError):
+class SequenceError(Exception):
 
     """To be raised by sequence commands if some error happens.
 
@@ -60,7 +61,7 @@ class SequenceError(StandardError):
     """
 
     def __init__(self, message, severity=ErrorSeverity.normal):
-        StandardError.__init__(self, message)
+        Exception.__init__(self, message)
         self.severity = severity
 
 
@@ -149,10 +150,10 @@ class SeqCommand(GObject.GObject):
         logger.debug('Parsing expressions')
         for a in self._arguments:
             value = self.__getattribute__(a)
-            if isinstance(value, basestring) and value.strip().startswith('{') and value.strip().endswith('}'):
+            if isinstance(value, str) and value.strip().startswith('{') and value.strip().endswith('}'):
                 val = eval(
                     value[1:-1].replace('§', '(' + str(prevval) + ')'), globals(), variables)
-            elif isinstance(value, basestring) and value.strip() == '§':
+            elif isinstance(value, str) and value.strip() == '§':
                 val = prevval
             else:
                 val = value
@@ -640,7 +641,7 @@ class SeqCommandSet(SeqCommand):
     _arguments = ['varname', 'expression']
 
     def execute(self, credo, prevval, variables):
-        if isinstance(self.expression, basestring):
+        if isinstance(self.expression, str):
             self.expression = self.expression.strip()
             if self.expression.startswith('{') and self.expression.endswith('}'):
                 exp_to_eval = self.expression[1:-1]

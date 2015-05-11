@@ -36,7 +36,7 @@ setup(name='saxsctrl', version='0.0.%d'%version_last, author='Andras Wacha',
                     },
       keywords="saxs sans sas small-angle scattering x-ray instrument control",
       license="",
-      package_data={'saxsctrl': ['resource/*/*']},
+      package_data={'': ['resource/icons/hicolor/*/*','resource/language-specs/*']},
       include_package_data=True,
       zip_safe=False,
 )

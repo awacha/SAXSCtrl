@@ -59,11 +59,11 @@ class PilatusStatus(Gtk.Frame):
         self.statuslabels['Threshold'] = StatusLabel('Threshold', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')}, 'UNKNOWN')
         self.statuslabels['Gain'] = StatusLabel('Gain', {'OK':'OK', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')}, 'UNKNOWN')
         self.statuslabels['Tau'] = StatusLabel('Tau', {'OK':'N/A', 'UNKNOWN':'UNKNOWN'}, {'OK':Gdk.color_parse('white'), 'UNKNOWN':Gdk.color_parse('lightgray')})
-        for i, l in enumerate(self.statuslabels.itervalues()):
+        for i, l in enumerate(self.statuslabels.values()):
             tab.attach(l, i % tab_colnum, i % tab_colnum + 1, i / tab_colnum, i / tab_colnum + 1, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, Gtk.AttachOptions.FILL | Gtk.AttachOptions.EXPAND, 2, 3)
 
         self.show_all()
-        for l in self.statuslabels.values():
+        for l in list(self.statuslabels.values()):
             l.connect('status-changed', self.on_status_changed_logger)
     def on_status_changed_logger(self, statlabel, status, statstr, color):
         if status.upper() == 'ERROR' and statlabel.labelname not in ['Shutter', 'Remote', 'X-rays', 'Status']:
@@ -94,17 +94,17 @@ class PilatusStatus(Gtk.Frame):
             hum = thdata['humidity']
             for temp, hum, ts, th, hs, hh, twidget, hwidget in zip(temp, hum, tempsoft, temphard, humsoft, humhard, (self['t0'], self['t1'], self['t2']), (self['h0'], self['h1'], self['h2'])):
                 if (temp <= max(ts)) and (temp >= min(ts)):
-                    twidget.set_status('OK', u'%.1f°C' % temp)
+                    twidget.set_status('OK', '%.1f°C' % temp)
                 elif (temp <= max(th)) and (temp >= min(th)):
-                    twidget.set_status('WARNING', u'%.1f°C' % temp)
+                    twidget.set_status('WARNING', '%.1f°C' % temp)
                 else:
-                    twidget.set_status('ERROR', u'%.1f°C' % temp)
+                    twidget.set_status('ERROR', '%.1f°C' % temp)
                 if hum < hs:
-                    hwidget.set_status('OK', u'%.1f%%' % hum)
+                    hwidget.set_status('OK', '%.1f%%' % hum)
                 elif hum < hh:
-                    hwidget.set_status('WARNING', u'%.1f%%' % hum)
+                    hwidget.set_status('WARNING', '%.1f%%' % hum)
                 else:
-                    hwidget.set_status('ERROR', u'%.1f%%' % hum)
+                    hwidget.set_status('ERROR', '%.1f%%' % hum)
             self['Tau'].set_status('OK', '%.1f ns' % (taudata * 1e9))
         try:
             threshold = pc.get_threshold()

@@ -331,22 +331,22 @@ class SampleListDialog(ToolDialog):
             Gtk.TreeViewColumn('Thickness (cm)', cr, text=4))
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(
-            Gtk.TreeViewColumn(u'X Position', cr, text=5))
+            Gtk.TreeViewColumn('X Position', cr, text=5))
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(
-            Gtk.TreeViewColumn(u'Y Position', cr, text=6))
+            Gtk.TreeViewColumn('Y Position', cr, text=6))
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(
-            Gtk.TreeViewColumn(u'Distance decrease', cr, text=7))
+            Gtk.TreeViewColumn('Distance decrease', cr, text=7))
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(
-            Gtk.TreeViewColumn(u'Transmission', cr, text=8))
+            Gtk.TreeViewColumn('Transmission', cr, text=8))
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(
-            Gtk.TreeViewColumn(u'Category', cr, text=9))
+            Gtk.TreeViewColumn('Category', cr, text=9))
         cr = Gtk.CellRendererText()
         self.sampletreeview.append_column(
-            Gtk.TreeViewColumn(u'Situation', cr, text=10))
+            Gtk.TreeViewColumn('Situation', cr, text=10))
         self.sampletreeview.get_selection().set_mode(
             Gtk.SelectionMode.MULTIPLE)
         self.sampletreeview.set_headers_visible(True)
@@ -377,12 +377,12 @@ class SampleListDialog(ToolDialog):
         for row in self.sampleliststore:
             for i, attr in enumerate(['title', 'description', 'preparedby', 'preparetime', 'thickness', 'positionx', 'positiony', 'distminus', 'transmission', 'category', 'situation']):
                 value = getattr(row[-1], attr)
-                if isinstance(value, basestring):
+                if isinstance(value, str):
                     row[i] = value
                 elif isinstance(value, datetime.datetime):
                     row[i] = str(value.date())
                 elif isinstance(value, float):
-                    row[i] = unicode(value)
+                    row[i] = str(value)
                 elif isinstance(value, sastool.ErrorValue):
                     row[i] = value.tostring(extra_digits=1)
 
@@ -564,7 +564,7 @@ class SampleSelector(Gtk.ComboBoxText):
             self.emit('sample-changed', self.samplelist[self.get_active()][-1])
 
     def set_sample(self, sam):
-        if isinstance(sam, basestring) and sam == '':
+        if isinstance(sam, str) and sam == '':
             sam = None
         if isinstance(sam, sample.SAXSSample) or (sam is None):
             for i, row in enumerate(self.samplelist):
@@ -572,7 +572,7 @@ class SampleSelector(Gtk.ComboBoxText):
                     self.set_active(i)
                     self.emit('sample-changed', sam)
                     return
-        elif isinstance(sam, basestring):
+        elif isinstance(sam, str):
             for i, row in enumerate(self.samplelist):
                 if ((str(row[-1]) == sam) or (row[0] == sam) or
                         (isinstance(row[-1], sample.SAXSSample) and row[-1].title == sam)):

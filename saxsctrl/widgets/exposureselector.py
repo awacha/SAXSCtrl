@@ -104,7 +104,7 @@ class ExposureBrowserDialog(Gtk.Dialog):
             maxfsn = self.credo.subsystems['Files'].get_next_fsn(self.credo.subsystems['Files'].get_format_re(self.fileprefix, self.ndigits)) - 1
         if minfsn is None or maxfsn is None:
             return
-        headers = sastool.classes.SASHeader(self.credo.subsystems['Files'].get_headerformat(self.fileprefix, self.ndigits), range(minfsn, maxfsn + 1), dirs=datadirs, error_on_not_found=False)
+        headers = sastool.classes.SASHeader(self.credo.subsystems['Files'].get_headerformat(self.fileprefix, self.ndigits), list(range(minfsn, maxfsn + 1)), dirs=datadirs, error_on_not_found=False)
         self.liststore.clear()
         for h in headers:
             self.liststore.append((h, 0, '', '', 0.0, 0.0))

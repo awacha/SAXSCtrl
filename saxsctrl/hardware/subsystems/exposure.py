@@ -1,6 +1,6 @@
 # coding: utf-8
 import multiprocessing
-import multiprocessing.queues
+import queue
 import sastool
 import datetime
 import dateutil.tz
@@ -70,7 +70,7 @@ class SubSystemExposure(SubSystem):
         for k in kwargs:
             self.set_property(k, kwargs[k])
         self._stopswitch = multiprocessing.Event()
-        self._queue = multiprocessing.queues.Queue()
+        self._queue = multiprocessing.Queue()
         self._default_mask = None
 
     def do_notify(self, param):
@@ -206,7 +206,7 @@ class SubSystemExposure(SubSystem):
     def _check_if_exposure_finished(self):
         try:
             id, data = self._queue.get_nowait()
-        except multiprocessing.queues.Empty:
+        except queue.Empty:
             return True
         if id == ExposureMessageType.Failure:
             self.emit('exposure-fail', data)
@@ -355,7 +355,7 @@ class SubSystemExposure(SubSystem):
             outqueue.put((ExposureMessageType.End, False))
             return
 
-        except Exception, exc:
+        except Exception as exc:
             # catch all exceptions and put an error state in the output queue,
             # then re-raise.
             outqueue.put((ExposureMessageType.Failure, traceback.format_exc()))

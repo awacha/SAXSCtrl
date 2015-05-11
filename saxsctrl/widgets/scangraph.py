@@ -13,15 +13,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import sastool
 import os
-import pkg_resources
 import matplotlib
 import itertools
 import sasgui
 import traceback
-
-itheme = Gtk.IconTheme.get_default()
-itheme.append_search_path(
-    pkg_resources.resource_filename('saxsctrl', 'resource'))
 
 
 class ScanGraph(ToolDialog):
@@ -224,7 +219,7 @@ class ScanGraph(ToolDialog):
         self.move_cursor(self.scan[self.xname][self.scan[signalname].argmax()])
 
     def _initialize_cursors(self):
-        for col, color in itertools.izip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
+        for col, color in zip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
             self._cursors[col] = self.gca().plot(
                 np.nan, np.nan, 'o', markersize=10, mew=2, mfc='none', mec=color)[0]
 
@@ -278,7 +273,7 @@ class ScanGraph(ToolDialog):
             self._cursor_at = int(round(desired_index))
             if self._cursor_scale.get_value() != to:
                 self._cursor_scale.set_value(to)
-                self._cursor_label.set_label(unicode(to))
+                self._cursor_label.set_label(str(to))
             self.redraw_scan()
         finally:
             del self._movecursor_noreentry
@@ -320,7 +315,7 @@ class ScanGraph(ToolDialog):
         if full:
             self.gca().cla()
             self._initialize_cursors()
-            for col, color in itertools.izip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
+            for col, color in zip(self.datacols, itertools.cycle(matplotlib.rcParams['axes.color_cycle'])):
                 try:
                     scale = [m[2] for m in mod if m[0] == col][0]
                     visible = [m[1] for m in mod if m[0] == col][0]
@@ -589,7 +584,7 @@ class ImagingGraph(ToolDialog):
                 c for c in self.datacols if [m for m in mod if m[0] == c]]
             self._visible_cols = [
                 col for col in valid_cols if [m[1] for m in mod if m[0] == col][0]]
-            Nsubplotrows = len(self._visible_cols) / \
+            Nsubplotrows = len(self._visible_cols) // \
                 self._ncol_sb.get_value_as_int() + 1
             if not (len(self._visible_cols) % self._ncol_sb.get_value_as_int()):
                 Nsubplotrows -= 1

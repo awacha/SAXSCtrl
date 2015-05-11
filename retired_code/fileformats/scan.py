@@ -25,7 +25,7 @@ class Scan(object):
                 elif readingmode == 'data':
                     self._data = np.loadtxt(f)
     def get_dataset(self, colname):
-        if isinstance(colname, basestring):
+        if isinstance(colname, str):
             colname = self._colnames.index(colname)
         return self._data[:, colname]
     def get_metadata(self, name):
@@ -35,7 +35,7 @@ class Scan(object):
     def __setitem__(self, key, value):
         return self._metadata.__setitem__(key, value)
     def keys(self):
-        return self._metadata.keys()
+        return list(self._metadata.keys())
     def __len__(self):
         try:
             return self._data.shape[0]

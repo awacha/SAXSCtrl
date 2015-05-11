@@ -1,6 +1,6 @@
 from gi.repository import Gtk
 from .widgets import ToolDialog
-import scangraph
+from . import scangraph
 import logging
 import datetime
 from gi.repository import GLib

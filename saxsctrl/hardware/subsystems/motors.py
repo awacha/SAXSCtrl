@@ -57,7 +57,7 @@ class SubSystemMotors(SubSystem):
         mots = []
         for md in [dr for dr in self.credo().subsystems['Equipments'].get_motor_drivers() if self.credo().subsystems['Equipments'].is_connected(dr)]:
             mots.extend(
-                self.credo().subsystems['Equipments'].get(md).motors.values())
+                list(self.credo().subsystems['Equipments'].get(md).motors.values()))
         return sorted(mots, key=lambda x: x.name)
 
     def _proxy_signal(self, *args):

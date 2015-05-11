@@ -90,7 +90,7 @@ class DataReduction(ToolDialog):
         cr.connect('edited', lambda renderer, path, newtext, colnum, fieldname: self._cell_edited(
             path, newtext, colnum, fieldname), 5, 'Temperature')
         self._headerview.append_column(
-            Gtk.TreeViewColumn(u'Temperature (°C)', cr, text=5))
+            Gtk.TreeViewColumn('Temperature (°C)', cr, text=5))
         cr = Gtk.CellRendererText()
         cr.set_property('editable', True)
         cr.connect('edited', lambda renderer, path, newtext, colnum, fieldname: self._cell_edited(

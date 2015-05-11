@@ -10,7 +10,7 @@ from gi.repository import GObject
 import subprocess
 import warnings
 import gc
-
+import pkg_resources
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stderr)
@@ -23,11 +23,15 @@ handler.setLevel(logging.WARNING)
 import sastool
 sastool.libconfig.LENGTH_UNIT = 'nm'
 
-import utils
-import hardware
-import widgets
+from . import utils
+from . import hardware
+from . import widgets
 
 __all__ = ['hardware', 'widgets', 'utils']
+
+itheme = Gtk.IconTheme.get_default()
+itheme.append_search_path(
+    pkg_resources.resource_filename('saxsctrl', 'resource/icons/scalable'))
 
 
 class LogException(Exception):
@@ -53,6 +57,8 @@ def start_saxsctrl():
     warnings.filterwarnings('always')
 
     logger.info('SAXSCtrl started')
+    pb = itheme.load_icon('saxsctrl_icon', 256, 0)
+    Gtk.Window.set_default_icon(pb)
     root = widgets.root.RootWindow()
     root.show_all()
     Gtk.main()

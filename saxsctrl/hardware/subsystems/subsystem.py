@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-class SubSystemError(StandardError):
+class SubSystemError(Exception):
     pass
 
 class SubSystemException(Exception):

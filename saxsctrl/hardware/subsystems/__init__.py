@@ -1,25 +1,25 @@
-import collimation
-import datareduction
-import equipments
-import exposure
-import files
-import samples
-import scan
-import subsystem
-import transmission
-import virtualdetectors
-import motors
-import imaging
+from . import collimation
+from . import datareduction
+from . import equipments
+from . import exposure
+from . import files
+from . import samples
+from . import scan
+from . import subsystem
+from . import transmission
+from . import virtualdetectors
+from . import motors
+from . import imaging
 
-from collimation import *
-from datareduction import *
-from equipments import *
-from exposure import *
-from files import *
-from samples import *
-from scan import *
-from subsystem import *
-from transmission import *
-from virtualdetectors import *
-from motors import *
-from imaging import *
+from .collimation import *
+from .datareduction import *
+from .equipments import *
+from .exposure import *
+from .files import *
+from .samples import *
+from .scan import *
+from .subsystem import *
+from .transmission import *
+from .virtualdetectors import *
+from .motors import *
+from .imaging import *

@@ -219,7 +219,7 @@ class Genix(Instrument_ModbusTCP):
                     self, None, InstrumentPropertyCategory.UNKNOWN)
             return
         faultint = 0
-        for faultproperty, faultkey, index in itertools.imap(lambda a, b: a + (b,), [('faults', 'FAULTS'), ('xray_light_fault', 'X-RAY_LIGHT_FAULT'),
+        for faultproperty, faultkey, index in map(lambda a, b: a + (b,), [('faults', 'FAULTS'), ('xray_light_fault', 'X-RAY_LIGHT_FAULT'),
                                                                                      (
                                                                                          'shutter_light_fault', 'SHUTTER_LIGHT_FAULT'),
                                                                                      ('sensor2_fault', 'SENSOR2_FAULT'), (
@@ -334,11 +334,11 @@ class Genix(Instrument_ModbusTCP):
         if tup is None:
             tup = self.get_status_bits()
         #logger.debug('GeniX status: 0x' + hex(self.get_status_int(tup)))
-        return dict(zip(('DISTANT_MODE', 'XRAY_ON', 'STANDBY_ON', 'CYCLE_AUTO_ON', 'CONDITIONS_AUTO_OK', 'CYCLE_RESET_ON', 'CYCLE_TUBE_WARM_UP_ON',
+        return dict(list(zip(('DISTANT_MODE', 'XRAY_ON', 'STANDBY_ON', 'CYCLE_AUTO_ON', 'CONDITIONS_AUTO_OK', 'CYCLE_RESET_ON', 'CYCLE_TUBE_WARM_UP_ON',
                          'CONFIGURATION_POWER_TUBE', 'UNKNOWN1', 'FAULTS', 'X-RAY_LIGHT_FAULT', 'SHUTTER_LIGHT_FAULT', 'SENSOR2_FAULT', 'TUBE_POSITION_FAULT',
                          'VACUUM_FAULT', 'WATERFLOW_FAULT', 'SAFETY_SHUTTER_FAULT', 'TEMPERATURE_FAULT', 'SENSOR1_FAULT', 'RELAY_INTERLOCK_FAULT',
                          'DOOR_SENSOR_FAULT', 'FILAMENT_FAULT', 'TUBE_WARM_UP_NEEDED_FAULT', 'UNKNOWN2', 'RUN_AUTOMATE', 'INTERLOCK_OK', 'SHUTTER_CLOSED',
-                         'SHUTTER_OPENED', 'UNKNOWN3', 'OVERRIDDEN_ON'), self.get_status_bits()))
+                         'SHUTTER_OPENED', 'UNKNOWN3', 'OVERRIDDEN_ON'), self.get_status_bits())))
 
     def isremote(self):
         return self.get_status()['DISTANT_MODE']

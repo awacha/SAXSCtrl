@@ -1,5 +1,5 @@
 import logging
-import ConfigParser
+import configparser
 import os
 
 from gi.repository import Gtk
@@ -288,7 +288,7 @@ class SubSystemVirtualDetectors(SubSystem):
     def load(self, filename=None, clear=True):
         if filename is None:
             filename = self.configfile
-        cp = ConfigParser.ConfigParser()
+        cp = configparser.ConfigParser()
         cp.read(filename)
         if clear:
             self.clear()
@@ -308,7 +308,7 @@ class SubSystemVirtualDetectors(SubSystem):
             return
         if filename is None:
             filename = self.configfile
-        cp = ConfigParser.ConfigParser()
+        cp = configparser.ConfigParser()
         for vpd in self._list:
             vpd.savestate(cp)
         with open(filename, 'wt') as f:

@@ -9,19 +9,21 @@ import time
 import resource
 import sys
 import weakref
+import traceback
 
 from ..hardware import credo
 from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer, pinholecalculator
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 def my_excepthook(type_, value, traceback_):
     try:
         logger.critical(
-            'Unhandled exception', exc_info=(type_, value, traceback_))
+            'Unhandled exception: ' + '\n'.join(traceback.format_exception(type_, value, traceback_)))
     except:
-        pass
+        logger.critical(
+            'Error in excepthook: ' + traceback.format_exc())
 
 sys.excepthook = my_excepthook
 
@@ -84,19 +86,24 @@ class Tool(object):
             self.menuitem.set_sensitive(sensitivity)
 
     def on_delete(self, widget, *args):
-        logger.debug(
-            'Tool.on_delete called. Args: ' + ', '.join(str(a) for a in args))
-        for c in self._windowconn:
-            self.window.disconnect(c)
-        self._windowconn = []
-        if not self.window.in_destruction():
-            logger.debug('Calling Tool.window.destroy()')
-            self.window.destroy()
-            logger.debug('Returned from Tool.window.destroy()')
+        if len(args) == 2:
+            # we are being called because of a delete-event
+            logger.debug(
+                'Tool.on_delete called, because of a delete-event. Starting destroy.')
+            # if we return with False from a delete-event, the window will be
+            # destroyed automatically.
+            return False
         else:
-            logger.debug('Window for tool ' + self.toolsection +
-                         '::' + self.buttonname + ' is already being destroyed.')
-        self.window = None
+            # we are being called because of destroy
+            logger.debug(
+                'Tool.on_delete called, because of a destroy. Disconnecting signals')
+            for c in self._windowconn:
+                self.window.disconnect(c)
+            logger.debug('All signals disconnected')
+            self._windowconn = []
+            self.window = None
+            logger.debug('Tool.on_delete call (destroy) finished.')
+            return False
 
     def destroywindow(self):
         if self.window is not None:
@@ -361,10 +368,10 @@ class RootWindow(Gtk.Window):
     def update_statuslabels(self):
         self._memusage = resource.getrusage(
             resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-        self.statuslabel_memory.set_label('%.2f MB' % (self._memusage / 1024))
+        self.statuslabel_memory.set_label('%.2f MB' % (self._memusage / 1024.))
         self._uptime = int(time.time() - self._starttime)
         self.statuslabel_uptime.set_text('%02d:%02d:%02d' % (
-            self._uptime / 3600, (self._uptime % 3600) / 60, self._uptime % 60))
+            self._uptime // 3600, (self._uptime % 3600) // 60, self._uptime % 60))
         return True
 
     def update_sensitivities(self):
@@ -384,6 +391,7 @@ class RootWindow(Gtk.Window):
         if hasattr(self, 'credo'):
             self.credo.savestate()
             del self.credo
+        return Gtk.Window.destroy(self)
 
     def __del__(self):
         logger.debug('Destructing root window.')

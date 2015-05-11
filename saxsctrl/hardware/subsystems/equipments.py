@@ -1,6 +1,6 @@
 import logging
 import os
-import ConfigParser
+import configparser
 import traceback
 from .subsystem import SubSystem, SubSystemError
 from ..instruments.pilatus import Pilatus
@@ -57,7 +57,7 @@ class SubSystemEquipments(SubSystem):
         return all(eq.is_idle() for eq in self)
 
     def known_equipments(self):
-        return self.__equipments__.keys()
+        return list(self.__equipments__.keys())
 
     def connected_equipments(self):
         return [e for e in self.known_equipments() if self.is_connected(e)]
@@ -96,7 +96,7 @@ class SubSystemEquipments(SubSystem):
             self.emit('idle')
 
     def __iter__(self):
-        return self._list.itervalues()
+        return iter(self._list.values())
 
     def disconnect_equipment(self, equipment):
         equipment = equipment.lower()
@@ -130,7 +130,7 @@ class SubSystemEquipments(SubSystem):
     def _equipment_connect(self, equipmentinstance):
         try:
             equipment = [
-                e for e in self._list.values() if e is equipmentinstance][0]
+                e for e in list(self._list.values()) if e is equipmentinstance][0]
         except IndexError:
             raise NotImplementedError('Invalid equipment.')
         self.emit('equipment-connection', equipment, True, equipmentinstance)
@@ -139,7 +139,7 @@ class SubSystemEquipments(SubSystem):
     def _equipment_disconnect(self, equipmentinstance, status):
         try:
             equipment = [
-                e for e in self._list.values() if e is equipmentinstance][0]
+                e for e in list(self._list.values()) if e is equipmentinstance][0]
         except IndexError:
             raise NotImplementedError('Invalid equipment.')
         self.emit('equipment-connection', equipment, False, equipmentinstance)
@@ -157,7 +157,7 @@ class SubSystemEquipments(SubSystem):
                 'Cannot connect to all instruments. Failed: ' + ', '.join(errors))
 
     def disconnect_from_all(self):
-        for eq in self._list.keys()[:]:
+        for eq in list(self._list.keys())[:]:
             if self.is_connected(eq):
                 self.disconnect_equipment(eq)
 
@@ -171,12 +171,12 @@ class SubSystemEquipments(SubSystem):
                 dic.update(eq.get_current_parameters())
         return dic
 
-    def savestate(self, configparser, sectionprefix=''):
+    def savestate(self, cp, sectionprefix=''):
         if self.offline:
             logger.warning('Not saving equipments state: we are off-line')
             return
-        SubSystem.savestate(self, configparser, sectionprefix)
-        cp = ConfigParser.ConfigParser()
+        SubSystem.savestate(self, cp, sectionprefix)
+        cp = configparser.ConfigParser()
         cffn = os.path.join(
             self.credo().subsystems['Files'].configpath, self.configfile)
         cp.read(cffn)
@@ -185,9 +185,9 @@ class SubSystemEquipments(SubSystem):
         with open(cffn, 'wt') as f:
             cp.write(f)
 
-    def loadstate(self, configparser, sectionprefix=''):
-        SubSystem.loadstate(self, configparser, sectionprefix)
-        cp = ConfigParser.ConfigParser()
+    def loadstate(self, cp, sectionprefix=''):
+        SubSystem.loadstate(self, cp, sectionprefix)
+        cp = configparser.ConfigParser()
         logger.debug('SubSystemEquipments.loadstate: ' + self.configfile)
         cffn = os.path.join(
             self.credo().subsystems['Files'].configpath, self.configfile)
@@ -206,7 +206,7 @@ class SubSystemEquipments(SubSystem):
             b = Gtk.Button(label=eqname.capitalize())
             b.connect('clicked', lambda b, eq,
                       tab: self._setup_dialog_equipment(eq, tab), eqname, tab)
-            grid.attach(b, i % 6, i / 6, 1, 1)
+            grid.attach(b, i % 6, i // 6, 1, 1)
         return tab
 
     def _setup_dialog_equipment(self, eqname, tab):

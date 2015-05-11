@@ -10,6 +10,7 @@ import weakref
 import time
 import logging
 import sastool
+from functools import reduce
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 import traceback

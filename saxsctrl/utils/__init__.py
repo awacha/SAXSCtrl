@@ -1,3 +1,3 @@
-import objwithgui
+from . import objwithgui
 
-from objwithgui import *
+from .objwithgui import *

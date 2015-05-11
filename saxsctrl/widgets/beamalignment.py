@@ -58,28 +58,28 @@ class BeamAlignment(ToolDialog):
         self.beamposframe.add(grid)
         row = 0
 
-        l = Gtk.Label(label=u'Beam area top:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        l = Gtk.Label(label='Beam area top:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.pri_top_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=-10000, upper=10000, step_increment=0.1, page_increment=1), digits=2)
         self.pri_top_entry.set_hexpand(True)
         grid.attach(self.pri_top_entry, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label=u'Beam area bottom:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        l = Gtk.Label(label='Beam area bottom:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.pri_bottom_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=-10000, upper=10000, step_increment=0.1, page_increment=1), digits=2)
         self.pri_bottom_entry.set_hexpand(True)
         grid.attach(self.pri_bottom_entry, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label=u'Beam area left:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        l = Gtk.Label(label='Beam area left:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.pri_left_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=-10000, upper=10000, step_increment=0.1, page_increment=1), digits=2)
         self.pri_left_entry.set_hexpand(True)
         grid.attach(self.pri_left_entry, 1, row, 1, 1)
         row += 1
 
-        l = Gtk.Label(label=u'Beam area right:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        l = Gtk.Label(label='Beam area right:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
         grid.attach(l, 0, row, 1, 1)
         self.pri_right_entry = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=0, lower=-10000, upper=10000, step_increment=0.1, page_increment=1), digits=2)
         self.pri_right_entry.set_hexpand(True)
@@ -91,7 +91,7 @@ class BeamAlignment(ToolDialog):
         b.connect('clicked', self.on_set_limits_from_zoom)
 
 
-        self.threshold_checkbutton = Gtk.CheckButton(label=u'Relative intensity threshold:')
+        self.threshold_checkbutton = Gtk.CheckButton(label='Relative intensity threshold:')
         self.threshold_checkbutton.set_halign(Gtk.Align.START)
         self.threshold_checkbutton.set_valign(Gtk.Align.CENTER)
         grid.attach(self.threshold_checkbutton, 0, row, 1, 1)
@@ -183,7 +183,7 @@ class BeamAlignment(ToolDialog):
                     beampos.append(ex.find_beam_semitransparent(pri, threshold))
                 else:
                     beampos.append(ex.barycenter())
-            except Exception, err:
+            except Exception as err:
                 logger.error('Beam finding error: ' + str(err))
         bcx = [b[0] for b in beampos]
         bcy = [b[1] for b in beampos]

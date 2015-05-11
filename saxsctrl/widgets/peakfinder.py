@@ -179,7 +179,7 @@ class PeakFinder(Gtk.Dialog):
         self.fig.gca().cla()
         func = self.curve.__getattribute__(self.plottype_combo.get_active_text())
         func(axes=self.fig.gca())
-        self.fig.gca().set_xlabel(u'q (' + sasgui.libconfig.qunit() + ')')
+        self.fig.gca().set_xlabel('q (' + sasgui.libconfig.qunit() + ')')
         self.fig.gca().set_ylabel('Intensity (arb. units)')
         self.canvas.draw()
     def do_findpeak(self, button):

@@ -53,10 +53,10 @@ class HaakePhoenix(Instrument_TCP):
                    'cooling_fault', 'internal_pt100_fault', 'external_pt100_fault']
 
     def _parse_stateflags(self, message):
-        m = re.match('(?P<temperaturecontrol>[01])(?P<externalcontrol>[01])(?P<mainrelay_fault>[01])(?P<overtemperature_fault>[01])'
-                     '(?P<liquidlevel_fault>[01])(?P<motor_overload_fault>[01])(?P<external_connection_fault>[01])'
-                     '(?P<cooling_fault>[01])(?P<reserved1>[01])(?P<reserved2>[01])(?P<internal_pt100_fault>[01])'
-                     '(?P<external_pt100_fault>[01])\$', message)
+        m = re.match(b'(?P<temperaturecontrol>[01])(?P<externalcontrol>[01])(?P<mainrelay_fault>[01])(?P<overtemperature_fault>[01])'
+                     b'(?P<liquidlevel_fault>[01])(?P<motor_overload_fault>[01])(?P<external_connection_fault>[01])'
+                     b'(?P<cooling_fault>[01])(?P<reserved1>[01])(?P<reserved2>[01])(?P<internal_pt100_fault>[01])'
+                     b'(?P<external_pt100_fault>[01])\$', message)
         if m is None:
             raise HaakePhoenixError(
                 'Invalid state flags data received: %s' % message)
@@ -167,7 +167,7 @@ class HaakePhoenix(Instrument_TCP):
 
     def _post_connect(self):
         logger.info(
-            'Connected to Haake Phoenix circulator: ' + self.get_version())
+            'Connected to Haake Phoenix circulator: ' + self.get_version().decode('ascii'))
 
     def _pre_disconnect(self, should_do_communication):
         if hasattr(self, '_version'):
@@ -176,7 +176,7 @@ class HaakePhoenix(Instrument_TCP):
     def execute(self, command, postprocessor=lambda x: x, retries=3):
         for i in range(retries):
             try:
-                result = self.send_and_receive(command + '\r', blocking=True)
+                result = self.send_and_receive(command + b'\r', blocking=True)
                 message = self.interpret_message(result, command)
                 return postprocessor(message)
             except InstrumentError as ie:
@@ -192,47 +192,47 @@ class HaakePhoenix(Instrument_TCP):
             logger.warning(
                 'Asynchronous commands not supported for Haake Phoenix!')
             return None
-        if message[-1] != '\r':
+        if message[-1] != b'\r'[0]:
             raise HaakePhoenixError(
-                'Invalid message: does not end with CR: ' + message)
+                'Invalid message: does not end with CR: %s(%s) != %s(%s)' % (message[-1], type(message[-1]), b'\r', type(b'\r')) + str(message))
         return message[:-1]
 
     def _parse_temperature(self, mesg):
-        m = re.match('([+-]\d\d\d\d.\d\d) [CKF]\$', mesg)
+        m = re.match(b'([+-]\d\d\d\d.\d\d) [CKF]\$', mesg)
         if m is None:
             raise HaakePhoenixError(
                 'Invalid temperature data received: %s' % mesg)
         return float(m.group(1))
 
     def get_temperature(self):
-        return self.execute('I', self._parse_temperature)
+        return self.execute(b'I', self._parse_temperature)
 
     def get_setpoint(self):
-        return self.execute('S', self._parse_temperature)
+        return self.execute(b'S', self._parse_temperature)
 
     def start_circulation(self):
-        self.execute('GO')
+        self.execute(b'GO')
 
     def stop_circulation(self):
-        self.execute('ST')
+        self.execute(b'ST')
 
     def is_circulating(self):
         return self.get_pumppower() > 0
 
     def _parse_pumppower(self, mesg):
-        m = re.match('PF(\d+\.\d+)\$', mesg)
+        m = re.match(b'PF(\d+\.\d+)\$', mesg)
         if m is None:
             raise HaakePhoenixError(
                 'Invalid pump power data received: %s' % mesg)
         return float(m.group(1))
 
     def get_pumppower(self):
-        return self.execute('r pf', self._parse_pumppower)
+        return self.execute(b'R PF', self._parse_pumppower)
 
     def set_setpoint(self, temp, verify=True):
         if (temp < -50) or (temp > 200):
             raise HaakePhoenixError('Temperature outside limits.')
-        cmd = 'S  %05d' % (temp * 100)
+        cmd = bytes('S  %05d' % (temp * 100), 'ascii')
         if verify:
             for i in range(3):
                 try:
@@ -253,7 +253,7 @@ class HaakePhoenix(Instrument_TCP):
     def get_version(self):
         if not hasattr(self, '_version'):
             logger.debug('Trying to read version.')
-            self._version = self.execute('V')
+            self._version = self.execute(b'V')
         return self._version
 
     def get_current_parameters(self):
@@ -285,16 +285,16 @@ class HaakePhoenix(Instrument_TCP):
         return (not alternative_breakfunc())
 
     def get_stateflags(self):
-        return self.execute('B', self._parse_stateflags)
+        return self.execute(b'B', self._parse_stateflags)
 
     def _parse_coolingstate(self, message):
-        m = re.match('CC(?P<coolingstate>[01])\$', message)
+        m = re.match(b'CC(?P<coolingstate>[01])\$', message)
         if m is None:
             raise HaakePhoenixError('Invalid cooling state: ' + message)
         return m.group(1) == '1'
 
     def get_cooling_state(self):
-        return self.execute('R CC', self._parse_coolingstate)
+        return self.execute(b'R CC', self._parse_coolingstate)
 
     def _get_logline(self):
         try:

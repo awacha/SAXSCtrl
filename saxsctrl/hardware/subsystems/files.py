@@ -727,7 +727,7 @@ class SubSystemFiles(SubSystem):
                 detector['threshold_energy'] = pilatus.threshold
                 detector['threshold_energy'].attrs['units'] = 'eV'
                 detector['saturation_value'] = pilatus.cutoff
-                for i, attached_to in zip(range(3), ['power board', 'base plate', 'sensor']):
+                for i, attached_to in zip(list(range(3)), ['power board', 'base plate', 'sensor']):
                     hum = sensors.create_group('detector_humidity%d' % i)
                     hum.attrs['NX_class'] = 'NXsensor'
                     hum['value'] = getattr(pilatus, 'humidity%d' % i)

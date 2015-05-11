@@ -149,7 +149,7 @@ class ObjSetupTable(Gtk.Table):
                 else:
                     self._entries[p.name] = Gtk.Entry()
                     self._entries[p.name].set_text(
-                        unicode(self.objwithgui.get_property(p.name)))
+                        str(self.objwithgui.get_property(p.name)))
                     self._entries[p.name]._connection = self._entries[p.name].connect(
                         'changed', lambda ent, n: self.emit('changed', n), p.name)
                     logger.warning('ToDo: the type of this entry (%s) is not yet supported, using simple Gtk.Entry()' %
@@ -168,7 +168,7 @@ class ObjSetupTable(Gtk.Table):
             tab.attach(
                 b, i % self.objwithgui._OWG_parttab_cols, i % self.objwithgui._OWG_parttab_cols +
                 1,
-                i / self.objwithgui._OWG_parttab_cols, i / self.objwithgui._OWG_parttab_cols + 1)
+                i // self.objwithgui._OWG_parttab_cols, i // self.objwithgui._OWG_parttab_cols + 1)
             b._connection = b.connect(
                 'clicked', lambda b, part: self._create_owgpart_setupdialog(part), owgp)
             self._partbuttons.append(b)
@@ -181,7 +181,7 @@ class ObjSetupTable(Gtk.Table):
         if not hasattr(self, '_entries'):
             logger.debug('No need to disconnect.')
             return
-        for e in self._entries.values() + self._partbuttons:
+        for e in list(self._entries.values()) + self._partbuttons:
             if hasattr(e, '_connection'):
                 e.disconnect(e._connection)
                 del e._connection
@@ -349,50 +349,48 @@ class ObjWithGUI(GObject.GObject):
             title = 'Set up ' + self.__class__.__name__
         return ObjSetupDialog(self, title, parent, flags)
 
-    def loadstate(self, configparser, sectionprefix=''):
-        if not configparser.has_section(sectionprefix + self._get_classname()):
+    def loadstate(self, cp, sectionprefix=''):
+        if not cp.has_section(sectionprefix + self._get_classname()):
             return
         for p in self.props:
             if p.name in self._OWG_nosave_props:
                 continue
-            if not configparser.has_option(sectionprefix + self._get_classname(), p.name):
+            if not cp.has_option(sectionprefix + self._get_classname(), p.name):
                 continue
             if p.value_type.name == 'gboolean':
-                val = configparser.getboolean(
+                val = cp.getboolean(
                     sectionprefix + self._get_classname(), p.name)
             elif p.value_type.name in ['gint', 'guint', 'glong', 'gulong',
                                        'gshort', 'gushort', 'gint8', 'guint8',
                                        'gint16', 'guint16', 'gint32', 'guint32',
                                        'gint64', 'guint64']:
-                val = configparser.getint(
+                val = cp.getint(
                     sectionprefix + self._get_classname(), p.name)
             elif p.value_type.name in ['gfloat', 'gdouble']:
-                val = configparser.getfloat(
+                val = cp.getfloat(
                     sectionprefix + self._get_classname(), p.name)
             else:
-                val = configparser.get(
-                    sectionprefix + self._get_classname(), p.name).decode('utf-8')
+                val = cp.get(
+                    sectionprefix + self._get_classname(), p.name)
             if self.get_property(p.name) != val:
                 self.set_property(p.name, val)
         for owgp in self._OWG_parts:
             logger.debug('Loading state of OWG part: ' + owgp._get_classname())
-            owgp.loadstate(configparser, self._get_classname() + '::')
+            owgp.loadstate(cp, self._get_classname() + '::')
 
-    def savestate(self, configparser, sectionprefix=''):
-        if configparser.has_section(sectionprefix + self._get_classname()):
-            configparser.remove_section(sectionprefix + self._get_classname())
-        configparser.add_section(sectionprefix + self._get_classname())
+    def savestate(self, cp, sectionprefix=''):
+        if cp.has_section(sectionprefix + self._get_classname()):
+            cp.remove_section(sectionprefix + self._get_classname())
+        cp.add_section(sectionprefix + self._get_classname())
         for p in self.props:
             if p.name in self._OWG_nosave_props:
                 continue
             value = self.get_property(p.name)
-            if isinstance(value, str):
-                value = value.decode('utf-8')
-            configparser.set(
-                sectionprefix + self._get_classname(), p.name, unicode(value).encode('utf-8'))
+            cp.set(
+                sectionprefix + self._get_classname(), p.name, str(value))
         for owgp in self._OWG_parts:
             logger.debug('Saving state of OWG part: ' + owgp._get_classname())
-            owgp.savestate(configparser, self._get_classname() + '::')
+            owgp.savestate(cp, self._get_classname() + '::')
 
     def _get_classname(self):
         return self.__class__.__name__

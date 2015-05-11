@@ -137,9 +137,9 @@ class SingleExposure(ToolDialog):
             func(rad, label=str(exposure.header))
             win.legend(loc='best')
             if self.q_or_pixel_checkbutton.get_active():
-                win.set_xlabel(u'q (' + sasgui.libconfig.qunit() + ')')
+                win.set_xlabel('q (' + sasgui.libconfig.qunit() + ')')
             else:
-                win.set_xlabel(u'Radial pixel number')
+                win.set_xlabel('Radial pixel number')
             win.set_ylabel('Intensity (total counts)')
             win.show_all()
             win.present()

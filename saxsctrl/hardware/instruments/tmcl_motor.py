@@ -1,15 +1,18 @@
 import logging
 import struct
-import multiprocessing.queues
+import multiprocessing
+import queue
 import weakref
-import ConfigParser
+import configparser
 import numbers
 from gi.repository import GObject
 from gi.repository import GLib
-import nxs
+import traceback
+import binascii
 
 from .instrument import Instrument_TCP, InstrumentError, InstrumentStatus, ConnectionBrokenError
 from test.test_zipfile64 import OtherTests
+import collections
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -55,7 +58,7 @@ class TMCMModule(Instrument_TCP):
         self.timeout2 = 0.1
         self.recvbufsize = 8
         self.port = 2001
-        self.cmdqueue = multiprocessing.queues.Queue()
+        self.cmdqueue = multiprocessing.Queue()
         self._motorsemaphore = multiprocessing.Semaphore(
             self._max_motors_in_motion)
 
@@ -84,7 +87,7 @@ class TMCMModule(Instrument_TCP):
             m.stop()
 
     def __del__(self):
-        for m in self.motors.keys():
+        for m in list(self.motors.keys()):
             del self.motors[m]
 
     def save_settings_delayed(self):
@@ -107,7 +110,7 @@ class TMCMModule(Instrument_TCP):
                 filename = self.configfile
             if filename is None:
                 return
-            cp = ConfigParser.ConfigParser()
+            cp = configparser.ConfigParser()
             cp.read(filename)
             for m in self.motors:
                 self.motors[m].save_to_configparser(cp)
@@ -127,7 +130,7 @@ class TMCMModule(Instrument_TCP):
                 filename = self.configfile
             if filename is None:
                 return
-            cp = ConfigParser.ConfigParser()
+            cp = configparser.ConfigParser()
             cp.read(filename)
             for name in cp.sections():
                 if name not in self.motors:
@@ -148,49 +151,48 @@ class TMCMModule(Instrument_TCP):
         if len(message) != 9:
             raise MotorError(
                 'Number of characters in message is not 9, but ' + str(len(message)))
-        if (command != 136) and (not (sum(ord(x) for x in message[:-1]) % 256 == ord(message[-1]))):
+        if (command != 136) and (sum(message[:-1]) % 256 != message[-1]):
             raise MotorError('Checksum error on received data!')
-        if not ord(message[3]) == command:
+        if message[3] != command:
             raise MotorError(
-                'Invalid reply from TMCM module: not the same command.')
-        status = ord(message[2])
+                'Invalid reply from TMCM module: not the same command: %s(%s) != %s(%s)' % (message[3], type(message[3]), command, type(command)))
+        status = message[2]
         if status == 1:
             raise MotorError(
-                'Wrong checksum of sent message. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
+                'Wrong checksum of sent message. TMCM response: ' + str(binascii.hexlify(message)))
         elif status == 2:
             raise MotorError(
-                'Invalid command. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
+                'Invalid command. TMCM response: ' + str(binascii.hexlify(message)))
         elif status == 3:
             raise MotorError(
-                'Wrong type. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
+                'Wrong type. TMCM response: ' + str(binascii.hexlify(message)))
         elif status == 4:
             raise MotorError(
-                'Invalid value. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
+                'Invalid value. TMCM response: ' + str(binascii.hexlify(message)))
         elif status == 5:
             raise MotorError('Configuration EEPROM locked')
         elif status == 6:
             raise MotorError(
-                'Command not available. TMCM response: ' + ''.join('%x' % ord(m) for m in message))
+                'Command not available. TMCM response: ' + str(binascii.hexlify(message)))
         value = struct.unpack('>i', message[4:8])[0]
         if status != 100:
             raise MotorError(
-                'Status not OK! TMCM response: ' + ''.join('%x' % ord(m) for m in message))
+                'Status not OK! TMCM response: ' + str(binascii.hexlify(message)))
         return value
 
     def execute(self, instruction, type_=0, mot_bank=0, value=0):
         if instruction is not None:
-            cmd = (1, instruction, type_, mot_bank) + \
-                struct.unpack('4B', struct.pack('>i', int(value)))
-            cmd = cmd + (sum(cmd) % 256,)
+            cmd = bytes((1, instruction, type_, mot_bank)) + \
+                struct.pack('>i', int(value))
+            cmd += bytes((sum(cmd) % 256,))
             logger.debug(
-                'About to send TMCL command: ' + ''.join(('%02x' % x) for x in cmd))
-            cmd = ''.join(chr(x) for x in cmd)
+                'About to send TMCL command: ' + str(binascii.hexlify(cmd)))
         else:
             cmd = None
         logger.debug(
-            'Sending message to TMCM module: 0x' + ''.join('%x' % ord(x) for x in cmd))
+            'Sending message to TMCM module: 0x' + str(binascii.hexlify(cmd)))
         # self.send_recv_retries-1 to 0.
-        for i in reversed(range(self.send_recv_retries)):
+        for i in range(self.send_recv_retries - 1, -1, -1):
             try:
                 result = self.send_and_receive(cmd, True)
                 value = self.interpret_message(result, instruction)
@@ -218,15 +220,15 @@ class TMCMModule(Instrument_TCP):
 
     def get_version(self):
         ver = self.execute(136, 1)
-        if ver / 0x10000 == 0x015f:
+        if ver // 0x10000 == 0x015f:
             hwtype = 'TMCM351'
-        elif ver / 0x10000 == 0x17de:
+        elif ver // 0x10000 == 0x17de:
             hwtype = 'TMCM6110'
         else:
             raise MotorError(
-                'Invalid version signature: ' + hex(ver / 0x10000))
+                'Invalid version signature: ' + hex(ver // 0x10000))
         ver = ver % 0x10000
-        major = ver / 0x100
+        major = ver // 0x100
         minor = ver % 0x100
         return major, minor, hwtype
 
@@ -266,7 +268,7 @@ class TMCMModule(Instrument_TCP):
     def get_motor(self, idx):
         if isinstance(idx, numbers.Number):
             return [m for m in self if m.mot_idx == idx][0]
-        elif isinstance(idx, basestring):
+        elif isinstance(idx, str):
             return [m for m in self if (m.name == idx) or (m.alias == idx) or (str(m) == idx)][0]
         else:
             raise NotImplementedError(
@@ -311,10 +313,10 @@ class TMCMModule(Instrument_TCP):
                     'Error while calling TMCMModule.load_settings() from do_notify: ' + traceback.format_exc())
 
     def __iter__(self):
-        return self.motors.itervalues()
+        return iter(self.motors.values())
 
     def __del__(self):
-        for motname, mot in self.motors.iteritems():
+        for motname, mot in self.motors.items():
             for conn in self._motor_connections[motname]:
                 mot.disconnect(conn)
             del self._motor_connections[motname]
@@ -360,10 +362,10 @@ class MotorParameter(object):
 
     def validate(self, value, allparameters):
         valid = True
-        if callable(self._validateraw):
+        if isinstance(self._validateraw, collections.Callable):
             valid &= self._validateraw(
                 self.to_raw(value, allparameters), allparameters)
-        if callable(self._validatephys):
+        if isinstance(self._validatephys, collections.Callable):
             valid &= self._validatephys(value, allparameters)
         return valid
 
@@ -713,15 +715,15 @@ class StepperMotor(GObject.GObject):
             cp.remove_section(self.name)
         cp.add_section(self.name)
         pos = self.get_parameter('Current_position', raw=True)
-        cp.set(self.name, 'Pos_raw', pos)
+        cp.set(self.name, 'Pos_raw', str(pos))
         cp.set(self.name, 'Alias', self.alias)
-        cp.set(self.name, 'Idx', self.mot_idx)
-        cp.set(self.name, 'Step_to_cal', self.step_to_cal)
-        cp.set(self.name, 'F_CLK', self.f_clk)
-        cp.set(self.name, 'Soft_left', self.softlimits[0])
-        cp.set(self.name, 'Soft_right', self.softlimits[1])
+        cp.set(self.name, 'Idx', str(self.mot_idx))
+        cp.set(self.name, 'Step_to_cal', str(self.step_to_cal))
+        cp.set(self.name, 'F_CLK', str(self.f_clk))
+        cp.set(self.name, 'Soft_left', str(self.softlimits[0]))
+        cp.set(self.name, 'Soft_right', str(self.softlimits[1]))
         cp.set(self.name, 'Settings_changed_timeout',
-               self.settingschanged_timeout)
+               str(self.settingschanged_timeout))
         return cp
 
     def load_from_configparser(self, cp):
@@ -844,46 +846,9 @@ class StepperMotor(GObject.GObject):
     def __str__(self):
         return self.name + ' (' + self.alias + ')'
 
-    def to_NeXus(self):
-        p = nxs.NXpositioner()
-        p.name = self.alias
-        p.description = self.name
-        p.value = self.get_parameter('Current_position', raw=False)
-        p.value.attrs['units'] = 'mm'
-        p.raw_value = self.get_parameter('Current_position', raw=True)
-        p.target_value = self.get_parameter('Target_position', raw=False)
-        p.target_value.attrs['units'] = 'mm'
-        p.tolerance = 0
-        p.tolerance.attrs['units'] = 'mm'
-        p.soft_limit_min = self.get_parameter('soft_left', raw=False)
-        p.soft_limit_min.attrs['units'] = 'mm'
-        p.soft_limit_max = self.get_parameter('soft_right', raw=False)
-        p.soft_limit_max.attrs['units'] = 'mm'
-        p.velocity = self.get_parameter('Current_speed', raw=False)
-        p.velocity.attrs['units'] = 'mm s-1'
-        p.acceleration_time = self.get_parameter(
-            'Max_speed', raw=False) / self.get_parameter('Max_accel', raw=False)
-        p.acceleration_time.attrs['units'] = 's'
-        return p
-
-    def update_NeXus(self, nxpositioner):
-        nxpositioner.value = self.get_parameter('Current_position', raw=False)
-        nxpositioner.raw_value = self.get_parameter(
-            'Current_position', raw=True)
-        nxpositioner.target_value = self.get_parameter(
-            'Target_position', raw=False)
-        nxpositioner.soft_limit_min = self.get_parameter(
-            'soft_left', raw=False)
-        nxpositioner.soft_limit_max = self.get_parameter(
-            'soft_right', raw=False)
-        nxpositioner.velocity = self.get_parameter('Current_speed', raw=False)
-        nxpositioner.acceleration_time = self.get_parameter(
-            'Max_speed', raw=False) / self.get_parameter('Max_accel', raw=False)
-        return nxpositioner
-
     def __eq__(self, other):
         if self is other:
             return True
-        if isinstance(other, basestring):
+        if isinstance(other, str):
             return (self.name == other) or (self.alias == other) or (str(self) == other)
         return False

@@ -2,24 +2,26 @@ from gi.repository import GObject
 from gi.repository import GLib
 import logging
 import socket
+import queue
 import threading
 import weakref
 import re
 import multiprocessing
 import select
-import modbus_tk.modbus_tcp
-import modbus_tk.defines
+from pyModbusTCP.client import ModbusClient
 import os
 import time
 import numpy as np
 from ...utils import objwithgui
 import traceback
+import collections
+import binascii
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-class InstrumentError(StandardError):
+class InstrumentError(Exception):
     pass
 
 
@@ -62,7 +64,7 @@ class InstrumentProperty(object):
     custom_categorize = None
 
     def __init__(self, **kwargs):
-        for name in kwargs.keys():
+        for name in list(kwargs.keys()):
             self.__setattr__(name, kwargs[name])
             del kwargs[name]
 
@@ -93,19 +95,19 @@ class InstrumentProperty(object):
         return True
 
     def is_error(self, value):
-        if callable(self.custom_is_error):
+        if isinstance(self.custom_is_error, collections.Callable):
             return self.custom_is_error(value)
         else:
             return False
 
     def is_warning(self, value):
-        if callable(self.custom_is_warning):
+        if isinstance(self.custom_is_warning, collections.Callable):
             return self.custom_is_warning(value)
         else:
             return False
 
     def categorize(self, value):
-        if callable(self.custom_categorize):
+        if isinstance(self.custom_categorize, collections.Callable):
             return self.custom_categorize(value)
         else:
             if self.is_error(value):
@@ -520,8 +522,8 @@ class Instrument_ModbusTCP(Instrument):
         with self._communications_lock:
             if self.connected():
                 raise InstrumentError('Already connected')
-            self._modbus = modbus_tk.modbus_tcp.TcpMaster(self.host, self.port)
-            self._modbus.set_timeout(self.timeout)
+            self._modbus = ModbusClient(
+                self.host, self.port, timeout=self.timeout)
             try:
                 self._modbus.open()
                 self._post_connect()
@@ -559,7 +561,7 @@ class Instrument_ModbusTCP(Instrument):
     def _read_integer(self, regno):
         with self._communications_lock:
             try:
-                return self._modbus.execute(1, modbus_tk.defines.READ_INPUT_REGISTERS, regno, 1)[0]
+                return self._modbus.read_holding_registers(regno, 1)[0]
             except Exception as exc:
                 GLib.idle_add(
                     lambda: (self.emit('controller-error', None) and False))
@@ -569,8 +571,7 @@ class Instrument_ModbusTCP(Instrument):
     def _write_coil(self, coilno, val):
         with self._communications_lock:
             try:
-                self._modbus.execute(
-                    1, modbus_tk.defines.WRITE_SINGLE_COIL, coilno, 1, val)
+                self._modbus.write_single_coil(coilno, val)
             except Exception as exc:
                 GLib.idle_add(
                     lambda: (self.emit('controller-error', None) and False))
@@ -580,8 +581,7 @@ class Instrument_ModbusTCP(Instrument):
     def _read_coils(self, coilstart, coilnum):
         with self._communications_lock:
             try:
-                coils = self._modbus.execute(
-                    1, modbus_tk.defines.READ_COILS, coilstart, coilnum)
+                coils = self._modbus.read_coils(coilstart, coilnum)
             except Exception as exc:
                 GLib.idle_add(
                     lambda: (self.emit('controller-error', None) and False))
@@ -618,7 +618,7 @@ class Instrument_TCP(Instrument):
     def __init__(self, name=None, offline=True):
         self._socket = None
         self._socketlock = multiprocessing.Lock()
-        self._inqueue = multiprocessing.queues.Queue()
+        self._inqueue = multiprocessing.Queue()
         Instrument.__init__(self, name, offline)
 
     def connect_to_controller(self):
@@ -642,7 +642,7 @@ class Instrument_TCP(Instrument):
                 self._socket = None
                 raise InstrumentError(
                     'Cannot establish TCP connection to instrument.')
-            self._socket.settimeout(self.timeout)
+            self._socket.settimeout(self.timeout2)
             self._socket.setblocking(False)
         try:
             logger.debug(
@@ -727,10 +727,10 @@ class Instrument_TCP(Instrument):
             if not rlist:
                 raise InstrumentTimeoutError(
                     'socket is not readable on starting phase of read')
-            logger.debug('Receiving message.')
+            logger.debug('Receiving the first character of the message.')
             message = self._socket.recv(1)
-            logger.debug('Message: ' + message + '; length: %d' %
-                         len(message) + ' hex: ' + ''.join('%x' % ord(c) for c in message))
+            logger.debug('Message: ' + str(message) + '; length: %d' %
+                         len(message) + ' hex: ' + str(binascii.hexlify(message)))
             if not message:
                 # socket closed.
                 raise ConnectionBrokenError(
@@ -753,15 +753,15 @@ class Instrument_TCP(Instrument):
                 # if the input message ended, and nothing is to be read, an exception
                 # will be raised, which we will catch.
                 mesg = self._socket.recv(self.recvbufsize)
-                if mesg == '':
+                if not mesg:
                     # if no exception is raised and an empty string has been read, it
                     # signifies that the connection has been broken.
                     raise ConnectionBrokenError(
                         'empty string read from socket: other end hung up.')
-                logger.debug('Extending original message with: ' + mesg + '; length: %d' %
-                             len(mesg) + ' hex: ' + ''.join('%x' % ord(c) for c in mesg))
+                logger.debug('Extending original message with: ' + str(mesg) + '; length: %d' %
+                             len(mesg) + ' hex: ' + str(binascii.hexlify(mesg)))
                 message = message + mesg
-                if message.startswith('\0\0\0'):
+                if message.startswith(b'\0\0\0'):
                     raise ConnectionBrokenError(
                         'reading only null bytes from socket: probably we are talking to ser2net with no device attached to the serial port.')
         except InstrumentTimeoutError as ite:
@@ -784,12 +784,14 @@ class Instrument_TCP(Instrument):
             raise InstrumentError(
                 'Communication Error: ' + traceback.format_exc())
         finally:
-            self._socket.settimeout(self.timeout)
-        logger.debug('Returning with message: ' + message + '; length: %d' %
-                     len(message) + ' hex: ' + ''.join('%x' % ord(c) for c in message))
+            self._socket.settimeout(self.timeout2)
+        logger.debug('Returning with message: ' + str(message) + '; length: %d' %
+                     len(message) + ' hex: ' + str(binascii.hexlify(message)))
         return message
 
     def send_and_receive(self, command, blocking=True):
+        if isinstance(command, str):
+            command = bytes(command, 'utf-8')
         with self._socketlock:
             try:
                 self._socket.sendall(command)
@@ -832,7 +834,7 @@ class Instrument_TCP(Instrument):
     def _check_inqueue(self):
         try:
             mesg = self._inqueue.get_nowait()
-        except multiprocessing.queues.Empty:
+        except queue.Empty:
             # this ensures that whenever the equipment gets disconnected, all the pending messages are processed before this
             # idle function is removed.
             return self.connected()
@@ -861,7 +863,7 @@ class CommunicationCollector_TCP(CommunicationCollector):
             self, parent, queue, lock, sleep, mesgseparator)
 
     def do_read(self):
-        message = ''
+        message = b''
         while True:
             rlist, wlist, xlist = select.select(
                 [self.socket], [], [self.socket], 0.001)
@@ -875,12 +877,12 @@ class CommunicationCollector_TCP(CommunicationCollector):
                 logger.warning(
                     'Socket error in CommunicationCollector: ' + traceback.format_exc())
                 return message
-            message = message + mesg
-            if mesg == '':
+            message += mesg
+            if not mesg:
                 # this signifies that the other end of the connection broke.
                 raise ConnectionBrokenError(
                     'Empty message received, the other end of the connection broke.')
-        if message == '':
+        if not message:
             # nothing has been read
             return None
         return message
@@ -893,7 +895,11 @@ class CommandReply(object):
     be overridden by subclassing and modifying the match() method."""
 
     def __init__(self, regex, findall_regex=None, defaults=None):
-        self.regex = re.compile(r'^' + regex + '$', re.MULTILINE)
+        if not isinstance(regex, bytes):
+            regex = bytes(regex, 'ascii')
+        self.regex = re.compile(b'^' + regex + b'$', re.MULTILINE)
+        if findall_regex is not None and isinstance(findall_regex, str):
+            findall_regex = bytes(findall_regex, 'ascii')
         self.findall_regex = findall_regex
         if defaults is None:
             self.defaults = {}
@@ -934,6 +940,8 @@ class Command(object):
     """
 
     def __init__(self, command, replies, argconverters={}):
+        if not isinstance(command, bytes):
+            command = bytes(command, 'ascii')
         self.command = command
         self.replies = replies
         self.conv = argconverters

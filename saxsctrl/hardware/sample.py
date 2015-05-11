@@ -1,6 +1,6 @@
 import datetime
 import dateutil.parser
-import ConfigParser
+import configparser
 from sastool.misc.errorvalue import ErrorValue
 
 
@@ -25,7 +25,7 @@ class SAXSSample(object):
 
     @classmethod
     def new_from_cfg(cls, *filenames):
-        cp = ConfigParser.ConfigParser()
+        cp = configparser.ConfigParser()
         cp.read(filenames)
         lis = []
         for section in cp.sections():
@@ -120,7 +120,7 @@ class SAXSSample(object):
                                                             self.positionx, self.positiony, self.thickness, self.transmission)
 
     def __unicode__(self):
-        return u'%s, (%.3f, %.3f) %.4f cm, transm: %.4f' % (self.title,
+        return '%s, (%.3f, %.3f) %.4f cm, transm: %.4f' % (self.title,
                                                             self.positionx, self.positiony, self.thickness, self.transmission)
 
     def __eq__(self, other):
@@ -129,7 +129,7 @@ class SAXSSample(object):
                 if self.__getattribute__(attr) != other.__getattribute__(attr):
                     return False
             return True
-        elif isinstance(other, basestring):
+        elif isinstance(other, str):
             if self.title == other:
                 return True
         else:

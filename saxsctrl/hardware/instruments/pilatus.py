@@ -429,104 +429,104 @@ class Pilatus(Instrument_TCP):
         self.set_threshold(self.default_threshold, self.default_gain)
 
     def camsetup(self):
-        message = self.send_and_receive('CamSetup', blocking=True)
-        mesg = self.interpret_message(message, 'CamSetup')
+        message = self.send_and_receive(b'CamSetup', blocking=True)
+        mesg = self.interpret_message(message, b'CamSetup')
         if mesg is None:
             raise PilatusError('Invalid message: ' + message)
         return mesg
 
     def send_and_receive(self, command, blocking=True):
-        return Instrument_TCP.send_and_receive(self, command + '\n', blocking)
+        return Instrument_TCP.send_and_receive(self, command + b'\n', blocking)
 
     def is_fullaccess(self):
         return self.camsetup()['controllingPID'] == self.get_pid()
 
     def get_pid(self):
-        return self._get_general('ShowPID', 'pid')
+        return self._get_general(b'ShowPID', 'pid')
 
     def set_nimages(self, nimages):
-        mesg = self._set_general('NImages', 'nimages', '%d', nimages)
+        mesg = self._set_general(b'NImages', 'nimages', '%d', nimages)
         self._update_instrumentproperties('nimages')
         return mesg
 
     def get_nimages(self):
-        return self._get_general('NImages', 'nimages')
+        return self._get_general(b'NImages', 'nimages')
 
     def set_exptime(self, exptime):
-        mesg = self._set_general('ExpTime', 'exptime', '%f', exptime)
+        mesg = self._set_general(b'ExpTime', 'exptime', '%f', exptime)
         self._update_instrumentproperties('exptime')
         return mesg
 
     def get_exptime(self):
-        return self._get_general('ExpTime', 'exptime')
+        return self._get_general(b'ExpTime', 'exptime')
 
     def set_expperiod(self, expperiod):
-        mesg = self._set_general('ExpPeriod', 'expperiod', '%f', expperiod)
+        mesg = self._set_general(b'ExpPeriod', 'expperiod', '%f', expperiod)
         self._update_instrumentproperties('expperiod')
         return mesg
 
     def get_expperiod(self):
-        return self._get_general('ExpPeriod', 'expperiod')
+        return self._get_general(b'ExpPeriod', 'expperiod')
 
     def set_imgpath(self, imgpath):
-        return self._set_general('ImgPath', 'imgpath', '%s', imgpath)
+        return self._set_general(b'ImgPath', 'imgpath', '%s', imgpath)
 
     def get_imgpath(self):
-        return self._get_general('ImgPath', 'imgpath')
+        return self._get_general(b'ImgPath', 'imgpath')
 
     def set_tau(self, tau):
-        mesg = self._set_general('Tau', 'tau', '%f', tau)
+        mesg = self._set_general(b'Tau', 'tau', '%f', tau)
         self._update_instrumentproperties('tau')
         return mesg
 
     def get_tau(self):
-        return self._get_general('Tau', 'tau')
+        return self._get_general(b'Tau', 'tau')
 
     def get_cutoff(self):
-        return self._get_general('Tau', 'cutoff')
+        return self._get_general(b'Tau', 'cutoff')
 
     def get_df(self):
-        return self._get_general('Df', 'diskfree')
+        return self._get_general(b'Df', 'diskfree')
 
     def set_imgmode(self, imgmode):
-        return self._set_general('ImgMode', 'imgmode', '%s', imgmode)
+        return self._set_general(b'ImgMode', 'imgmode', '%s', imgmode)
 
     def get_imgmode(self):
-        return self._get_general('ImgMode', 'imgmode')
+        return self._get_general(b'ImgMode', 'imgmode')
 
     def get_threshold(self):
-        return self._get_general('SetThreshold', 'threshold')
+        return self._get_general(b'SetThreshold', 'threshold')
 
     def get_gain(self):
-        return self._get_general('SetThreshold', 'gain')
+        return self._get_general(b'SetThreshold', 'gain')
 
     def get_vcmp(self):
-        return self._get_general('SetThreshold', 'vcmp')
+        return self._get_general(b'SetThreshold', 'vcmp')
 
     def get_trimfile(self):
-        return self._get_general('SetThreshold', 'trimfile')
+        return self._get_general(b'SetThreshold', 'trimfile')
 
     def set_threshold(self, threshold, gain=None):
         if gain is None:
             self.send_and_receive(
-                'SetThreshold %d' % threshold, blocking=False)
+                bytes('SetThreshold %d' % threshold, 'ascii'), blocking=False)
         else:
             if not gain.upper().endswith('G'):
                 gain = gain + 'G'
-            self.send_and_receive('SetThreshold %s %d' %
-                                  (gain, threshold), blocking=False)
+            self.send_and_receive(bytes('SetThreshold %s %d' %
+                                        (gain, threshold), 'ascii'), blocking=False)
         with self._status_lock:
             self.status = PilatusStatus.Trimming
 
     def get_temperature_humidity(self):
-        return self._get_general('THread', None)
+        return self._get_general(b'THread', None)
 
     def get_telemetry(self):
-        return self._get_general('Telemetry', None)
+        return self._get_general(b'Telemetry', None)
 
     def _set_general(self, command, key, formatstr, value):
         message = self.send_and_receive(
-            command + ' ' + formatstr % value, blocking=True)
+            command + b' ' + bytes(formatstr % value, 'ascii'), blocking=True)
         mesg = self.interpret_message(message, command)
         if mesg is None:
             raise PilatusError(

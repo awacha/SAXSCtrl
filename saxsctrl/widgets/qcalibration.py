@@ -228,7 +228,7 @@ class DistCalibrationDialog(ToolDialog):
     def _on_peak_found(self, peakfinder, a, x0, sigma, y0, stat, cal):
         if not isinstance(cal, sastool.ErrorValue):
             uncal = sastool.ErrorValue(cal)
-        self._treemodel.append((x0, cal, unicode(x0), unicode(cal)))
+        self._treemodel.append((x0, cal, str(x0), str(cal)))
         self._treeview_refresh()
 
 

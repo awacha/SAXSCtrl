@@ -3,6 +3,8 @@ import logging
 from gi.repository import GObject
 from gi.repository import GLib
 from ...utils import objwithgui
+import traceback
+import binascii
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -38,16 +40,17 @@ class VacuumGauge(Instrument_TCP):
         type(self).pressure._update(self, pressure, categ)
 
     def _post_connect(self):
-        logger.info('Connected to vacuum gauge: ' + self.get_version())
+        logger.info(
+            'Connected to vacuum gauge: ' + self.get_version().decode('ascii'))
 
     def _pre_disconnect(self, should_do_communication):
         if hasattr(self, '_version'):
             del self._version
 
-    def execute(self, code, data=''):
-        mesg = '001' + code + data
-        mesg = mesg + chr(sum(ord(x) for x in mesg) % 64 + 64) + '\r'
-        for i in reversed(range(self.send_recv_retries)):
+    def execute(self, code, data=b''):
+        mesg = b'001' + code + data
+        mesg = mesg + bytes((sum(mesg) % 64 + 64,)) + b'\r'
+        for i in range(self.send_recv_retries - 1, -1, -1):
             try:
                 result = self.send_and_receive(mesg, blocking=True)
                 message = self.interpret_message(result, code)
@@ -75,33 +78,33 @@ class VacuumGauge(Instrument_TCP):
             logger.warning(
                 'Asynchronous commands not supported for vacuum gauge!')
             return None
-        if message[-1] != '\r':
+        if message[-1] != b'\r'[0]:
             raise VacuumGaugeError(
-                'Invalid message: does not end with CR: 0x' + ''.join('%02x' % ord(m) for m in message))
-        if chr(sum(ord(x) for x in message[:-2]) % 64 + 64) != message[-2]:
+                'Invalid message: does not end with CR: 0x' + str(binascii.hexlify(message)))
+        if sum(message[:-2]) % 64 + 64 != message[-2]:
             raise VacuumGaugeError(
-                'Invalid message: checksum error: 0x' + ''.join('%02x' % ord(m) for m in message))
-        if not message.startswith('001' + command):
-            raise VacuumGaugeError('Invalid message: should start with 001' +
-                                   command + ': 0x' + ''.join('%02x' % ord(m) for m in message))
+                'Invalid message: checksum error: 0x' + str(binascii.hexlify(message)))
+        if not message.startswith(b'001' + command):
+            raise VacuumGaugeError('Invalid message: should start with ' +
+                                   str(b'001' + command) + ': 0x' + str(binascii.hexlify(message)))
         return message[4:-2]
 
     def _parse_float(self, message):
         return float(message[:4]) * 10 ** (float(message[4:6]) - 23)
 
     def readout(self):
-        return self._parse_float(self.execute('M'))
+        return self._parse_float(self.execute(b'M'))
 
     def get_version(self):
         if not hasattr(self, '_version'):
-            self._version = self.execute('T')
+            self._version = self.execute(b'T')
         return self._version
 
     def get_units(self):
-        return ['mbar', 'Torr', 'hPa'][int(self.execute('U'))]
+        return ['mbar', 'Torr', 'hPa'][int(self.execute(b'U'))]
 
     def set_units(self, units='mbar'):
-        self.execute('u', '%06d' % ({'mbar': 0, 'Torr': 1, 'hPa': 2}[units]))
+        self.execute(b'u', b'%06d' % ({'mbar': 0, 'Torr': 1, 'hPa': 2}[units]))
 
     def get_current_parameters(self):
         return {'Vacuum': self.get_instrument_property('pressure')[0], 'VacuumGauge': self.get_version()}

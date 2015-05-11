@@ -2,7 +2,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 import calendar
 import datetime
 import dateutil.parser
@@ -28,7 +28,7 @@ class ToolDialog(Gtk.Window):
         self._action.set_layout(Gtk.ButtonBoxStyle.END)
         vb.pack_start(self._action, False, True, 0)
         self._responsewidgets = {}
-        for i in range(len(buttons) / 2):
+        for i in range(len(buttons) // 2):
             respid = buttons[i * 2 + 1]
             self._responsewidgets[
                 respid] = Gtk.Button.new_with_mnemonic(buttons[i * 2])
@@ -49,13 +49,12 @@ class ToolDialog(Gtk.Window):
         return self._responsewidgets[respid]
 
     def do_response(self, respid):
-        logger.debug('Destroying a ToolDialog.')
-        if self.in_destruction():
-            logger.warn('ToolDialog already being destroyed.')
-        self.destroy()
-        logger.debug('End of destroying a ToolDialog.')
+        # the default response handler closes the window.
+        logger.debug('Closing a ToolDialog with the default response handler.')
+        self.close()
+        return False
 
-    def do_destoy(self, *args, **kwargs):
+    def do_destroy(self, *args, **kwargs):
         logger.debug('Called ToolDialog.do_destroy()')
         return Gtk.Window.do_destroy(self, *args, **kwargs)
 
@@ -183,7 +182,7 @@ class DateEntry(Gtk.Box):
         return float(self.get_datetime().strftime('%s.%f'))
 
     def set_datetime(self, dt):
-        if isinstance(dt, basestring):
+        if isinstance(dt, str):
             dt = dateutil.parser.parse(dt)
         elif isinstance(dt, float) or isinstance(dt, int):
             dt = datetime.datetime.fromtimestamp(dt)
@@ -217,7 +216,7 @@ class ErrorValueEntry(Gtk.Box):
         self._valsb.set_value(adjustment_nominal.get_value())
         self._errsb.set_value(adjustment_error.get_value())
         self.pack_start(self._valsb, True, True, 0)
-        self.pack_start(Gtk.Label(label=u'\xb1'), False, False, 2)
+        self.pack_start(Gtk.Label(label='\xb1'), False, False, 2)
         self.pack_start(self._errsb, True, True, 0)
         self._valsb.connect('value-changed', self._on_spinbutton_value_changed)
         self._errsb.connect('value-changed', self._on_spinbutton_value_changed)

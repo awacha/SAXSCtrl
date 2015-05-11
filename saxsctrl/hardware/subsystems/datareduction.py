@@ -3,7 +3,7 @@ import sastool.misc.numerictests as smn
 import os
 import logging
 from gi.repository import GObject
-import Queue
+import queue
 import threading
 import weakref
 from gi.repository import GLib
@@ -348,14 +348,14 @@ class Saving(DataReductionStep):
 class ReductionThread(GObject.GObject):
     __gtype_name__ = 'SAXSCtrl_ReductionThread'
     __gsignals__ = {
-        'message': (GObject.SignalFlags.RUN_FIRST, None, (long, str)),
-        'done': (GObject.SignalFlags.RUN_FIRST, None, (long, object,)),
+        'message': (GObject.SignalFlags.RUN_FIRST, None, (int, str)),
+        'done': (GObject.SignalFlags.RUN_FIRST, None, (int, object,)),
         'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),
         'endthread': (GObject.SignalFlags.RUN_FIRST, None, ())}
 
     def __init__(self, parent):
         GObject.GObject.__init__(self)
-        self.inqueue = Queue.Queue()
+        self.inqueue = queue.Queue()
         self.chain = []
         self._thread = threading.Thread(target=self.run)
         self._thread.daemon = True
@@ -370,7 +370,7 @@ class ReductionThread(GObject.GObject):
         while True:
             try:
                 fsn, force = self.inqueue.get(block=True, timeout=0.5)
-            except Queue.Empty:
+            except queue.Empty:
                 self._threadsafe_emit('idle')
                 fsn, force = self.inqueue.get()
             if isinstance(fsn, str) and fsn == 'KILL!':
@@ -412,7 +412,7 @@ class ReductionThread(GObject.GObject):
         try:
             while True:
                 self.inqueue.get_nowait()
-        except Queue.Empty:
+        except queue.Empty:
             pass
         self.inqueue.put(('KILL!', True))
         self._thread.join()
@@ -422,7 +422,7 @@ class ReductionThread(GObject.GObject):
         try:
             while True:
                 self.inqueue.get_nowait()
-        except Queue.Empty:
+        except queue.Empty:
             pass
 
     def reduce(self, fsn, force=False):
@@ -431,8 +431,8 @@ class ReductionThread(GObject.GObject):
 
 class SubSystemDataReduction(SubSystem):
     __gsignals__ = {
-        'message': (GObject.SignalFlags.RUN_FIRST, None, (long, str)),
-        'done': (GObject.SignalFlags.RUN_FIRST, None, (long, object)),
+        'message': (GObject.SignalFlags.RUN_FIRST, None, (int, str)),
+        'done': (GObject.SignalFlags.RUN_FIRST, None, (int, object)),
         'idle': (GObject.SignalFlags.RUN_FIRST, None, ()),
         'notify': 'override'}
     filebegin = GObject.property(

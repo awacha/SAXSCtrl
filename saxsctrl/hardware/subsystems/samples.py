@@ -1,9 +1,10 @@
 import os
 import logging
 from .. import sample
+import collections
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-import ConfigParser
+import configparser
 import traceback
 
 from gi.repository import GObject
@@ -73,7 +74,7 @@ class SubSystemSamples(SubSystem):
             return
         if filename is None:
             filename = self.configfile
-        cp = ConfigParser.ConfigParser()
+        cp = configparser.ConfigParser()
         for i, sam in enumerate(self):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
         with open(filename, 'wt') as f:
@@ -161,7 +162,7 @@ class SubSystemSamples(SubSystem):
         logger.info('Motors are on their way...')
         if blocking:
             logger.debug('Waiting for sample to get into beam position')
-            if callable(blocking):
+            if isinstance(blocking, collections.Callable):
                 ssmot.wait_for_idle(blocking)
             else:
                 ssmot.wait_for_idle()
@@ -182,19 +183,19 @@ class SubSystemSamples(SubSystem):
         self.emit('sample-in-beam', sam)
         return True
 
-    def savestate(self, configparser, sectionprefix=''):
-        SubSystem.savestate(self, configparser, sectionprefix)
+    def savestate(self, cp, sectionprefix=''):
+        SubSystem.savestate(self, cp, sectionprefix)
         if self._selected is None:
-            configparser.set(
+            cp.set(
                 sectionprefix + self._get_classname(), 'Selected', '__None__')
         else:
-            configparser.set(
+            cp.set(
                 sectionprefix + self._get_classname(), 'Selected', self._selected.title)
 
-    def loadstate(self, configparser, sectionprefix=''):
-        SubSystem.loadstate(self, configparser, sectionprefix)
-        if configparser.has_option(sectionprefix + self._get_classname(), 'Selected'):
-            sel = configparser.get(
+    def loadstate(self, cp, sectionprefix=''):
+        SubSystem.loadstate(self, cp, sectionprefix)
+        if cp.has_option(sectionprefix + self._get_classname(), 'Selected'):
+            sel = cp.get(
                 sectionprefix + self._get_classname(), 'Selected')
             if sel == '__None__':
                 sel = None
