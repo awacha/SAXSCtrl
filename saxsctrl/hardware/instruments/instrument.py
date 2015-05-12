@@ -838,6 +838,10 @@ class Instrument_TCP(Instrument):
             # this ensures that whenever the equipment gets disconnected, all the pending messages are processed before this
             # idle function is removed.
             return self.connected()
+        except:
+            logger.debug('Check_inqueue of instrument %s.' % self._name)
+            print('--------- %s ------------' % self._name)
+            raise
         self.interpret_message(mesg, None)
         return True
 

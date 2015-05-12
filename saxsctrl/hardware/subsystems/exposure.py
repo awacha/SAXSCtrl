@@ -111,8 +111,7 @@ class SubSystemExposure(SubSystem):
                 self._subprocesses.remove(s)
             del self._subprocesses
         except AttributeError as ae:
-            logger.warning(
-                'AttributeError in _kill_subprocesses: ' + traceback.format_exc())
+            pass
 
     def start(self, header_template=None, mask=None, write_nexus=False):
         logger.debug('Exposure subsystem: starting exposure.')

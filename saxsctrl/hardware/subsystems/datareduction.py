@@ -18,7 +18,7 @@ from ...utils import objwithgui
 from inspect import ArgSpec
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class DataReductionError(SubSystemError):
@@ -57,6 +57,7 @@ class DataReductionStep(objwithgui.ObjWithGUI):
     def message(self, exposure, mesg):
         # self.chain._threadsafe_emit('message', exposure['FSN'], mesg)
         logger.debug('Reducing #%d: %s' % (exposure['FSN'], mesg))
+        print('Reducing #%d: %s' % (exposure['FSN'], mesg))
 
 
 class BackgroundSubtraction(DataReductionStep):
@@ -150,8 +151,10 @@ class AbsoluteCalibration(DataReductionStep):
             try:
                 refdata = sastool.classes.SASCurve(self.reference_datafile)
             except IOError:
+                self.message('Error loading reference data file.')
                 raise DataReductionError(
                     'Cannot open reference data file ' + self.reference_datafile + ': ' + traceback.format_exc())
+            self.message(exposure, 'Reference data loaded')
             try:
                 logger.debug('Doing radial average from measured GC data.')
                 logger.debug('Exposure.min(): %g' % exposure.Intensity.min())
@@ -164,8 +167,10 @@ class AbsoluteCalibration(DataReductionStep):
             except sastool.SASExposureException as see:
                 raise DataReductionError(
                     'Could not make a radial average from the reference measurement: ' + traceback.format_exc())
+            self.message(exposure, 'Radial averaging done.')
             logger.debug('Interpolating refdata to measdata.q')
             refdata = refdata.interpolate(measdata.q)
+            self.message(exposure, 'Interpolated.')
             logger.debug('Interpolation done. Refdata len: %d' % len(refdata))
             self.message(exposure, 'Common q-range: %.4f to %.4f (%d points)' %
                          (refdata.q.min(), refdata.q.max(), len(refdata.q)))

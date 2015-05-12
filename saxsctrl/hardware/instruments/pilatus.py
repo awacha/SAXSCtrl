@@ -19,16 +19,16 @@ HUMIDITY_WARNING_LIMITS = [45, 45, 10]
 HUMIDITY_ERROR_LIMITS = [80, 80, 30]
 
 
-RE_FLOAT = r"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
-RE_DATE = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
-RE_INT = r"[+-]?\d+"
+RE_FLOAT = br"[+-]?(\d+)*\.?\d+([eE][+-]?\d+)?"
+RE_DATE = br"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+"
+RE_INT = br"[+-]?\d+"
 
 
 class CommandReplyPilatus(CommandReply):
 
     def __init__(self, context, regex, findall_regex=None, defaults=None):
         CommandReply.__init__(
-            self, r'(?P<context>\d+)\s+(?P<status>[A-Z]+)\s+' + regex, findall_regex, defaults)
+            self, br'(?P<context>\d+)\s+(?P<status>[A-Z]+)\s+' + regex, findall_regex, defaults)
         self.context = context
 
     def match(self, message):
@@ -38,7 +38,7 @@ class CommandReplyPilatus(CommandReply):
         else:
             return gd
 
-reply_noaccess = CommandReplyPilatus(1, r'access denied')
+reply_noaccess = CommandReplyPilatus(1, br'access denied')
 
 
 class PilatusError(InstrumentError):
@@ -50,84 +50,86 @@ class PilatusStatus(InstrumentStatus):
     ExposingMulti = 'exposing multi'
     Trimming = 'trimming'
 
+_to_str = lambda x: str(x, encoding='utf-8')
+
 
 class Pilatus(Instrument_TCP):
     __gtype_name__ = 'SAXSCtrl_Instrument_Pilatus300k'
     _commands = [
-        Command('Tau', [CommandReplyPilatus(15, r'Rate correction is on; tau = (?P<tau>' + RE_FLOAT + r') s, cutoff = (?P<cutoff>' + RE_INT + r') counts'),
-                        CommandReplyPilatus(
-                            15, r'Turn off rate correction', defaults={'tau': 0, 'cutoff': 1048574}),
-                        CommandReplyPilatus(
-                            15, r'Rate correction is off, cutoff = (?P<cutoff>' + RE_INT + r') counts', defaults={'tau': 0}),
-                        CommandReplyPilatus(15, r'Invalid argument; .*'),
-                        CommandReplyPilatus(
-                            15, r'Set up rate correction: tau = (?P<tau>' + RE_FLOAT + r') s', defaults={'cutoff': None}),
-                        reply_noaccess,
-                        ], {'tau': float, 'cutoff': int}),
-        Command('ExpTime', [CommandReplyPilatus(15, r'Illegal exposure time', defaults={'exptime': None}),
-                            CommandReplyPilatus(
-                                15, r'Exposure time set to: (?P<exptime>' + RE_FLOAT + r') sec.'),
-                            reply_noaccess,
-                            ], {'exptime': float}),
-        Command('ExpPeriod', [CommandReplyPilatus(15, r'Exposure period set to: (?P<expperiod>' + RE_FLOAT + r') sec'),
-                              CommandReplyPilatus(
-                                  15, r'Illegal exposure period', defaults={'expperiod': None}),
-                              reply_noaccess, ], {'expperiod': float}),
-        Command('Exposure', [CommandReplyPilatus(15, r'Starting (?P<exptime>' + RE_FLOAT + r') second background: (?P<starttime>' + RE_DATE + r')', defaults={'filename': None}),
+        Command(b'Tau', [CommandReplyPilatus(15, br'Rate correction is on; tau = (?P<tau>' + RE_FLOAT + br') s, cutoff = (?P<cutoff>' + RE_INT + br') counts'),
+                         CommandReplyPilatus(
+            15, br'Turn off rate correction', defaults={'tau': 0, 'cutoff': 1048574}),
+            CommandReplyPilatus(
+            15, br'Rate correction is off, cutoff = (?P<cutoff>' + RE_INT + br') counts', defaults={'tau': 0}),
+            CommandReplyPilatus(15, br'Invalid argument; .*'),
+            CommandReplyPilatus(
+            15, br'Set up rate correction: tau = (?P<tau>' + RE_FLOAT + br') s', defaults={'cutoff': None}),
+            reply_noaccess,
+        ], {'tau': float, 'cutoff': int}),
+        Command(b'ExpTime', [CommandReplyPilatus(15, br'Illegal exposure time', defaults={'exptime': None}),
                              CommandReplyPilatus(
-                                 7, r'(?P<filename>.*)', defaults={'starttime': None, 'exptime': None}),
-                             reply_noaccess,
-                             ], {'exptime': float, 'starttime': dateutil.parser.parse}),
-        Command('Version', [CommandReplyPilatus(
-            24, r'Code release:\s*(?P<version>.*)')], {'version': str}),
-        Command('Telemetry', [CommandReplyPilatus(18, r'=== Telemetry at (?P<date>' + RE_DATE +
-                                                  r') ===\s*\nImage format: (?P<Wpix>' + RE_INT + r')\(w\) x (?P<Hpix>' + RE_INT +
-                                                  r')\(h\) pixels\s*\nSelected bank: (?P<sel_bank>' + RE_INT +
-                                                  r')\s*\nSelected module: (?P<sel_module>' + RE_INT +
-                                                  r')\s*\nSelected chip: (?P<sel_chip>' + RE_INT +
-                                                  r')\s*\n(Channel ' + RE_INT + r': Temperature = ' +
-                                                  RE_FLOAT + r'C, Rel. Humidity = ' +
-                                                      RE_FLOAT + r'%\s*\n)*',
-                                                  r'Channel (?P<channel>' + RE_INT +
-                                                  r'): Temperature = (?P<temperature>' + RE_FLOAT +
-                                                  r')C, Rel. Humidity = (?P<humidity>' + RE_FLOAT +
-                                                  r')%')],
+            15, br'Exposure time set to: (?P<exptime>' + RE_FLOAT + br') sec.'),
+            reply_noaccess,
+        ], {'exptime': float}),
+        Command(b'ExpPeriod', [CommandReplyPilatus(15, br'Exposure period set to: (?P<expperiod>' + RE_FLOAT + br') sec'),
+                               CommandReplyPilatus(
+            15, br'Illegal exposure period', defaults={'expperiod': None}),
+            reply_noaccess, ], {'expperiod': float}),
+        Command(b'Exposure', [CommandReplyPilatus(15, br'Starting (?P<exptime>' + RE_FLOAT + br') second background: (?P<starttime>' + RE_DATE + br')', defaults={'filename': None}),
+                              CommandReplyPilatus(
+            7, br'(?P<filename>.*)', defaults={'starttime': None, 'exptime': None}),
+            reply_noaccess,
+        ], {'exptime': float, 'starttime': dateutil.parser.parse}),
+        Command(b'Version', [CommandReplyPilatus(
+            24, br'Code release:\s*(?P<version>.*)')], {'version': str}),
+        Command(b'Telemetry', [CommandReplyPilatus(18, br'=== Telemetry at (?P<date>' + RE_DATE +
+                                                   br') ===\s*\nImage format: (?P<Wpix>' + RE_INT + br')\(w\) x (?P<Hpix>' + RE_INT +
+                                                   br')\(h\) pixels\s*\nSelected bank: (?P<sel_bank>' + RE_INT +
+                                                   br')\s*\nSelected module: (?P<sel_module>' + RE_INT +
+                                                   br')\s*\nSelected chip: (?P<sel_chip>' + RE_INT +
+                                                   br')\s*\n(Channel ' + RE_INT + br': Temperature = ' +
+                                                   RE_FLOAT + br'C, Rel. Humidity = ' +
+                                                   RE_FLOAT + br'%\s*\n)*',
+                                                   br'Channel (?P<channel>' + RE_INT +
+                                                   br'): Temperature = (?P<temperature>' + RE_FLOAT +
+                                                   br')C, Rel. Humidity = (?P<humidity>' + RE_FLOAT +
+                                                   br')%')],
                 {'date': dateutil.parser.parse, 'Wpix': int, 'Hpix': int, 'sel_bank': int, 'sel_module': int, 'sel_chip': int, 'channel': lambda lis: [int(x) for x in lis],
                  'temperature': lambda lis: [float(x) for x in lis], 'humidity': lambda lis: [float(x) for x in lis]}),
-        Command('Df', [CommandReplyPilatus(
-            5, r'(?P<diskfree>' + RE_INT + ')')], {'diskfree': int}),
-        Command('SetThreshold', [CommandReplyPilatus(15, 'Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>' + RE_INT + ') eV; vcmp: (?P<vcmp>' + RE_FLOAT + ') V\n\s*Trim file:\s*\n\s*(?P<trimfile>.*)'),
-                                 CommandReplyPilatus(15, '/tmp/setthreshold\.cmd', defaults={
+        Command(b'Df', [CommandReplyPilatus(
+            5, br'(?P<diskfree>' + RE_INT + b')')], {'diskfree': int}),
+        Command('SetThreshold', [CommandReplyPilatus(15, b'Settings: (?P<gain>\w+) gain; threshold: (?P<threshold>' + RE_INT + b') eV; vcmp: (?P<vcmp>' + RE_FLOAT + b') V\n\s*Trim file:\s*\n\s*(?P<trimfile>.*)'),
+                                 CommandReplyPilatus(15, b'/tmp/setthreshold\.cmd', defaults={
                                                      'gain': None, 'vcmp': np.nan, 'threshold': np.nan, 'trimfile': None}),
-                                 CommandReplyPilatus(15, 'Threshold has not been set', defaults={
+                                 CommandReplyPilatus(15, b'Threshold has not been set', defaults={
                                                      'gain': None, 'vcmp': np.nan, 'threshold': np.nan, 'trimfile': None}),
-                                 CommandReplyPilatus(15, 'Requested threshold \(' + RE_FLOAT + ' eV\) is out of range', defaults={
+                                 CommandReplyPilatus(15, b'Requested threshold \(' + RE_FLOAT + b' eV\) is out of range', defaults={
                                                      'gain': None, 'vcmp': np.nan, 'threshold': np.nan, 'trimfile': None}),
                                  reply_noaccess,
-                                 ], {'gain': str, 'threshold': float, 'vcmp': float, 'trimfile': str}),
+                                 ], {'gain': _to_str, 'threshold': float, 'vcmp': float, 'trimfile': _to_str}),
         # use this to kill exposure when NImages >1
-        Command('K', [CommandReplyPilatus(13, 'kill'), reply_noaccess]),
+        Command(b'K', [CommandReplyPilatus(13, b'kill'), reply_noaccess]),
         # use this to kill exposure when NImages = 1
-        Command('ResetCam', [CommandReplyPilatus(15, ''), reply_noaccess]),
-        Command('NImages', [CommandReplyPilatus(15, 'N images set to: (?P<nimages>' + RE_INT + ')'),
-                            reply_noaccess, ], {'nimages': int}),
-        Command('THread', [CommandReplyPilatus(215, r'(Channel ' + RE_INT + r': Temperature = ' + RE_FLOAT + r'C, Rel. Humidity = ' + RE_FLOAT + r'%(;\n)?)*',
-                                               r'Channel (?P<channel>' + RE_INT + r'): Temperature = (?P<temperature>' + RE_FLOAT + r')C, Rel. Humidity = (?P<humidity>' + RE_FLOAT + r')%')],
+        Command(b'ResetCam', [CommandReplyPilatus(15, b''), reply_noaccess]),
+        Command(b'NImages', [CommandReplyPilatus(15, b'N images set to: (?P<nimages>' + RE_INT + b')'),
+                             reply_noaccess, ], {'nimages': int}),
+        Command(b'THread', [CommandReplyPilatus(215, br'(Channel ' + RE_INT + br': Temperature = ' + RE_FLOAT + br'C, Rel. Humidity = ' + RE_FLOAT + br'%(;\n)?)*',
+                                                br'Channel (?P<channel>' + RE_INT + br'): Temperature = (?P<temperature>' + RE_FLOAT + br')C, Rel. Humidity = (?P<humidity>' + RE_FLOAT + br')%')],
                 {'channel': lambda lis: [int(x) for x in lis], 'temperature': lambda lis: [float(x) for x in lis], 'humidity': lambda lis: [float(x) for x in lis]}),
-        Command('CamSetup', [CommandReplyPilatus(2, r"\n\s*Camera definition:\n\s+(?P<cameradef>.*)\n\s*Camera name: (?P<cameraname>.*),\sS/N\s(?P<cameraSN>" + RE_INT + \
-                                                 r"-" + RE_INT + r")\n\s*Camera state: (?P<camstate>.*)\n\s*Target file: (?P<targetfile>.*)\n\s*Time left: (?P<timeleft>" + RE_FLOAT + \
-                                                 r')\n\s*Last image: (?P<lastimage>.*)\n\s*Master PID is: (?P<masterPID>' + RE_INT + \
-                                                 r')\n\s*Controlling PID is: (?P<controllingPID>' + RE_INT + \
-                                                 r')\n\s*Exposure time: (?P<exptime>' + RE_FLOAT + \
-                                                 r')\n\s*Last completed image:\s*\n\s*(?P<lastcompletedimage>.*)\n\s*Shutter is: (?P<shutterstate>.*)\n')],
-                {'cameradef': str, 'cameraname': str, 'cameraSN': str, 'camstate': str, 'targetfile': str, 'timeleft': float, 'lastimage': str,
-                 'masterPID': int, 'controllingPID': int, 'exptime': float, 'lastcompletedimage': str, 'shutterstate': str}),
+        Command('CamSetup', [CommandReplyPilatus(2, br"\n\s*Camera definition:\n\s+(?P<cameradef>.*)\n\s*Camera name: (?P<cameraname>.*),\sS/N\s(?P<cameraSN>" + RE_INT + \
+                                                 br"-" + RE_INT + br")\n\s*Camera state: (?P<camstate>.*)\n\s*Target file: (?P<targetfile>.*)\n\s*Time left: (?P<timeleft>" + RE_FLOAT + \
+                                                 br')\n\s*Last image: (?P<lastimage>.*)\n\s*Master PID is: (?P<masterPID>' + RE_INT + \
+                                                 br')\n\s*Controlling PID is: (?P<controllingPID>' + RE_INT + \
+                                                 br')\n\s*Exposure time: (?P<exptime>' + RE_FLOAT + \
+                                                 br')\n\s*Last completed image:\s*\n\s*(?P<lastcompletedimage>.*)\n\s*Shutter is: (?P<shutterstate>.*)\n')],
+                {'cameradef': _to_str, 'cameraname': _to_str, 'cameraSN': _to_str, 'camstate': _to_str, 'targetfile': _to_str, 'timeleft': float,
+                 'lastimage': _to_str, 'masterPID': int, 'controllingPID': int, 'exptime': float, 'lastcompletedimage': _to_str, 'shutterstate': _to_str}),
         Command(
-            'ImgPath', [CommandReplyPilatus(10, '(?P<imgpath>.*)'), reply_noaccess]),
-        Command('ImgMode', [
-                CommandReplyPilatus(15, 'ImgMode is (?P<imgmode>.*)'), reply_noaccess]),
-        Command('ShowPID', [
-                CommandReplyPilatus(16, 'PID = (?P<pid>' + RE_INT + ')')], {'pid': int}),
+            b'ImgPath', [CommandReplyPilatus(10, b'(?P<imgpath>.*)'), reply_noaccess]),
+        Command(b'ImgMode', [
+                CommandReplyPilatus(15, b'ImgMode is (?P<imgmode>.*)'), reply_noaccess]),
+        Command(b'ShowPID', [
+                CommandReplyPilatus(16, b'PID = (?P<pid>' + RE_INT + b')')], {'pid': int}),
     ]
     gain = InstrumentProperty(
         name='gain', type=str, timeout=60, refreshinterval=60)
@@ -183,7 +185,7 @@ class Pilatus(Instrument_TCP):
         self._OWG_hints[
             'default-gain'] = {objwithgui.OWG_Hint_Type.ChoicesList: ['lowG', 'midG', 'highG']}
         Instrument_TCP.__init__(self, name, offline)
-        self._mesgseparator = '\x18'
+        self._mesgseparator = b'\x18'
         self.timeout = 1
         self._status_lock = threading.RLock()
         self._exposure_starttime = None
@@ -236,7 +238,7 @@ class Pilatus(Instrument_TCP):
                     toupdate.remove('imagesremaining')
             if {'gain', 'threshold', 'vcmp', 'trimfile'}.intersection(toupdate):
                 try:
-                    thresholdsettings = self._get_general('SetThreshold')
+                    thresholdsettings = self._get_general(b'SetThreshold')
                 except InstrumentError as ie:
                     logger.warn(
                         'InstrumentError on updating threshold-like parameters: ' + traceback.format_exc())
@@ -356,7 +358,7 @@ class Pilatus(Instrument_TCP):
                         self, None, InstrumentPropertyCategory.UNKNOWN)
             if {'tau', 'cutoff'}.intersection(toupdate):
                 try:
-                    taudata = self._get_general('Tau', None)
+                    taudata = self._get_general(b'Tau', None)
                 except InstrumentError as ie:
                     logger.warn(
                         'InstrumentError on updating tau-like parameters: ' + traceback.format_exc())
@@ -381,16 +383,18 @@ class Pilatus(Instrument_TCP):
 
     def _process_results(self, dic):
         with self._status_lock:
-            if (dic['command'] == 'SetThreshold') and (self.status == PilatusStatus.Trimming):
+            if (dic['command'] == b'SetThreshold') and (self.status == PilatusStatus.Trimming):
                 with self.freeze_notify():
                     self.status = PilatusStatus.Idle
                     self._update_instrumentproperties('threshold')
-            elif dic['command'] == 'Exposure' and dic['filename'] is not None:
+            elif dic['command'] == b'Exposure' and dic['filename'] is not None:
                 with self.freeze_notify():
                     self.status = PilatusStatus.Idle
                     self._update_instrumentproperties()
-
-        if dic['status'] == 'ERR':
+            else:
+                logger.debug(
+                    'Unknown command: %s in _process_results.' % dic['command'])
+        if dic['status'] == b'ERR':
             logger.error('Command %s returned error!' % dic['command'])
 
     def interpret_message(self, message, command=None, putback_if_no_match=True):
@@ -404,14 +408,18 @@ class Pilatus(Instrument_TCP):
             if m is not None:
                 m['command'] = c.command
                 self._process_results(m)
+                logger.debug('Message "%s" matched for command %s' %
+                             (str(message), str(command)))
                 return m
         # we reach here if the message could not be matched.
         if command is None:
             # this means we tried all the commands and nothing matched the
             # message
-            logger.warning('Cannot match message: ' + message)
+            logger.warning('Cannot match message: ' + str(message))
             return None
         else:
+            logger.debug('Queueing back message: ' + str(message) +
+                         ', it is not for command ' + str(command))
             # maybe this is not the message for us: queue it back
             if putback_if_no_match:
                 self._inqueue.put(message)
@@ -432,7 +440,7 @@ class Pilatus(Instrument_TCP):
         message = self.send_and_receive(b'CamSetup', blocking=True)
         mesg = self.interpret_message(message, b'CamSetup')
         if mesg is None:
-            raise PilatusError('Invalid message: ' + message)
+            raise PilatusError('Invalid message: ' + str(message, 'utf-8'))
         return mesg
 
     def send_and_receive(self, command, blocking=True):
@@ -507,14 +515,17 @@ class Pilatus(Instrument_TCP):
         return self._get_general(b'SetThreshold', 'trimfile')
 
     def set_threshold(self, threshold, gain=None):
+        if isinstance(gain, bytes):
+            gain = gain.decode('ascii')
         if gain is None:
             self.send_and_receive(
                 bytes('SetThreshold %d' % threshold, 'ascii'), blocking=False)
         else:
             if not gain.upper().endswith('G'):
                 gain = gain + 'G'
-            self.send_and_receive(bytes('SetThreshold %s %d' %
-                                        (gain, threshold), 'ascii'), blocking=False)
+            self.send_and_receive(
+                bytes('SetThreshold %s %d' %
+                      (gain, threshold), 'ascii'), blocking=False)
         with self._status_lock:
             self.status = PilatusStatus.Trimming
 
@@ -530,7 +541,7 @@ class Pilatus(Instrument_TCP):
         mesg = self.interpret_message(message, command)
         if mesg is None:
             raise PilatusError(
-                'Invalid message for ' + command + ': ' + message)
+                'Invalid message for ' + str(command) + ': ' + str(message))
         if key is None:
             return mesg
         else:
@@ -541,7 +552,7 @@ class Pilatus(Instrument_TCP):
         mesg = self.interpret_message(message, command)
         if mesg is None:
             raise PilatusError(
-                'Invalid message for ' + command + ': ' + message)
+                'Invalid message for ' + str(command) + ': ' + str(message))
         if key is None:
             return mesg
         else:
@@ -567,12 +578,13 @@ class Pilatus(Instrument_TCP):
                     self.status = PilatusStatus.ExposingMulti
             self._exposure_starttime = time.time()
             message = self.send_and_receive(
-                'Exposure ' + filename, blocking=True)
-            mesg = self.interpret_message(message, 'Exposure')
+                b'Exposure ' + bytes(filename, 'utf-8'), blocking=True)
+            mesg = self.interpret_message(message, b'Exposure')
             self._update_instrumentproperties('timeleft')
             self._update_instrumentproperties('imagesremaining')
             if mesg is None:
-                raise PilatusError('Invalid message for Exposure: ' + message)
+                raise PilatusError(
+                    'Invalid message for Exposure: ' + str(message, 'utf-8'))
         except:
             with self._status_lock:
                 self.status = PilatusStatus.Idle
@@ -590,20 +602,22 @@ class Pilatus(Instrument_TCP):
             if self.status == PilatusStatus.Exposing:
                 return self.resetcam()
             elif self.status == PilatusStatus.ExposingMulti:
-                message = self.send_and_receive('K', blocking=True)
-                mesg = self.interpret_message(message, 'K')
+                message = self.send_and_receive(b'K', blocking=True)
+                mesg = self.interpret_message(message, b'K')
                 if mesg is None:
-                    raise PilatusError('Invalid message for K: ' + message)
-                return mesg['status'] == 'ERR'
+                    raise PilatusError(
+                        'Invalid message for K: ' + str(message, 'utf-8'))
+                return mesg['status'] == b'ERR'
             else:
                 raise PilatusError('No exposure running!')
 
     def resetcam(self):
-        message = self.send_and_receive('ResetCam', blocking=True)
-        mesg = self.interpret_message(message, 'ResetCam')
+        message = self.send_and_receive(b'ResetCam', blocking=True)
+        mesg = self.interpret_message(message, b'ResetCam')
         if mesg is None:
-            raise PilatusError('Invalid message for ResetCam: ' + message)
-        return mesg['status'] == 'OK'
+            raise PilatusError(
+                'Invalid message for ResetCam: ' + str(message, 'utf-8'))
+        return mesg['status'] == b'OK'
 
     def get_current_parameters(self):
         return {ip: self._instrumentproperties[ip][0] for ip in self._instrumentproperties}

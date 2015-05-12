@@ -12,6 +12,7 @@ from ..instruments import InstrumentError
 import scipy.constants
 import time
 import traceback
+import itertools
 
 from gi.repository import GObject
 from gi.repository import Gio
@@ -117,7 +118,13 @@ class SubSystemFiles(SubSystem):
         return list(sorted(set(formats)))
 
     def _known_regexes(self):
-        return set(self._nextfsn_cache.keys()).union(set(self._firstfsn_cache.keys()))
+        allregexes = itertools.chain(
+            self._nextfsn_cache.keys(), self._firstfsn_cache.keys())
+        unique_regexes = []
+        for r in allregexes:
+            if not [r_ for r_ in unique_regexes if r_.pattern == r.pattern]:
+                unique_regexes.append(r)
+        return unique_regexes
 
     def formats(self):
         return sorted([p.pattern.split('_')[0] for p in self._known_regexes()])

@@ -1,4 +1,4 @@
-from .instrument import Instrument_TCP, InstrumentError, InstrumentProperty, InstrumentPropertyCategory
+from .instrument import Instrument_TCP, InstrumentError, InstrumentProperty, InstrumentPropertyCategory, InstrumentTimeoutError
 import logging
 from gi.repository import GLib
 from ...utils import objwithgui
@@ -181,11 +181,19 @@ class HaakePhoenix(Instrument_TCP):
                 return postprocessor(message)
             except InstrumentError as ie:
                 if i > 1:
-                    logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (
-                        command, i + 1, retries, traceback.format_exc()))
+                    if isinstance(ie, InstrumentTimeoutError):
+                        logger.warning(
+                            'Haake Phoenix timed out on command %s (try %d/%d).' % (command, i + 1, retries))
+                    else:
+                        logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (
+                            command, i + 1, retries, traceback.format_exc()))
                 if i >= retries - 1:
-                    raise HaakePhoenixError('Communication error on command %s. %d retries exhausted. Error: %s' % (
-                        command, retries, traceback.format_exc()))
+                    if isinstance(ie, InstrumentTimeoutError):
+                        raise HaakePhoenixError('Timeout on command %s. %d retries exhausted.' %
+                                                (command, retries))
+                    else:
+                        raise HaakePhoenixError('Communication error on command %s. %d retries exhausted. Error: %s' %
+                                                (command, retries, traceback.format_exc()))
 
     def interpret_message(self, message, command=None):
         if command is None:

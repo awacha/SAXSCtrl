@@ -11,7 +11,7 @@ _errorflags = [('Wrong distance', 'BADDIST'), ('Wrong sample',
                                                'BADSAMPLE'), ('Artifacts (i.e. chip flares)', 'ARTIFACTS')]
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class DataViewer(ToolDialog):
@@ -93,6 +93,7 @@ class DataViewer(ToolDialog):
         p.set_size_request(-1, 480)
 
         vb.show_all()
+        logger.debug('Finished construction of the dataviewer window.')
 
     def _on_flag(self, flagbutton, flagname):
         exposure = self.plot2d.get_exposure()
