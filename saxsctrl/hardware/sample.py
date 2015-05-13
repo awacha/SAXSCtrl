@@ -69,23 +69,24 @@ class SAXSSample(object):
         if not cp.has_section(sectionname):
             cp.add_section(sectionname)
         cp.set(sectionname, 'Title', self.title)
-        cp.set(sectionname, 'PositionX', float(self.positionx))
+        cp.set(sectionname, 'PositionX', str(float(self.positionx)))
         if isinstance(self.positionx, ErrorValue):
-            cp.set(sectionname, 'PositionXError', self.positionx.err)
-        cp.set(sectionname, 'PositionY', float(self.positiony))
+            cp.set(sectionname, 'PositionXError', str(self.positionx.err))
+        cp.set(sectionname, 'PositionY', str(float(self.positiony)))
         if isinstance(self.positiony, ErrorValue):
-            cp.set(sectionname, 'PositionYError', self.positiony.err)
-        cp.set(sectionname, 'Thickness', float(self.thickness))
+            cp.set(sectionname, 'PositionYError', str(self.positiony.err))
+        cp.set(sectionname, 'Thickness', str(float(self.thickness)))
         if isinstance(self.thickness, ErrorValue):
-            cp.set(sectionname, 'ThicknessError', self.thickness.err)
-        cp.set(sectionname, 'Transmission', float(self.transmission))
+            cp.set(sectionname, 'ThicknessError', str(self.thickness.err))
+        cp.set(sectionname, 'Transmission', str(float(self.transmission)))
         if isinstance(self.transmission, ErrorValue):
-            cp.set(sectionname, 'TransmissionError', self.transmission.err)
+            cp.set(
+                sectionname, 'TransmissionError', str(self.transmission.err))
         cp.set(sectionname, 'Preparedby', self.preparedby)
         cp.set(sectionname, 'Preparetime', str(self.preparetime))
-        cp.set(sectionname, 'Distminus', float(self.distminus))
+        cp.set(sectionname, 'Distminus', str(float(self.distminus)))
         if isinstance(self.distminus, ErrorValue):
-            cp.set(sectionname, 'DistminusError', self.distminus.err)
+            cp.set(sectionname, 'DistminusError', str(self.distminus.err))
         cp.set(sectionname, 'Description', str(self.description))
         cp.set(sectionname, 'Category', str(self.category))
         cp.set(sectionname, 'Situation', str(self.situation))
@@ -121,7 +122,7 @@ class SAXSSample(object):
 
     def __unicode__(self):
         return '%s, (%.3f, %.3f) %.4f cm, transm: %.4f' % (self.title,
-                                                            self.positionx, self.positiony, self.thickness, self.transmission)
+                                                           self.positionx, self.positiony, self.thickness, self.transmission)
 
     def __eq__(self, other):
         if isinstance(other, SAXSSample):

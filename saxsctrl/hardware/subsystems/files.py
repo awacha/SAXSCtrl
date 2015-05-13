@@ -440,11 +440,14 @@ class SubSystemFiles(SubSystem):
             entry = f.create_group('entry')
             entry.attrs['NX_class'] = 'NXentry'
             entry.attrs['default'] = 'data'
-            entry['title'] = os.path.splitext(os.path.split(filename)[-1])
+            entry['title'] = os.path.splitext(
+                os.path.split(filename)[-1])[0].encode('utf-8')
             entry['entry_identifier'] = os.path.splitext(
-                os.path.split(filename)[-1])[0]
-            entry['experiment_identifier'] = self.credo().projectid
-            entry['experiment_description'] = self.credo().projectname
+                os.path.split(filename)[-1])[0].encode('utf-8')
+            entry['experiment_identifier'] = self.credo().projectid.encode(
+                'utf-8')
+            entry['experiment_description'] = self.credo().projectname.encode(
+                'utf-8')
             if nscan is None:
                 entry['definition'] = 'NXsas'
                 entry['definition'].attrs['version'] = '1.0b'
@@ -457,35 +460,37 @@ class SubSystemFiles(SubSystem):
                 entry['definition'] = 'CREDOscan'
                 entry['collection_time'] = self.credo().subsystems[
                     'Exposure'].exptime * nscan
-            entry['run_cycle'] = str(datetime.date.today().year)
+            entry['run_cycle'] = str(
+                datetime.date.today().year).encode('utf-8')
             entry['program_name'] = 'SAXSCtrl'
             entry['program_name'].attrs[
-                'version'] = pkg_resources.get_distribution('saxsctrl').version
+                'version'] = pkg_resources.get_distribution('saxsctrl').version.encode('utf-8')
             entry['revision'] = '0'
             operator = entry.create_group('operator')
             operator.attrs['NX_class'] = 'NXuser'
-            operator['name'] = self.credo().username
+            operator['name'] = self.credo().username.encode('utf-8')
             operator['role'] = 'local_contact'
 
             proposer = entry.create_group('proposer')
             proposer.attrs['NX_class'] = 'NXuser'
-            proposer['name'] = self.credo().proposername
+            proposer['name'] = self.credo().proposername.encode('utf-8')
             proposer['role'] = 'proposer'
 
             sam = self.credo().subsystems['Samples'].get()
             if sam is not None:
                 samplefrom = entry.create_group('sample_from')
                 samplefrom.attrs['NX_class'] = 'NXuser'
-                samplefrom['name'] = sam.preparedby
+                samplefrom['name'] = sam.preparedby.encode('utf-8')
                 samplefrom['role'] = 'sample_preparator'
 
                 sample = entry.create_group('sample')
                 sample.attrs['NX_class'] = 'NXsample'
-                sample['name'] = sam.title
-                sample['type'] = sam.category
-                sample['situation'] = sam.situation
-                sample['description'] = sam.description
-                sample['preparation_date'] = sam.preparetime.isoformat()
+                sample['name'] = sam.title.encode('utf-8')
+                sample['type'] = sam.category.encode('utf-8')
+                sample['situation'] = sam.situation.encode('utf-8')
+                sample['description'] = sam.description.encode('utf-8')
+                sample['preparation_date'] = sam.preparetime.isoformat().encode(
+                    'utf-8')
                 sample['thickness'] = float(sam.thickness)
                 sample['thickness'].attrs['units'] = 'cm'
                 try:
@@ -559,7 +564,7 @@ class SubSystemFiles(SubSystem):
                 ph = coll.create_group('aperture_%d' % idx)
                 ph.attrs['NX_class'] = 'NXaperture'
                 ph['material'] = 'Pt-Ir'
-                ph['description'] = description + ' pinhole'
+                ph['description'] = (description + ' pinhole').encode('utf-8')
                 geo = ph.create_group('geometry')
                 geo.attrs['NX_class'] = 'NXgeometry'
                 geo['component_index'] = idx - 4
@@ -582,8 +587,8 @@ class SubSystemFiles(SubSystem):
                 motor = self.credo().subsystems['Motors'].get(m)
                 mot = motors.create_group(motor.name)
                 mot.attrs['NX_class'] = 'NXpositioner'
-                mot['name'] = motor.name
-                mot['description'] = motor.alias
+                mot['name'] = motor.name.encode('utf-8')
+                mot['description'] = motor.alias.encode('utf-8')
                 mot['value'] = motor.get_parameter(
                     'Current_position', raw=False)
                 mot['value'].attrs['units'] = 'mm'
@@ -609,8 +614,8 @@ class SubSystemFiles(SubSystem):
                     beamstop['positioner_y'] = mot
                     beamstop['y'] = mot['value']
                     beamstop['status'] = ['out', 'in'][
-                        (mot['value'] < self.credo().subsystems['Collimation'].beamstop_in_ymax) and
-                        (mot['value'] > self.credo().subsystems['Collimation'].beamstop_in_min)]
+                        (mot['value'].value < self.credo().subsystems['Collimation'].beamstop_in_ymax) and
+                        (mot['value'].value > self.credo().subsystems['Collimation'].beamstop_in_ymin)]
                 elif motor == self.credo().subsystems['Collimation'].motor_ph1x:
                     coll['aperture_1']['positioner_x'] = mot
                     coll['aperture_1']['x'] = mot['value']
@@ -714,7 +719,7 @@ class SubSystemFiles(SubSystem):
             detector.create_dataset('pixel_mask', data=(
                 self.credo().subsystems['Exposure'].get_mask().mask == 0) << 6)
             detector['pixel_mask'].attrs[
-                'file_name'] = self.credo().subsystems['Exposure'].default_mask
+                'file_name'] = self.credo().subsystems['Exposure'].default_mask.encode('utf-8')
             detector['countrate_correction_applied'] = True
             detector['bit_depth_readout'] = 20
             detector['detector_readout_time'] = 2.3
@@ -725,12 +730,12 @@ class SubSystemFiles(SubSystem):
             try:
                 pilatus = self.credo().subsystems['Equipments'].get('pilatus')
                 detector[
-                    'description'] = 'Dectris Pilatus-300k SN: %s' % pilatus.camerasn
+                    'description'] = ('Dectris Pilatus-300k SN: %s' % pilatus.camerasn).encode('utf-8')
                 detector['comparator_voltage'] = pilatus.vcmp
                 detector['comparator_voltage'].attrs['units'] = 'V'
                 detector['dead_time'] = pilatus.tau * 1e9
                 detector['dead_time'].attrs['units'] = 'ns'
-                detector['gain_setting'] = pilatus.gain
+                detector['gain_setting'] = pilatus.gain.encode('utf-8')
                 detector['threshold_energy'] = pilatus.threshold
                 detector['threshold_energy'].attrs['units'] = 'eV'
                 detector['saturation_value'] = pilatus.cutoff
@@ -740,8 +745,9 @@ class SubSystemFiles(SubSystem):
                     hum['value'] = getattr(pilatus, 'humidity%d' % i)
                     hum['value'].attrs['units'] = '%'
                     hum['model'] = 'Pilatus-300k'
-                    hum['name'] = 'Humidity sensor, channel #%d' % (12 + i)
-                    hum['short_name'] = 'Humidity #%d' % i
+                    hum['name'] = (
+                        'Humidity sensor, channel #%d' % (12 + i)).encode('utf-8')
+                    hum['short_name'] = ('Humidity #%d' % i).encode('utf-8')
                     hum['attached_to'] = 'Detector power board'
                     hum['measurement'] = 'humidity'
                     hum['type'] = 'combined temperature and humidity sensor'
@@ -751,9 +757,12 @@ class SubSystemFiles(SubSystem):
                     temp['value'] = getattr(pilatus, 'temperature%d' % i)
                     temp['value'].attrs['units'] = 'deg_C'
                     temp['model'] = 'Pilatus-300k'
-                    temp['name'] = 'Temperature sensor, channel #%d' % (12 + i)
-                    temp['short_name'] = 'Temperature #%d' % i
-                    temp['attached_to'] = 'Detector ' + attached_to
+                    temp['name'] = (
+                        'Temperature sensor, channel #%d' % (12 + i)).encode('utf-8')
+                    temp['short_name'] = (
+                        'Temperature #%d' % i).encode('utf-8')
+                    temp['attached_to'] = (
+                        'Detector ' + attached_to).encode('utf-8')
                     temp['measurement'] = 'temperature'
                     temp['type'] = 'combined temperature and humidity sensor'
                     temp['run_control'] = False
@@ -765,7 +774,7 @@ class SubSystemFiles(SubSystem):
             data.attrs['NX_class'] = 'NXdata'
 
             monitor['start_time'] = datetime.datetime.now(
-                dateutil.tz.tzlocal()).isoformat()
+                dateutil.tz.tzlocal()).isoformat().encode('utf-8')
             entry['start_time'] = monitor['start_time']
         logger.debug('Created NeXus template file %s in %.2f seconds' %
                      (filename, time.time() - t0))

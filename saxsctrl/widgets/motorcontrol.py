@@ -278,7 +278,7 @@ class MotorMonitor(ToolDialog):
         cp.add_section(row[0])
         for mname in motors:
             motor = ssm.get(mname, casesensitive=False)
-            cp.set(row[0], mname, motor.get_parameter('Current_position'))
+            cp.set(row[0], mname, str(motor.get_parameter('Current_position')))
 
         with open(os.path.join(self.credo.subsystems['Files'].configpath, 'motorconfigs.conf'), 'wt') as f:
             cp.write(f)

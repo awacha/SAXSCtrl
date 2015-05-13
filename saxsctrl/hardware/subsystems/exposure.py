@@ -247,9 +247,9 @@ class SubSystemExposure(SubSystem):
             starttime = dateutil.parser.parse(
                 f['entry/monitor/start_time'].value)
             f['entry/monitor/start_time'][()] = (starttime + datetime.timedelta(
-                waittime - f['entry/monitor/count_time'].value)).isoformat()
+                waittime - f['entry/monitor/count_time'].value)).isoformat().encode('utf-8')
             f['entry/monitor/end_time'] = datetime.datetime.now(
-                dateutil.tz.tzlocal()).isoformat()
+                dateutil.tz.tzlocal()).isoformat().encode('utf-8')
             f['entry/end_time'] = f['entry/monitor/end_time']
             f['entry/duration'] = (dateutil.parser.parse(f['entry/end_time'].value) -
                                    dateutil.parser.parse(f['entry/start_time'].value)).total_seconds()

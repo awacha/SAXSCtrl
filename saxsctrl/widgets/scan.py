@@ -313,9 +313,12 @@ class Scan(ToolDialog):
 
     def _scan_end(self, subsys, state):
         logger.debug('last scan point received.')
-        for c in self._scanconnections:
-            subsys.disconnect(c)
-        del self._scanconnections
+        try:
+            for c in self._scanconnections:
+                subsys.disconnect(c)
+            del self._scanconnections
+        except AttributeError:
+            pass
         if self.lazystop_button.get_active():
             state = False
         if not state:

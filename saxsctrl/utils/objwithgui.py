@@ -328,7 +328,10 @@ class ObjWithGUI(GObject.GObject):
 
     def _get_priority(self, propname):
         try:
-            return self._OWG_hints[propname][OWG_Hint_Type.OrderPriority]
+            prio = self._OWG_hints[propname][OWG_Hint_Type.OrderPriority]
+            if prio is None:
+                raise KeyError
+            return prio
         except KeyError:
             return 0
 
