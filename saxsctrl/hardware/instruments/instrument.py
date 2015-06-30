@@ -208,7 +208,9 @@ class Instrument(objwithgui.ObjWithGUI):
         def _handler(sel, pn, v):
             if sel.get_property(pn) != v:
                 sel.set_property(pn, v)
-            return False  # because we are called
+            # because we are called as an idle function and don't want to be
+            # called again
+            return False
         GLib.idle_add(_handler, self, propname, value)
 
     def set_enable_instrumentproperty_signals(self, status):
@@ -525,14 +527,17 @@ class Instrument_ModbusTCP(Instrument):
             self._modbus = ModbusClient(
                 self.host, self.port, timeout=self.timeout)
             try:
-                self._modbus.open()
+                if not self._modbus.open():
+                    raise InstrumentError(
+                        'Cannot contact to Modbus instrument.')
                 self._post_connect()
                 self.status = InstrumentStatus.Idle
                 self._restart_logger()
             except (socket.timeout, InstrumentError, socket.error) as ex:
                 self._modbus = None
-                logger.error(
-                    'Cannot connect to instrument at %s:%d' % (self.host, self.port))
+                if logger.level == logging.DEBUG:
+                    logger.error(
+                        'Cannot connect to instrument at %s:%d' % (self.host, self.port))
                 raise InstrumentError('Cannot connect to instrument at %s:%d. Reason: %s' % (
                     self.host, self.port, traceback.format_exc()))
         logger.info('Connected to instrument at %s:%d' %

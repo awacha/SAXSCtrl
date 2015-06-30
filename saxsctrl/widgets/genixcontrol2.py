@@ -67,7 +67,7 @@ class GenixTools(Gtk.Frame):
             genix.shutter_open(wait_for_completion=False)
             logger.debug('adding cancel shutter timeout')
             self._timeouthandler = GLib.timeout_add(
-                1000, self._cancel_shutter_open)
+                1500, self._cancel_shutter_open)
         else:
             genix.shutter_close(wait_for_completion=False)
         return True

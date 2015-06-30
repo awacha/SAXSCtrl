@@ -74,7 +74,7 @@ class SubSystemSamples(SubSystem):
             return
         if filename is None:
             filename = self.configfile
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         for i, sam in enumerate(self):
             sam.save_to_ConfigParser(cp, 'Sample_%03d' % i)
         with open(filename, 'wt') as f:

@@ -210,7 +210,8 @@ class Genix(Instrument_ModbusTCP):
                     newstate = GenixStatus.FullPower
                 else:
                     newstate = self.status
-            self._threadsafe_set_property('status', newstate)
+            if self.status != newstate:
+                self._threadsafe_set_property('status', newstate)
         except InstrumentError:
             logger.warn(
                 'InstrumentError while getting HV and current from GeniX: ' + traceback.format_exc())
@@ -334,11 +335,16 @@ class Genix(Instrument_ModbusTCP):
         if tup is None:
             tup = self.get_status_bits()
         #logger.debug('GeniX status: 0x' + hex(self.get_status_int(tup)))
-        return dict(list(zip(('DISTANT_MODE', 'XRAY_ON', 'STANDBY_ON', 'CYCLE_AUTO_ON', 'CONDITIONS_AUTO_OK', 'CYCLE_RESET_ON', 'CYCLE_TUBE_WARM_UP_ON',
-                              'CONFIGURATION_POWER_TUBE', 'UNKNOWN1', 'FAULTS', 'X-RAY_LIGHT_FAULT', 'SHUTTER_LIGHT_FAULT', 'SENSOR2_FAULT', 'TUBE_POSITION_FAULT',
-                              'VACUUM_FAULT', 'WATERFLOW_FAULT', 'SAFETY_SHUTTER_FAULT', 'TEMPERATURE_FAULT', 'SENSOR1_FAULT', 'RELAY_INTERLOCK_FAULT',
-                              'DOOR_SENSOR_FAULT', 'FILAMENT_FAULT', 'TUBE_WARM_UP_NEEDED_FAULT', 'UNKNOWN2', 'RUN_AUTOMATE', 'INTERLOCK_OK', 'SHUTTER_CLOSED',
-                              'SHUTTER_OPENED', 'UNKNOWN3', 'OVERRIDDEN_ON'), self.get_status_bits())))
+        try:
+            return dict(list(zip(('DISTANT_MODE', 'XRAY_ON', 'STANDBY_ON', 'CYCLE_AUTO_ON', 'CONDITIONS_AUTO_OK', 'CYCLE_RESET_ON', 'CYCLE_TUBE_WARM_UP_ON',
+                                  'CONFIGURATION_POWER_TUBE', 'UNKNOWN1', 'FAULTS', 'X-RAY_LIGHT_FAULT', 'SHUTTER_LIGHT_FAULT', 'SENSOR2_FAULT', 'TUBE_POSITION_FAULT',
+                                  'VACUUM_FAULT', 'WATERFLOW_FAULT', 'SAFETY_SHUTTER_FAULT', 'TEMPERATURE_FAULT', 'SENSOR1_FAULT', 'RELAY_INTERLOCK_FAULT',
+                                  'DOOR_SENSOR_FAULT', 'FILAMENT_FAULT', 'TUBE_WARM_UP_NEEDED_FAULT', 'UNKNOWN2', 'RUN_AUTOMATE', 'INTERLOCK_OK', 'SHUTTER_CLOSED',
+                                  'SHUTTER_OPENED', 'UNKNOWN3', 'OVERRIDDEN_ON'), tup)))
+        except:
+            logger.error(
+                'Genix get_status_bits() function returned: %s (%s)' % (str(tup), type(tup)))
+            raise
 
     def isremote(self):
         return self.get_status()['DISTANT_MODE']

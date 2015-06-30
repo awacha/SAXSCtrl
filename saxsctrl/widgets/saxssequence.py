@@ -1125,7 +1125,7 @@ class SAXSSequence(ToolDialog):
 
     def _on_debugmessages_toggled(self, checkbutton):
         if checkbutton.get_active():
-            logger.setLevel(logging.DEBUG)
+            logger.setLevel(logging.INFO)
         else:
             logger.setLevel(logging.INFO)
 

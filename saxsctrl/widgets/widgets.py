@@ -2,7 +2,7 @@ from gi.repository import Gtk
 from gi.repository import GObject
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 import calendar
 import datetime
 import dateutil.parser

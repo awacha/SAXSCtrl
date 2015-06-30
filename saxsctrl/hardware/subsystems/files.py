@@ -20,7 +20,7 @@ from gi.repository import Gio
 __all__ = ['SubSystemFiles']
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 DEFAULT_FILEPREFIXES = ['crd', 'tst', 'scn', 'tra']
 

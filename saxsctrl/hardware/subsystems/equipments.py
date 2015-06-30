@@ -122,8 +122,9 @@ class SubSystemEquipments(SubSystem):
             eq.connect_to_controller()
         except InstrumentError as exc:
             if not eq.connected():
-                logger.error(
-                    'Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + traceback.format_exc())
+                if logger.level == logging.DEBUG:
+                    logger.error(
+                        'Equipment not connected at the end of connection procedure: ' + equipment + '. Error: ' + traceback.format_exc())
                 raise SubSystemError(
                     'Cannot connect to equipment: ' + traceback.format_exc())
 
@@ -151,6 +152,7 @@ class SubSystemEquipments(SubSystem):
             try:
                 self.connect_equipment(eq)
             except (InstrumentError, SubSystemError):
+                logger.warning('Cannot connect to instrument: ' + eq)
                 errors.append(eq)
         if errors:
             raise SubSystemError(
@@ -176,7 +178,7 @@ class SubSystemEquipments(SubSystem):
             logger.warning('Not saving equipments state: we are off-line')
             return
         SubSystem.savestate(self, cp, sectionprefix)
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         cffn = os.path.join(
             self.credo().subsystems['Files'].configpath, self.configfile)
         cp.read(cffn)
@@ -187,7 +189,7 @@ class SubSystemEquipments(SubSystem):
 
     def loadstate(self, cp, sectionprefix=''):
         SubSystem.loadstate(self, cp, sectionprefix)
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         logger.debug('SubSystemEquipments.loadstate: ' + self.configfile)
         cffn = os.path.join(
             self.credo().subsystems['Files'].configpath, self.configfile)

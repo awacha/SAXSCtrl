@@ -25,7 +25,7 @@ class SAXSSample(object):
 
     @classmethod
     def new_from_cfg(cls, *filenames):
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         cp.read(filenames)
         lis = []
         for section in cp.sections():

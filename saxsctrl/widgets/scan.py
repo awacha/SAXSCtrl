@@ -256,7 +256,6 @@ class Scan(ToolDialog):
             logger.debug('Setting up scangraph')
             self._scangraph = scangraph.ScanGraph(self.credo.subsystems[
                                                   'Scan'].currentscan, self.credo, 'Scan #%d' % (self.credo.subsystems['Scan'].currentscan.fsn))
-            print(self.credo.username, type(self.credo.username))
             uname = self.credo.username
             self._scangraph.figtext(
                 1, 0, self.credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')

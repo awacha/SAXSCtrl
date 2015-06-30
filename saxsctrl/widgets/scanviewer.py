@@ -8,7 +8,9 @@ from sasgui.fileentry import FileEntryWithButton
 from .widgets import ToolDialog
 import datetime
 
+
 class ScanViewer(ToolDialog):
+
     def __init__(self, credo, title='Scan viewer'):
         ToolDialog.__init__(self, credo, title)
         vb = self.get_content_area()
@@ -16,10 +18,13 @@ class ScanViewer(ToolDialog):
         vb.pack_start(self.entrygrid, False, True, 0)
         row = 0
 
-        l = Gtk.Label(label='Scan file:'); l.set_halign(Gtk.Align.START); l.set_valign(Gtk.Align.CENTER)
+        l = Gtk.Label(label='Scan file:')
+        l.set_halign(Gtk.Align.START)
+        l.set_valign(Gtk.Align.CENTER)
         self.entrygrid.attach(l, 0, row, 1, 1)
         self.scanfile_entry = FileEntryWithButton()
-        self.scanfile_entry.set_filename(self.credo.subsystems['Files'].scanfilename)
+        self.scanfile_entry.set_filename(
+            self.credo.subsystems['Files'].scanfilename)
         self.scanfile_entry.set_hexpand(True)
         self.entrygrid.attach(self.scanfile_entry, 1, row, 1, 1)
         b = Gtk.Button(label='Refresh')
@@ -33,8 +38,10 @@ class ScanViewer(ToolDialog):
         sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         f.add(sw)
         # the liststore containing the information of the scans.
-        # Columns are: Scan number, Scan type, Sample name, Exit status, Number of points, date
-        self.scan_liststore = Gtk.ListStore(GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING)
+        # Columns are: Scan number, Scan type, Sample name, Exit status, Number
+        # of points, date
+        self.scan_liststore = Gtk.ListStore(
+            GObject.TYPE_INT, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_STRING, GObject.TYPE_INT, GObject.TYPE_STRING)
         self.scan_treeview = Gtk.TreeView(self.scan_liststore)
         sw.add(self.scan_treeview)
         self.scan_treeview.set_headers_visible(True)
@@ -73,19 +80,21 @@ class ScanViewer(ToolDialog):
         tvc.set_resizable(True)
         self.scan_treeview.append_column(tvc)
         self.scan_treeview.set_grid_lines(Gtk.TreeViewGridLines.BOTH)
-        self.scan_treeview.connect('row-activated', lambda tv, path, column: self._plot())
+        self.scan_treeview.connect(
+            'row-activated', lambda tv, path, column: self._plot())
         sw.set_size_request(-1, 300)
         hbb = Gtk.HButtonBox()
         vb.pack_start(hbb, False, True, 0)
         b = Gtk.Button('Plot selected curve')
-        b.connect('clicked', lambda b:self._plot())
+        b.connect('clicked', lambda b: self._plot())
         hbb.add(b)
-        b = Gtk.Button('Make movie')
-        b.connect('clicked', self.on_movie_button)
-        hbb.add(b)
+        #b = Gtk.Button('Make movie')
+        #b.connect('clicked', self.on_movie_button)
+        # hbb.add(b)
 
         vb.show_all()
         self.reload_list()
+
     def on_cellrenderer_toggled(self, crtoggle, path, what, colidx):
         if what == 'X' or what == 'Y':
             for l in self.cols_liststore:
@@ -97,19 +106,24 @@ class ScanViewer(ToolDialog):
                 l[colidx] = False
             self.cols_liststore[path][colidx] = not prevval
         return True
+
     def on_movie_button(self, button):
         model, paths = self.scan_treeview.get_selection().get_selected_rows()
         row = model[paths[0]]
         scan = self.spec[row[0]]
-        mmd = MovieMaker(self.credo, scan, parent=self, flags=Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL)
+        mmd = MovieMaker(self.credo, scan, parent=self,
+                         flags=Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL)
         mmd.run()
         mmd.destroy()
         return True
+
     def reload_list(self):
         self.scan_liststore.clear()
-        self.spec = sastool.classes.SASScanStore(self.scanfile_entry.get_filename())
+        self.spec = sastool.classes.SASScanStore(
+            self.scanfile_entry.get_filename())
         for scan in [s for s in self.spec if len(s)]:
-            self.scan_liststore.append((scan.fsn, scan.columns()[0], scan.comment, scan.command, len(scan), datetime.datetime.fromtimestamp(scan.timestamp).strftime('%F %R')))
+            self.scan_liststore.append((scan.fsn, scan.columns()[0], scan.comment, scan.command, len(
+                scan), datetime.datetime.fromtimestamp(scan.timestamp).strftime('%F %R')))
 
     def _plot(self):
         model, paths = self.scan_treeview.get_selection().get_selected_rows()
@@ -117,9 +131,10 @@ class ScanViewer(ToolDialog):
         scan = self.spec[row[0]]
 
         if isinstance(scan._N, tuple):
-            sg = scangraph.ImagingGraph(scan, 'Imaging #' + str(scan.fsn) + ' -- ' + str(scan.comment))
+            sg = scangraph.ImagingGraph(
+                scan, 'Imaging #' + str(scan.fsn) + ' -- ' + str(scan.comment))
         else:
-            sg = scangraph.ScanGraph(scan, self.credo, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
+            sg = scangraph.ScanGraph(
+                scan, self.credo, 'Scan #' + str(scan.fsn) + ' -- ' + str(scan.comment))
         sg.redraw_scan()
         sg.show_all()
-

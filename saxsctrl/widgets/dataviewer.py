@@ -11,7 +11,7 @@ _errorflags = [('Wrong distance', 'BADDIST'), ('Wrong sample',
                                                'BADSAMPLE'), ('Artifacts (i.e. chip flares)', 'ARTIFACTS')]
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class DataViewer(ToolDialog):

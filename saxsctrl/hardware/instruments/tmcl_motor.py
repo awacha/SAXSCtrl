@@ -110,7 +110,7 @@ class TMCMModule(Instrument_TCP):
                 filename = self.configfile
             if filename is None:
                 return
-            cp = configparser.ConfigParser()
+            cp = configparser.ConfigParser(interpolation=None)
             cp.read(filename)
             for m in self.motors:
                 self.motors[m].save_to_configparser(cp)
@@ -130,7 +130,7 @@ class TMCMModule(Instrument_TCP):
                 filename = self.configfile
             if filename is None:
                 return
-            cp = configparser.ConfigParser()
+            cp = configparser.ConfigParser(interpolation=None)
             cp.read(filename)
             for name in cp.sections():
                 if name not in self.motors:
@@ -200,11 +200,13 @@ class TMCMModule(Instrument_TCP):
             except MotorError as exc:
                 if not i:  # all retries exhausted
                     raise exc
-                logger.warning(
-                    'Communication error; retrying (%d retries left): ' % i + traceback.format_exc())
+                if logger.level == logging.DEBUG:
+                    logger.warning(
+                        'Communication error; retrying (%d retries left): ' % i + traceback.format_exc())
             except (ConnectionBrokenError, InstrumentError) as exc:
-                logger.error('Connection of instrument %s broken: ' %
-                             self._get_classname() + traceback.format_exc())
+                if logger.level == logging.DEBUG:
+                    logger.error('Connection of instrument %s broken: ' %
+                                 self._get_classname() + traceback.format_exc())
                 raise MotorError(
                     'Connection broken: ' + traceback.format_exc())
             except Exception as exc:

@@ -2,8 +2,41 @@ from gi.repository import Gtk
 from gi.repository import Gdk
 from ..hardware.instruments import InstrumentPropertyCategory, InstrumentError, InstrumentPropertyUnknown
 import logging
+import weakref
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+class InstrumentStatusBar(Gtk.Box):
+    __gtype_name__ = 'SAXSCtrl_InstrumentStatusBar'
+    __gsignals__ = {'destroy': 'override'}
+
+    def __init__(self, credo):
+        Gtk.Box.__init__(self, orientation=Gtk.Orientation.HORIZONTAL)
+        self.credo = weakref.proxy(credo)
+        self._statuslabels = {}
+        self._connections = []
+        for eq in sorted(self.credo.subsystems['Equipments'].known_equipments()):
+            lf = Gtk.Frame(label=eq.capitalize())
+            equipment = self.credo.subsystems['Equipments'].get(eq)
+            self.pack_start(lf, True, True, 0)
+            self._statuslabels[eq] = Gtk.Label(label=equipment.status)
+            lf.add(self._statuslabels[eq])
+            self._connections.append((weakref.proxy(equipment), equipment.connect(
+                'notify::status', self.on_equipment_status_changed, eq)))
+        self.show_all()
+
+    def on_equipment_status_changed(self, equipment, param, eqname):
+        self._statuslabels[eqname].set_text(equipment.status)
+        return False
+
+    def do_destroy(self):
+        try:
+            for c, id in self._connections:
+                c.disconnect(id)
+            del self._connections
+        except AttributeError:
+            pass
 
 
 class InstrumentStatusLabel(Gtk.Box):

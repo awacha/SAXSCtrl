@@ -124,6 +124,7 @@ class ScanGraph(ToolDialog):
         tvc.set_sizing(Gtk.TreeViewColumnSizing.GROW_ONLY)
         self.scalertreeview.append_column(tvc)
         self.scalertreeview.set_size_request(150, -1)
+        self.scalertreeview.get_selection().set_mode(Gtk.SelectionMode.BROWSE)
         vb0 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self._logy_check = Gtk.CheckButton(label='Logarithmic y')
         self._logy_check.connect('toggled', lambda cb: self.redraw_scan())
@@ -273,7 +274,7 @@ class ScanGraph(ToolDialog):
             self._cursor_at = int(round(desired_index))
             if self._cursor_scale.get_value() != to:
                 self._cursor_scale.set_value(to)
-                self._cursor_label.set_label(str(to))
+                self._cursor_label.set_label('%.2f' % float(to))
             self.redraw_scan()
         finally:
             del self._movecursor_noreentry
@@ -396,6 +397,8 @@ class ScanGraph(ToolDialog):
         else:
             for name, visible, scaling in scalerlist:
                 mod.append((name, visible, float(scaling)))
+        self.scalertreeview.get_selection().select_iter(mod.get_iter_first())
+        self.redraw_scan(True)
 
     def on_cell_edited(self, renderer, path, new_text):
         try:

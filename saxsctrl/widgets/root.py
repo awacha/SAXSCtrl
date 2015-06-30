@@ -12,9 +12,9 @@ import weakref
 import traceback
 
 from ..hardware import credo
-from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer, pinholecalculator
+from . import genixcontrol2, pilatuscontrol2, samplesetup, instrumentsetup, instrumentstatus, beamalignment, scan, dataviewer, scanviewer, singleexposure, transmission, centering, qcalibration, logdisplay, motorcontrol, instrumentconnection, saxssequence, nextfsn_monitor, vacuumgauge, datareduction, haakephoenix, imaging, capilsizer, hwlogviewer, pinholecalculator
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 def my_excepthook(type_, value, traceback_):
@@ -245,6 +245,10 @@ class RootWindow(Gtk.Window):
             eb.add(Gtk.Label(label='ONLINE'))
             eb.override_background_color(
                 Gtk.StateFlags.NORMAL, Gdk.RGBA(0, 1.0, 0))
+
+        self._instrumentstatusbar = instrumentstatus.InstrumentStatusBar(
+            self.credo)
+        vb.pack_start(self._instrumentstatusbar, False, True, 0)
 
         hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         vb.pack_start(hb, False, True, 0)

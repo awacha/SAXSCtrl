@@ -16,7 +16,7 @@ import scipy
 import traceback
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 from gi.repository import GObject
 from gi.repository import GLib
@@ -348,7 +348,6 @@ class SubSystemExposure(SubSystem):
             outqueue.put((ExposureMessageType.Image, fsn))
             logger.debug('Process_exposure took %f seconds.' %
                          (time.time() - t0))
-            del cbfdata
         except StopSwitchException:
             # an user break occurred
             outqueue.put((ExposureMessageType.End, False))

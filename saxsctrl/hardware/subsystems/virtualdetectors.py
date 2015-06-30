@@ -288,7 +288,7 @@ class SubSystemVirtualDetectors(SubSystem):
     def load(self, filename=None, clear=True):
         if filename is None:
             filename = self.configfile
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         cp.read(filename)
         if clear:
             self.clear()
@@ -308,7 +308,7 @@ class SubSystemVirtualDetectors(SubSystem):
             return
         if filename is None:
             filename = self.configfile
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         for vpd in self._list:
             vpd.savestate(cp)
         with open(filename, 'wt') as f:

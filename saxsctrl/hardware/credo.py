@@ -145,8 +145,7 @@ class Credo(objwithgui.ObjWithGUI):
             try:
                 self.subsystems['Equipments'].connect_to_all()
             except subsystems.SubSystemError as err:
-                logger.warning(
-                    'Error on connecting to equipments: ' + traceback.format_exc())
+                logger.warning('Connecting to some instruments failed.')
 
     def _get_classname(self):
         return 'CREDO'
@@ -165,7 +164,7 @@ class Credo(objwithgui.ObjWithGUI):
         del cp
 
     def getstatefile(self):
-        cp = configparser.ConfigParser()
+        cp = configparser.ConfigParser(interpolation=None)
         cp.read(RCFILE)
         return cp
 

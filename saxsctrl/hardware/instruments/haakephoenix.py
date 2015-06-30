@@ -62,7 +62,7 @@ class HaakePhoenix(Instrument_TCP):
                 'Invalid state flags data received: %s' % message)
         gd = m.groupdict()
         for k in gd:
-            gd[k] = (gd[k] == '1')
+            gd[k] = (gd[k] == b'1')
 
         return {k: gd[k] for k in gd if not k.startswith('reserved')}
 
@@ -181,12 +181,13 @@ class HaakePhoenix(Instrument_TCP):
                 return postprocessor(message)
             except InstrumentError as ie:
                 if i > 1:
-                    if isinstance(ie, InstrumentTimeoutError):
-                        logger.warning(
-                            'Haake Phoenix timed out on command %s (try %d/%d).' % (command, i + 1, retries))
-                    else:
-                        logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (
-                            command, i + 1, retries, traceback.format_exc()))
+                    if logger.level == logging.DEBUG:
+                        if isinstance(ie, InstrumentTimeoutError):
+                            logger.warning(
+                                'Haake Phoenix timed out on command %s (try %d/%d).' % (command, i + 1, retries))
+                        else:
+                            logger.warning('Haake Phoenix communication error on command %s (try %d/%d): %s' % (
+                                command, i + 1, retries, traceback.format_exc()))
                 if i >= retries - 1:
                     if isinstance(ie, InstrumentTimeoutError):
                         raise HaakePhoenixError('Timeout on command %s. %d retries exhausted.' %
@@ -296,10 +297,13 @@ class HaakePhoenix(Instrument_TCP):
         return self.execute(b'B', self._parse_stateflags)
 
     def _parse_coolingstate(self, message):
+        logger.debug(
+            'Message received from Haake Phoenix for cooling state:' + str(message))
         m = re.match(b'CC(?P<coolingstate>[01])\$', message)
         if m is None:
-            raise HaakePhoenixError('Invalid cooling state: ' + message)
-        return m.group(1) == '1'
+            raise HaakePhoenixError('Invalid cooling state: ' + str(message))
+        logger.debug('Cooling state is: ' + str(m.group(1) == b'1'))
+        return m.group(1) == b'1'
 
     def get_cooling_state(self):
         return self.execute(b'R CC', self._parse_coolingstate)

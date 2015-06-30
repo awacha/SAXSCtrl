@@ -12,7 +12,7 @@ import sastool
 
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 class SampleSetup(Gtk.Dialog):
@@ -547,7 +547,11 @@ class SampleSelector(Gtk.ComboBoxText):
 
     def reload_samples(self):
         if self.get_active() >= 0 and self.get_active() < len(self.samplelist):
-            sam_before = self.samplelist[self.get_active()][-1].title
+            sam = self.samplelist[self.get_active()][-1]
+            try:
+                sam_before = sam.title
+            except AttributeError:
+                sam_before = None
         else:
             sam_before = None
         self.samplelist.clear()
@@ -560,8 +564,9 @@ class SampleSelector(Gtk.ComboBoxText):
                 self.samplelist.append((sam.title, sam))
             else:
                 self.samplelist.append((str(sam), sam))
-        if self.samplelist[self.get_active()][-1].title != sam_before:
-            self.emit('sample-changed', self.samplelist[self.get_active()][-1])
+        sam = self.samplelist[self.get_active()][-1]
+        if ((sam is None) and (sam_before is not None)) or (sam.title != sam_before):
+            self.emit('sample-changed', sam)
 
     def set_sample(self, sam):
         if isinstance(sam, str) and sam == '':
