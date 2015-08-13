@@ -2,11 +2,14 @@
 from gi.repository import Gtk
 from gi.repository import GObject
 from .widgets import ToolDialog
+from . import scangraph
+import datetime
 from ..hardware.instruments import genix
 from gi.repository import GtkSource
 from gi.repository import Pango
 from gi.repository import Gdk
 from gi.repository import GLib
+from gi.repository import Vte
 import time
 import re
 import os
@@ -379,7 +382,7 @@ class SeqCommandMoveMotor(SeqCommand):
 class SeqCommandMoverelMotor(SeqCommand):
     command = 'moverel'
     cmd_regex = r'moverel\s+(?P<motor>\w+)\s+(?P<to>' + \
-        RE_FLOAT_OR_EXPRESSION + ')'
+        RE_FLOAT_OR_EXPRESSION + r')'
     motor = ''
     to = 0
     _arguments = ['motor', 'to']
@@ -404,6 +407,91 @@ class SeqCommandMoverelMotor(SeqCommand):
         self._parse_expressions(credo, prevval, variables)
         logger.info('Simulating: moving motor ' + self.motor +
                     ' to relative position ' + str(self.to))
+
+
+class SeqCommandScan(SeqCommand):
+    command = 'scan'
+    cmd_regex = r'scan\s+(?P<motor>\w+)\s+(?P<start>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<end>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<Nstep>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<exptime>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<comment>.*)'
+    motor = ''
+    start = ''
+    end = ''
+    Nstep = 2
+    exptime = 0
+    comment = ''
+    _arguments = ['motor', 'start', 'end', 'Nstep', 'exptime', 'comment']
+
+    def on_scan_end(self, scan, clean_exit):
+        try:
+            for c in self._scanconnections:
+                scan.disconnect(c)
+            del self._scanconnections
+        except AttributeError:
+            pass
+        if clean_exit:
+            self.emit('return', 'Scan %d ended normally.' %
+                      scan.currentscan.fsn, 'OK', None)
+        else:
+            self.emit(
+                'return', None, 'KILL', 'Scan %d ended abnormally.' % scan.currentscan.fsn)
+
+    def on_scan_report(self, scan, currentscan):
+        if self._kill:
+            scan.kill()
+        self._scangraph.redraw_scan()
+        self.limited_emit('progress', 'Scanning. Recorded points %d / %d' %
+                          (len(currentscan), scan.nstep), len(currentscan) / scan.nstep)
+
+    def on_scan_fail(self, scan, text):
+        self.emit('return', text, 'FAIL', None)
+
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            self.emit('return', None, 'OK', None)
+            return False
+
+        self._parse_expressions(credo, prevval, variables)
+        self._kill = False
+        scandevice = 'Motor:' + self.motor
+        credo.subsystems['Samples'].set(None)
+        credo.subsystems[
+            'Scan'].countingtime = float(self.exptime)
+        credo.subsystems[
+            'Scan'].devicename = scandevice
+        credo.subsystems[
+            'Scan'].value_begin = float(self.start)
+        credo.subsystems[
+            'Scan'].value_end = float(self.end)
+        credo.subsystems[
+            'Scan'].nstep = int(self.Nstep)
+        credo.subsystems[
+            'Scan'].comment = self.comment
+        self._scanconnections = [credo.subsystems['Scan'].connect('scan-end', self.on_scan_end),
+                                 credo.subsystems['Scan'].connect(
+                                     'scan-report', self.on_scan_report),
+                                 credo.subsystems['Scan'].connect('scan-fail', self.on_scan_fail)]
+        try:
+            logger.debug('Preparing scan.')
+            credo.subsystems['Scan'].prepare()
+            logger.debug('Setting up scangraph')
+            self._scangraph = scangraph.ScanGraph(credo.subsystems[
+                                                  'Scan'].currentscan, credo, 'Scan #%d' % (credo.subsystems['Scan'].currentscan.fsn))
+            uname = credo.username
+            self._scangraph.figtext(
+                1, 0, credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
+            self._scangraph.show_all()
+            self._scangraph.set_scalers(
+                [(vd.name, vd.visible, vd.scaler) for vd in credo.subsystems['VirtualDetectors']])
+            self._scangraph.is_recording = True
+            logger.debug('Starting scan')
+            credo.subsystems['Scan'].start()
+            logger.debug('Scan started')
+        except Exception as exc:
+            self.emit('return', exc, 'FAIL', None)
+            return False
 
 
 class SeqCommandLabel(SeqCommand):
@@ -542,6 +630,8 @@ class SeqCommandWithWait(SeqCommand):
             self.emit('return', None, 'KILL', None)
 
     def _idle_worker(self):
+        self.limited_emit('progress', 'Waiting. Time left: %.2f sec.' % (float(
+            self._endtime - self._starttime) - (time.time() - self._starttime)), (time.time() - self._starttime) / float(self._endtime - self._starttime))
         pass
 
     def _idle_func(self):
@@ -992,6 +1082,200 @@ class SequenceInterpreter(GObject.GObject):
     def do_line(self, lineno):
         logger.debug('Executing line %d: %s' % (lineno, self._script[lineno]))
         pass
+
+
+class SAXSTerminal(ToolDialog):
+
+    def __init__(self, credo, title='SAXS Terminal'):
+        ToolDialog.__init__(self, credo, title)
+        self._terminal = Vte.Terminal()
+        self._terminal.set_input_enabled(True)
+        self._terminal.connect('commit', self.on_terminal_commit)
+        cmd_classes = [cls for cls in SeqCommand.__subclasses__()]
+        newclasses = cmd_classes
+        while newclasses:
+            newclasses = [cls for cls in reduce(
+                lambda a, b:a + b, [k.__subclasses__() for k in cmd_classes]) if cls not in cmd_classes]
+            cmd_classes.extend(newclasses)
+        self._commands = [cls()
+                          for cls in cmd_classes if cls.command is not None]
+        self._history = []
+        self._historyindex = 0
+        self._currentline = ''
+        self._cursorpos = 0
+        self._promptidx = 0
+        self._pulsecounter = 0
+        vb = self.get_content_area()
+        vb.pack_start(self._terminal, True, True, 0)
+        self._put_prompt()
+        self._insertmode = True
+        self._vars = {'__breakpoint__': False}
+        self._prevval = None
+        self.show_all()
+        self.hide()
+
+    def _put_prompt(self):
+        self._lastprompt = 'CREDO[%d] >> ' % self._promptidx
+        self._terminal.feed(
+            b'\x1b[1m' + self._lastprompt.encode('utf-8') + b'\x1b[m')
+        self._promptidx += 1
+
+    def on_terminal_commit(self, term, text, length):
+        # treat special characters. Each branch should return if the input
+        # character is not to be echoed back to the user.
+        if text == '\x1b[2~':  # insert
+            self._insertmode = not self._insertmode
+            return True
+        elif text == '\x1b[D':  # left
+            if self._cursorpos >= 1:
+                self._cursorpos -= 1
+            else:
+                return True
+        elif text == '\x1b[C':  # right
+            if self._cursorpos < len(self._currentline):
+                self._cursorpos += 1
+            else:
+                return
+        elif text == '\x1b[A':  # up
+            if not self._history:
+                return True
+            self._historyindex = max(self._historyindex - 1, 0)
+            origlength = len(self._currentline)
+            origpos = self._cursorpos
+            self._currentline = self._history[self._historyindex]
+            self._cursorpos = len(self._currentline)
+            # to keep cursor from moving up when this is fed back to the VTE.
+            text = ''
+        elif text == '\x1b[B':  # down
+            if not self._history:
+                return True
+            self._historyindex = min(
+                self._historyindex + 1, len(self._history) - 1)
+            origlength = len(self._currentline)
+            origpos = self._cursorpos
+            self._currentline = self._history[self._historyindex]
+            self._cursorpos = len(self._currentline)
+            # to keep cursor from moving down when this is fed back to the VTE.
+            text = ''
+        elif text == '\x1b[H':  # home
+            text = '\x1b[D' * self._cursorpos
+            self._cursorpos = 0
+        elif text == '\x1b[F':  # end
+            text = '\x1b[C' * (len(self._currentline) - self._cursorpos)
+        elif text == '\x1b[3~':  # del
+            text = '\x1b[C\x08'
+            self._currentline = self._currentline[
+                :self._cursorpos] + self._currentline[self._cursorpos + 1:]
+        elif text == '\x08':  # backspace
+            if self._cursorpos > 0:
+                self._currentline = self._currentline[
+                    :self._cursorpos - 1] + self._currentline[self._cursorpos:]
+                self._cursorpos -= 1
+            else:
+                return True
+        elif text == '\r':  # enter
+            term.feed(b'\r\n')
+            self._terminal.set_input_enabled(False)
+            # execute the line
+            self.execute_line(self._currentline)
+            return True
+        else:  # insert character
+            if text.isprintable() and not text.startswith('\x1b['):
+                if self._insertmode:
+                    self._currentline = self._currentline[
+                        :self._cursorpos] + text + self._currentline[self._cursorpos:]
+                else:
+                    self._currentline = self.currentline[
+                        :min(0, self._cursorpos - 1)] + text + self._currentline[self._cursorpos:]
+                self._cursorpos += len(text)
+            else:
+                print(repr(text))
+#        print(self._currentline, '(%d)' % len(self._currentline))
+#        print('_' * self._cursorpos + '^' + '_' *
+#              (len(self._currentline) - self._cursorpos), '(%d)' % self._cursorpos)
+        # now we clear the line and put the cursor where it belongs.
+        # clear a bit more than the length of the line.
+        try:
+            clearlength = max(origlength - len(self._currentline), 0) + 3
+        except NameError:
+            clearlength = 3
+        try:
+            origpos
+        except NameError:
+            origpos = self._cursorpos
+        term.feed(text.encode('utf-8'))
+        # go back to just after the prompt
+        term.feed(b'\x1b[D' * origpos)
+        term.feed(self._currentline.encode('utf-8'))  # write the line
+        # clear the end of the line and go back to the end of the line.
+        term.feed(b' ' * clearlength + b'\x1b[D' * clearlength)
+        # move the cursor to its place
+        term.feed(
+            b'\x1b[D' * (len(self._currentline.encode('utf-8')) - self._cursorpos))
+        return True
+
+    def execute_line(self, commandline):
+        self._history.append(commandline)
+        self._historyindex = len(self._history) - 1
+        if commandline.strip().lower() == 'exit':
+            self.destroy()
+            return True
+        elif commandline.strip().lower().startswith('help'):
+            if ' ' in commandline.strip():
+                # help on command requested
+                pass
+            else:
+                self.on_return(
+                    None, 'Known commands: ' + ', '.join(sorted(c.command for c in self._commands if (c.command) and not (c.command.startswith('<') and c.command.endswith('>')))))
+            return True
+
+        clis = [c for c in self._commands if c.match(commandline)]
+        if not clis:
+            self.on_return(
+                None, '\x1b[1;31mUnknown command or syntax error.\x1b[0m')
+        elif len(clis) > 1:
+            self.on_return(None, '\x1b[1;31mAmbiguous command.\x1b[0m')
+        else:
+            self._currentcommand = clis[0]
+            self._cmdconn = [self._currentcommand.connect('pulse', self.on_pulse),
+                             self._currentcommand.connect(
+                                 'progress', self.on_progress),
+                             self._currentcommand.connect('return', self.on_return), ]
+            GLib.idle_add(self._currentcommand.execute_command,
+                          self.credo, self._prevval, self._vars, False)
+        pass
+
+    def on_return(self, command, result, status=None, auxdata=None):
+        try:
+            for c in self._cmdconn:
+                self._currentcommand.disconnect(c)
+            del self._cmdconn
+        except AttributeError:
+            pass
+        self._terminal.feed(b'\x1b[0K')
+        if result is not None:
+            if isinstance(result, Exception):
+                self._terminal.feed(b'\x1b[1;31m')
+            self._terminal.feed(str(result).encode('utf-8'))
+            self._terminal.feed(b'\x1b[0m')
+        self._terminal.feed(b'\r\n')
+        self._terminal.set_input_enabled(True)
+        self._put_prompt()
+        self._currentline = ''
+        self._cursorpos = 0
+        if status is not None:
+            self._prevval = result
+
+    def on_pulse(self, command, text):
+        self._terminal.feed(b'\r' + text.encode('utf-8') + b': ' +
+                            b' ' * self._pulsecounter + b'.' + ' ' * (4 - self._pulsecounter))
+        self._pulsecounter = (self._pulsecounter + 1) % 5
+        return True
+
+    def on_progress(self, command, text, proportion):
+        self._terminal.feed(b'\r' + text.encode('utf-8') +
+                            b': ' + ('%5.2f %%' % (proportion * 100)).encode('utf-8'))
+        return True
 
 
 class SAXSSequence(ToolDialog):

@@ -190,6 +190,8 @@ class RootWindow(Gtk.Window):
                  motorcontrol.MotorMonitor, 'Hardware', [], True),
             Tool(self.credo, 'Automatic sequence', 'Automatic sequence',
                  saxssequence.SAXSSequence, 'Expose', [], False),
+            Tool(self.credo, 'Terminal', 'Terminal',
+                 saxssequence.SAXSTerminal, 'Expose', [], False),
             Tool(self.credo, 'Vacuum gauge', 'Vacuum status',
                  vacuumgauge.VacuumGauge, 'Hardware', ['vacgauge'], True),
             Tool(self.credo, 'Haake Phoenix', 'Haake Phoenix Circulator',

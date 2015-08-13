@@ -384,8 +384,14 @@ class Instrument(objwithgui.ObjWithGUI):
         by send_and_receive(), or by a collector thread collecting asynchronous messages."""
         raise NotImplementedError
 
+    def __idle__(self, status):
+        raise NotImplementedError
+
     def is_idle(self):
-        return self.status in self._considered_idle
+        try:
+            return self.__idle__(self.status)
+        except:
+            return self.status in self._considered_idle
 
     def do_notify(self, prop):
         logger.debug('Instrument:notify: ' + prop.name + ' (class: ' + self._get_classname() + ') set to: ' +

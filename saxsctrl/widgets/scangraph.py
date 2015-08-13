@@ -334,6 +334,7 @@ class ScanGraph(ToolDialog):
                     self.scan[col][self._cursor_at] * scale)
             self.xlabel(self.xname)
 #            self.fig.gca().axis('tight')
+            self.fig.gca().grid(True, which='both')
             self.fig.gca().relim()
             self.fig.gca().autoscale(True, tight=True)
         else:
@@ -368,6 +369,7 @@ class ScanGraph(ToolDialog):
                 dy = 0.5
             # self.fig.gca().axis('tight')
             self.fig.gca().relim()
+            self.fig.gca().grid(True, which='both')
             self.fig.gca().autoscale(True, tight=True)
         if self._show2d_check.get_active() and ('FSN' in self.scan.columns()):
             ssf = self.credo.subsystems['Files']

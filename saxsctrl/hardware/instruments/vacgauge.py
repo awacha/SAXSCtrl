@@ -30,10 +30,24 @@ class VacuumGauge(Instrument_TCP):
         self.logfile = 'log.vac'
         self._logging_parameters = [('pressure', 'f4', '%.3f')]
 
+    def __idle__(self, status):
+        m = re.match('(?P<value>\d+(\.\d*)?) mbar', status)
+        if m is None:
+            raise NotImplementedError
+        return m.group_dict()['value'] < 0.01
+
     def _update_instrumentproperties(self, propertyname=None):
         try:
             pressure = self.readout()
-            categ = InstrumentPropertyCategory.NORMAL
+            if pressure < 0.1:
+                categ = InstrumentPropertyCategory.NORMAL
+            elif pressure < 1:
+                categ = InstrumentPropertyCategory.WARNING
+            else:
+                categ = InstrumentPropertyCategory.ERROR
+            statformatted = '%.3f mbar' % pressure
+            if self.status != statformatted:
+                self.status = statformatted
         except (InstrumentError, ValueError):
             pressure = 0
             categ = InstrumentPropertyCategory.UNKNOWN
