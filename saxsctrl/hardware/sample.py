@@ -131,8 +131,7 @@ class SAXSSample(object):
                     return False
             return True
         elif isinstance(other, str):
-            if self.title == other:
-                return True
+            return self.title == other
         else:
             return NotImplemented
 

@@ -26,6 +26,8 @@ class SubSystemCollimation(SubSystem):
         type=float, blurb='Lower Y coordinate of beamstop in (mm)', default=0)
     beamstop_in_ymax = GObject.property(
         type=float, blurb='Upper Y coordinate of beamstop in (mm)', default=5)
+    beamstop_out_yrel = GObject.property(
+        type=float, blurb='Beamstop out relative position (mm)', default=10)
     motor_beamstopx = GObject.property(
         type=str, default='BeamStop_X', blurb='Motor name for horizontal beamstop positioning')
     motor_beamstopy = GObject.property(
@@ -50,7 +52,7 @@ class SubSystemCollimation(SubSystem):
         self._OWG_nogui_props.append('configfile')
         for i, par in enumerate(['l0', 'l1', 'l2', 'aperture1', 'aperture2',
                                  'aperture3', 'ls', 'lbs', 'dbs',
-                                 'beamstop-in-ymin', 'beamstop-in-ymax',
+                                 'beamstop-in-ymin', 'beamstop-in-ymax', 'beamstop-out-y',
                                  'motor-beamstopx', 'motor-beamstopy',
                                  'motor-ph1x', 'motor-ph1y', 'motor-ph2x',
                                  'motor-ph2y', 'motor-ph3x', 'motor-ph3y']):

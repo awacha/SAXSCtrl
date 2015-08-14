@@ -128,8 +128,11 @@ class SubSystemSamples(SubSystem):
             self.emit('selected', self._selected)
         return sam
 
-    def get(self):
-        return self._selected
+    def get(self, name=None):
+        if name is None:
+            return self._selected
+        else:
+            return [s for s in self._list if s == name][0]
 
     def clear(self):
         self._list = []

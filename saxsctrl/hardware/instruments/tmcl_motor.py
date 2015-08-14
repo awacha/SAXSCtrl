@@ -854,3 +854,6 @@ class StepperMotor(GObject.GObject):
         if isinstance(other, str):
             return (self.name == other) or (self.alias == other) or (str(self) == other)
         return False
+
+    def where(self, raw=False, force_refresh=False):
+        return self.get_parameter('Current_position', raw, force_refresh)

@@ -23,10 +23,6 @@ class SubSystemTransmission(SubSystem):
                     'sample': (GObject.SignalFlags.RUN_FIRST, None, (float, float, int)),
                     'transm': (GObject.SignalFlags.RUN_FIRST, None, (float, float, int)),
                     'notify': 'override'}
-    beamstop_in = GObject.property(
-        type=float, default=7.4, blurb='Beam-stop in-beam position')
-    beamstop_out = GObject.property(
-        type=float, default=20, blurb='Beam-stop out-beam position')
     samplename = GObject.property(
         type=str, default='', blurb='Name of the sample')
     emptyname = GObject.property(
@@ -46,8 +42,6 @@ class SubSystemTransmission(SubSystem):
         type=str, default='BeamStop_Y', blurb='Beam-stop motor name')
     method = GObject.property(
         type=str, default='max', blurb='Intensity counting method')
-    move_beamstop_back_at_end = GObject.property(
-        type=bool, default=True, blurb='Move beam-stop back at end')
 
     def __init__(self, credo, offline=True):
         self._OWG_init_lists()
@@ -97,10 +91,16 @@ class SubSystemTransmission(SubSystem):
             logger.info('Low-power mode reached.')
         else:
             logger.info('X-ray source is already at low-power mode.')
-        mot.moveto(self.beamstop_out)
-        logger.info('Moving beam-stop out of the beam.')
-        self.credo().subsystems['Motors'].wait_for_idle()
-        logger.info('Beam-stop is out of beam.')
+        if (mot.where() < self.credo().subsystems['Collimation'].beamstop_in_ymax) and (mot.where() > self.credo().subsystems['Collimation'].beamstop_in_ymin):
+            # beamstop is in the beam, we must take it out.
+            logger.info('Moving beamstop out of the beam')
+            mot.moverel(
+                self.credo().subsystems['Collimation'].beamstop_out_yrel)
+            self.credo().subsystems['Motors'].wait_for_idle()
+            self._beamstop_taken_out = mot.where()
+        else:
+            logger.info('Beam-stop already out of the beam')
+            self._beamstop_taken_out = None
         self._iterations_finished = 0
         self._I = np.zeros((self.iterations * self.nimages, 3))
         sse = self.credo().subsystems['Exposure']
@@ -208,14 +208,22 @@ class SubSystemTransmission(SubSystem):
         self.credo().subsystems[
             'Exposure'].operate_shutter = self._oldshuttermode
         self._ex_conn = []
-        if self.move_beamstop_back_at_end:
+        if self._beamstop_taken_out is not None:
             mot = self.credo().subsystems['Motors'].get(self.beamstop_motor)
-            mot.moveto(self.beamstop_in)
-            logger.info('Moving beam-stop in the beam.')
-            self.credo().subsystems['Motors'].wait_for_idle()
-            logger.info('Beam-stop is in the beam.')
+            if mot.where() == self._beamstop_taken_out:
+                # if the beamstop motor has not been moved, move it back. If an
+                # external process/user etc. has touched the motor, leave it as
+                # is.
+                mot.moverel(-
+                            self.credo().subsystems['Collimation'].beamstop_out_yrel)
+                logger.info('Moving beam-stop back.')
+                self.credo().subsystems['Motors'].wait_for_idle()
+                logger.info('Beam-stop is in the beam.')
+            else:
+                logger.info(
+                    'Not touching the beamstop: it has been moved since we moved it out.')
         else:
-            logger.info('Beam-stop still out of beam.')
+            logger.info('Beamstop left as is.')
 
     def do_dark(self, mean, std, n):
         logger.debug(

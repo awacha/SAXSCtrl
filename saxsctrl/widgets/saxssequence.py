@@ -17,6 +17,7 @@ import pkg_resources
 import logging
 import traceback
 from functools import reduce
+import sastool
 
 aseq_language_def_path = pkg_resources.resource_filename(
     'saxsctrl', 'resource/language-specs')
@@ -92,6 +93,7 @@ class SeqCommand(GObject.GObject):
                     # object, return status, aux return parameters (jump to
                     # label etc.)
                     'return': (GObject.SignalFlags.RUN_FIRST, None, (object, str, object)),
+                    'info': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
                     }
     command = None
     cmd_regex = ''
@@ -103,6 +105,10 @@ class SeqCommand(GObject.GObject):
         GObject.GObject.__init__(self)
         self._kill = False
         self._signal_lastemit = {}
+
+    def info(self, text):
+        self.emit('info', text)
+        logger.info(text)
 
     def match(self, cmdline):
         m = re.match('^' + self.cmd_regex + '$', cmdline, re.IGNORECASE)
@@ -233,7 +239,7 @@ class SeqCommandGenixPower(SeqCommand):
         return self._kill
 
     def simulate(self, credo, prevval, variables):
-        logger.info('Simulating: setting Genix Power to ' + self.level)
+        self.info('Simulating: setting Genix Power to ' + self.level)
 
 
 class SeqCommandGenixXrayState(SeqCommand):
@@ -278,16 +284,16 @@ class SeqCommandGenixShutterState(SeqCommand):
                 'X-ray source not connected', ErrorSeverity.fatal)
         if self.level.lower() == 'open':
             g.shutter_open()
-            logger.info('Shutter is now open.')
+            self.info('Shutter is now open.')
         elif self.level.lower() == 'close':
             g.shutter_close()
-            logger.info('Shutter is now closed.')
+            self.info('Shutter is now closed.')
         else:
             raise SequenceError(
                 'Invalid shutter state: ' + self.level, ErrorSeverity.fatal)
 
     def simulate(self, credo, prevval, variables):
-        logger.info('Simulating: setting shutter to ' + self.level)
+        self.info('Simulating: setting shutter to ' + self.level)
 
 
 class SeqCommandGenixFaultStatus(SeqCommand):
@@ -327,25 +333,48 @@ class SeqCommandChangeSample(SeqCommand):
     title = ''
     _arguments = ['title']
 
-    def execute(self, credo, prevval, variables):
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            result = self.simulate(credo, prevval, variables)
+            self.emit('return', result, 'OK', None)
+            return False
+        self._parse_expressions(credo, prevval, variables)
         self._kill = False
         try:
             credo.subsystems['Samples'].set(self.title)
         except Exception as exc:
-            raise SequenceError(str(exc), ErrorSeverity.critical)
-        logger.info('Sample %s selected. Now moving motors.' % (self.title))
-        if self.title != credo.subsystems['Exposure'].dark_sample_name:
-            credo.subsystems['Samples'].moveto(blocking=self._handler)
+            self.emit('return', exc, 'FAIL', ErrorSeverity.critical)
+        try:
+            credo.subsystems['Samples'].moveto(blocking=False)
+        except Exception as exc:
+            self.emit('return', exc, 'FAIL', ErrorSeverity.critical)
+        self._conn = credo.subsystems['Motors'].connect(
+            'idle', self._end_of_positioning)
+        self._idlefunc = GObject.timeout_add(500, self._handler)
+        return False
+
+    def _end_of_positioning(self, motor_subsystem):
+        try:
+            motor_subsystem.disconnect(self._conn)
+            del self._conn
+        except AttributeError:
+            pass
+        GObject.source_remove(self._idlefunc)
+        if self._kill:
+            self.emit('return', None, 'KILL', None)
         else:
-            logger.info('Not moving motors, since this is the dark sample.')
+            self.emit('return', self.title, 'OK', None)
+        self.info('Sample %s is now in the beam.' % self.title)
 
     def _handler(self):
         self.limited_emit(
             'pulse', 'Moving sample %s into the beam' % self.title)
-        return self._kill
+        if self._kill:
+            self._motor.stop()
+        return not self._kill
 
     def simulate(self, credo, prevval, variables):
-        logger.info('Simulating: changing sample to ' + self.title)
+        self.info('Simulating: changing sample to ' + self.title)
 
 
 class SeqCommandMoveMotor(SeqCommand):
@@ -356,27 +385,48 @@ class SeqCommandMoveMotor(SeqCommand):
     to = 0
     _arguments = ['motor', 'to']
 
-    def execute(self, credo, prevval, variables):
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            result = self.simulate(credo, prevval, variables)
+            self.emit('return', result, 'OK', None)
+            return False
         self._parse_expressions(credo, prevval, variables)
         self._kill = False
         try:
-            motor = credo.subsystems['Motors'].get(self.motor)
-            motor.moveto(float(self.to))
+            self._motor = credo.subsystems['Motors'].get(self.motor)
+            logger.info('Moving motor %s to %f.' %
+                        (str(self._motor), float(self.to)))
+            self._motor.moveto(float(self.to))
         except Exception as exc:
-            raise SequenceError(str(exc), ErrorSeverity.critical)
-        logger.info('Moving motor %s to %f.' % (str(motor), float(self.to)))
-        credo.subsystems['Motors'].wait_for_idle(self._handler)
+            self.emit('return', exc, 'FAIL', ErrorSeverity.critical)
+        self._conn = credo.subsystems['Motors'].connect(
+            'idle', self._end_of_positioning)
+        self._idlefunc = GObject.timeout_add(500, self._handler)
+        return False
+
+    def _end_of_positioning(self, motor_subsystem):
+        try:
+            motor_subsystem.disconnect(self._conn)
+            del self._conn
+        except AttributeError:
+            pass
+        GObject.source_remove(self._idlefunc)
         if self._kill:
-            raise KillException()
+            self.emit('return', None, 'KILL', None)
+        else:
+            self.emit('return', self._motor.where(), 'OK', None)
+        del self._motor
 
     def _handler(self):
         self.limited_emit('pulse', 'Moving motor %s' % self.motor)
-        return self._kill
+        if self._kill:
+            self._motor.stop()
+        return not self._kill
 
     def simulate(self, credo, prevval, variables):
         self._parse_expressions(credo, prevval, variables)
-        logger.info('Simulating: moving motor ' + self.motor +
-                    ' to absolute position ' + str(self.to))
+        self.info('Simulating: moving motor ' + self.motor +
+                  ' to absolute position ' + str(self.to))
 
 
 class SeqCommandMoverelMotor(SeqCommand):
@@ -387,26 +437,96 @@ class SeqCommandMoverelMotor(SeqCommand):
     to = 0
     _arguments = ['motor', 'to']
 
-    def execute(self, credo, prevval, variables):
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            result = self.simulate(credo, prevval, variables)
+            self.emit('return', result, 'OK', None)
+            return False
+
         self._parse_expressions(credo, prevval, variables)
         self._kill = False
         try:
-            motor = credo.subsystems['Motors'].get(self.motor)
-            motor.moverel(float(self.to))
+            self._motor = credo.subsystems['Motors'].get(self.motor)
+            logger.info('Moving motor %s by %f.' %
+                        (str(self._motor), float(self.to)))
+            self._motor.moverel(float(self.to))
         except Exception as exc:
-            raise SequenceError(str(exc), ErrorSeverity.critical)
-        credo.subsystems['Motors'].wait_for_idle(self._handler)
-        if self._kill:
-            raise KillException()
+            self.emit('return', exc, 'FAIL', ErrorSeverity.critical)
+        self._conn = credo.subsystems['Motors'].connect(
+            'idle', self._end_of_positioning)
+        self._idlefunc = GObject.timeout_add(250, self._handler)
+        return False
 
     def _handler(self):
-        self.limited_emit('pulse', 'Moving motor %s' % self.motor)
-        return self._kill
+        self.emit('pulse', 'Moving motor %s' % self.motor)
+        if self._kill:
+            self._motor.stop()
+        return not self._kill
+
+    def _end_of_positioning(self, motor_subsystem):
+        try:
+            motor_subsystem.disconnect(self._conn)
+            del self._conn
+        except AttributeError:
+            pass
+        GObject.source_remove(self._idlefunc)
+        if self._kill:
+            self.emit('return', None, 'KILL', None)
+        else:
+            self.emit('return', self._motor.where(), 'OK', None)
+        del self._motor
 
     def simulate(self, credo, prevval, variables):
         self._parse_expressions(credo, prevval, variables)
-        logger.info('Simulating: moving motor ' + self.motor +
-                    ' to relative position ' + str(self.to))
+        self.info('Simulating: moving motor ' + self.motor +
+                  ' to relative position ' + str(self.to))
+
+
+class SeqCommandWhereSingle(SeqCommand):
+    command = 'where'
+    cmd_regex = r'where\s+(?P<motor>\w+)'
+    motor = ''
+    _arguments = ['motor']
+
+    def execute(self, credo, prevval, variables):
+        self._parse_expressions(credo, prevval, variables)
+        return credo.subsystems['Motors'].get(self.motor).where()
+
+
+class SeqCommandWhereAll(SeqCommand):
+    command = 'where'
+    cmd_regex = r'where'
+
+    def execute(self, credo, prevval, variables):
+        result = []
+        for mot in credo.subsystems['Motors']:
+            result.append([str(mot), mot.where()])
+        return result
+
+
+class SeqCommandVacuum(SeqCommand):
+    command = 'vacuum'
+    cmd_regex = r'vacuum'
+
+    def execute(self, credo, prevval, variables):
+        return credo.subsystems['Equipments'].get('vacgauge').pressure
+
+
+class SeqCommandTemperature(SeqCommand):
+    command = 'temperature'
+    cmd_regex = r'temperature'
+
+    def execute(self, credo, prevval, variables):
+        return credo.subsystems['Equipments'].get('haakephoenix').temperature
+
+
+class SeqCommandGetParam(SeqCommand):
+    command = 'getparam'
+    cmd_regex = r'getparam\s+(?P<instrument>\w+)\s+(?P<param>\w+)'
+    _arguments = ['instrument', 'param']
+
+    def execute(self, credo, prevval, variables):
+        return credo.subsystems['Equipments'].get(self.instrument).get_property(self.param)
 
 
 class SeqCommandScan(SeqCommand):
@@ -492,6 +612,264 @@ class SeqCommandScan(SeqCommand):
         except Exception as exc:
             self.emit('return', exc, 'FAIL', None)
             return False
+
+
+class SeqCommandScanRel(SeqCommand):
+    command = 'scanrel'
+    cmd_regex = r'scanrel\s+(?P<motor>\w+)\s+(?P<width>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<Nstep>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<exptime>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<comment>.*)'
+    motor = ''
+    width = ''
+    end = ''
+    Nstep = 2
+    exptime = 0
+    comment = ''
+    _arguments = ['motor', 'width', 'Nstep', 'exptime', 'comment']
+
+    def on_scan_end(self, scan, clean_exit):
+        try:
+            for c in self._scanconnections:
+                scan.disconnect(c)
+            del self._scanconnections
+        except AttributeError:
+            pass
+        if clean_exit:
+            self.emit('return', 'Scan %d ended normally.' %
+                      scan.currentscan.fsn, 'OK', None)
+        else:
+            self.emit(
+                'return', None, 'KILL', 'Scan %d ended abnormally.' % scan.currentscan.fsn)
+
+    def on_scan_report(self, scan, currentscan):
+        if self._kill:
+            scan.kill()
+        self._scangraph.redraw_scan()
+        self.limited_emit('progress', 'Scanning. Recorded points %d / %d' %
+                          (len(currentscan), scan.nstep), len(currentscan) / scan.nstep)
+
+    def on_scan_fail(self, scan, text):
+        self.emit('return', text, 'FAIL', None)
+
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            self.emit('return', None, 'OK', None)
+            return False
+
+        self._parse_expressions(credo, prevval, variables)
+        self._kill = False
+        scandevice = 'Motor:' + self.motor
+        currentpos = credo.subsystems['Motors'].get(self.motor).where()
+        credo.subsystems['Samples'].set(None)
+        credo.subsystems[
+            'Scan'].countingtime = float(self.exptime)
+        credo.subsystems[
+            'Scan'].devicename = scandevice
+        credo.subsystems[
+            'Scan'].value_begin = currentpos - float(self.width)
+        credo.subsystems[
+            'Scan'].value_end = currentpos + float(self.width)
+        credo.subsystems[
+            'Scan'].nstep = int(self.Nstep)
+        credo.subsystems[
+            'Scan'].comment = self.comment
+        self._scanconnections = [credo.subsystems['Scan'].connect('scan-end', self.on_scan_end),
+                                 credo.subsystems['Scan'].connect(
+                                     'scan-report', self.on_scan_report),
+                                 credo.subsystems['Scan'].connect('scan-fail', self.on_scan_fail)]
+        try:
+            logger.debug('Preparing scan.')
+            credo.subsystems['Scan'].prepare()
+            logger.debug('Setting up scangraph')
+            self._scangraph = scangraph.ScanGraph(credo.subsystems[
+                                                  'Scan'].currentscan, credo, 'Scan #%d' % (credo.subsystems['Scan'].currentscan.fsn))
+            uname = credo.username
+            self._scangraph.figtext(
+                1, 0, credo.username + '@' + 'CREDO  ' + str(datetime.datetime.now()), ha='right', va='bottom')
+            self._scangraph.show_all()
+            self._scangraph.set_scalers(
+                [(vd.name, vd.visible, vd.scaler) for vd in credo.subsystems['VirtualDetectors']])
+            self._scangraph.is_recording = True
+            logger.debug('Starting scan')
+            credo.subsystems['Scan'].start()
+            logger.debug('Scan started')
+        except Exception as exc:
+            self.emit('return', exc, 'FAIL', None)
+            return False
+
+
+class SeqCommandTransmission(SeqCommand):
+    command = 'transmission'
+    cmd_regex = r'transmission\s+(?P<sample>\w+)\s+(?P<exposuretime>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<N>' + \
+        RE_FLOAT_OR_EXPRESSION + r')'
+    sample = ''
+    exposuretime = 0.5
+    N = 10
+    _arguments = ['sample', 'exposuretime', 'N']
+
+    def on_transmission_end(self, subsys, clean_exit):
+        try:
+            for c in self._connections:
+                subsys.disconnect(c)
+            del self._connections
+        except AttributeError:
+            pass
+        if clean_exit:
+            self.emit(
+                'return', 'Transmission measurement ended normally.', 'OK', None)
+        else:
+            self.emit(
+                'return', None, 'KILL', 'Transmission measurement ended abnormally.')
+
+    def on_result(self, subsys, mean, std, num, what):
+        if self._kill:
+            subsys.kill()
+        if what == 'transmission':
+            formatstr = '%.6f'
+        else:
+            formatstr = '%.1f'
+        self.info(('Measured %s for sample %s: ' + formatstr + ' +/- ' +
+                   formatstr + ' (from %d exposures).') % (what, self.sample, mean, std, num))
+        if what == 'transmission':
+            sam = subsys.credo().subsystems['Samples'].get(self.sample)
+            sam.transmission = sastool.classes.ErrorValue(mean, std)
+            subsys.credo().subsystems['Samples'].save()
+
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            self.emit('return', None, 'OK', None)
+            return False
+
+        self._parse_expressions(credo, prevval, variables)
+        self._kill = False
+        subsystem = credo.subsystems['Transmission']
+        subsystem.samplename = self.sample
+        subsystem.countingtime = float(self.exposuretime)
+        subsystem.nimages = int(self.N)
+        self._connections = [subsystem.connect('dark', self.on_result, 'background radiation intensity'),
+                             subsystem.connect(
+                                 'empty', self.on_result, 'empty beam intensity'),
+                             subsystem.connect(
+                                 'sample', self.on_result, 'sample intensity'),
+                             subsystem.connect(
+                                 'transm', self.on_result, 'transmission'),
+                             subsystem.connect(
+                                 'end', self.on_transmission_end),
+                             ]
+        try:
+            subsystem.execute()
+            self.info('Started transmission measurement')
+        except Exception as exc:
+            self.emit('return', exc, 'FAIL', None)
+            return False
+        return False
+
+
+class SeqCommandTransmissionMulti(SeqCommand):
+    command = 'transmissionmulti'
+    cmd_regex = r'transmissionmulti\s+(?P<exposuretime>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<N>' + \
+        RE_FLOAT_OR_EXPRESSION + r')\s+(?P<samples>.+)'
+    samples = ''
+    exposuretime = 0.5
+    N = 10
+    _arguments = ['samples', 'exposuretime', 'N']
+
+    def on_transmission_end(self, subsys, clean_exit):
+        if not self.samplelist:
+            try:
+                for c in self._connections:
+                    subsys.disconnect(c)
+                del self._connections
+            except AttributeError:
+                pass
+
+            if self._beamstop_taken_out is not None:
+                mot = subsys.credo().subsystems['Motors'].get(
+                    subsys.beamstop_motor)
+                if mot.where() == self._beamstop_taken_out:
+                    # if the beamstop motor has not been moved, move it back. If an
+                    # external process/user etc. has touched the motor, leave it as
+                    # is.
+                    mot.moverel(-
+                                subsys.credo().subsystems['Collimation'].beamstop_out_yrel)
+                    logger.info('Moving beam-stop back.')
+                    subsys.credo().subsystems['Motors'].wait_for_idle()
+                    logger.info('Beam-stop is in the beam.')
+                else:
+                    logger.info(
+                        'Not touching the beamstop: it has been moved since we moved it out.')
+            else:
+                logger.info('Beamstop left as is.')
+
+            if clean_exit:
+                self.emit(
+                    'return', 'Transmission measurement ended normally.', 'OK', None)
+            else:
+                self.emit(
+                    'return', None, 'KILL', 'Transmission measurement ended abnormally.')
+
+        else:
+            self.sample = self.samplelist.pop()
+            subsys.samplename = self.sample
+            try:
+                subsys.execute()
+                self.info(
+                    'Started transmission measurement for sample %s' % self.sample)
+            except Exception as exc:
+                self.emit('return', exc, 'FAIL', None)
+        return False
+
+    def on_result(self, subsys, mean, std, num, what):
+        if self._kill:
+            subsys.kill()
+        if what == 'transmission':
+            formatstr = '%.6f'
+        else:
+            formatstr = '%.1f'
+        self.info(('Measured %s for sample %s: ' + formatstr + ' +/- ' +
+                   formatstr + ' (from %d exposures).') % (what, self.sample, mean, std, num))
+        if what == 'transmission':
+            sam = subsys.credo().subsystems['Samples'].get(self.sample)
+            sam.transmission = sastool.classes.ErrorValue(mean, std)
+            subsys.credo().subsystems['Samples'].save()
+
+    def execute_command(self, credo, prevval, variables, simulate=False):
+        if simulate:
+            self.emit('return', None, 'OK', None)
+            return False
+
+        self._parse_expressions(credo, prevval, variables)
+        self._kill = False
+        self.samplelist = self.samples.split()
+        subsystem = credo.subsystems['Transmission']
+        subsystem.countingtime = float(self.exposuretime)
+        subsystem.nimages = int(self.N)
+        self._connections = [subsystem.connect('dark', self.on_result, 'background radiation intensity'),
+                             subsystem.connect(
+                                 'empty', self.on_result, 'empty beam intensity'),
+                             subsystem.connect(
+                                 'sample', self.on_result, 'sample intensity'),
+                             subsystem.connect(
+                                 'transm', self.on_result, 'transmission'),
+                             subsystem.connect(
+                                 'end', self.on_transmission_end),
+                             ]
+        mot = credo.subsystems['Motors'].get(subsystem.beamstop_motor)
+        if (mot.where() < credo.subsystems['Collimation'].beamstop_in_ymax) and (mot.where() > credo.subsystems['Collimation'].beamstop_in_ymin):
+            # beamstop is in the beam, we must take it out.
+            logger.info('Moving beamstop out of the beam')
+            mot.moverel(
+                credo.subsystems['Collimation'].beamstop_out_yrel)
+            credo.subsystems['Motors'].wait_for_idle()
+            self._beamstop_taken_out = mot.where()
+        else:
+            logger.info('Beam-stop already out of the beam')
+            self._beamstop_taken_out = None
+
+        self.on_transmission_end(subsystem, 'START')
 
 
 class SeqCommandLabel(SeqCommand):
@@ -630,8 +1008,6 @@ class SeqCommandWithWait(SeqCommand):
             self.emit('return', None, 'KILL', None)
 
     def _idle_worker(self):
-        self.limited_emit('progress', 'Waiting. Time left: %.2f sec.' % (float(
-            self._endtime - self._starttime) - (time.time() - self._starttime)), (time.time() - self._starttime) / float(self._endtime - self._starttime))
         pass
 
     def _idle_func(self):
@@ -654,6 +1030,11 @@ class SeqCommandWait(SeqCommandWithWait):
 
     def simulate(self, credo, prevval, variables):
         logger.info('Simulating: waiting ' + str(self.timeout) + ' seconds')
+
+    def _idle_worker(self):
+        self.limited_emit('progress', 'Waiting. Time left: %.2f sec.' % (float(
+            self._endtime - self._starttime) - (time.time() - self._starttime)), (time.time() - self._starttime) / float(self._endtime - self._starttime))
+        pass
 
     def _prepare(self, credo, prevval, variables):
         self._start_waiting(self.timeout, 500)
@@ -680,7 +1061,7 @@ class SeqCommandExpose(SeqCommandWithWait):
         sse.exptime = float(self.exptime)
         sse.nimages = 1
         fsn = sse.start(write_nexus=True)
-        logger.info('Started exposure of FSN #%d.' % fsn)
+        self.info('Started exposure of FSN #%d.' % fsn)
         self._start_waiting(sse.exptime, 500)
 
     def _idle_worker(self):
@@ -704,8 +1085,10 @@ class SeqCommandExpose(SeqCommandWithWait):
             del self._failmsg
         else:
             SeqCommandWithWait._end_of_waiting(self, status)
+        self.info('Exposure ended.')
 
     def _on_image(self, sse, exposure, ssdr):
+        self.info('Exposure done: %s' % (str(exposure.header)))
         if self.do_datareduction:
             logger.info('Running data reduction on ' + str(exposure.header))
             ssdr.reduce(exposure['FSN'])
@@ -714,7 +1097,7 @@ class SeqCommandExpose(SeqCommandWithWait):
         self._failmsg = errmsg
 
     def simulate(self, credo, prevval, variables):
-        logger.info(
+        self.info(
             'Simulating: exposing for ' + str(self.exptime) + ' seconds')
 
     def _end_of_waiting(self, normal_end=True):
@@ -755,7 +1138,7 @@ class SeqCommandMath(SeqCommand):
         return eval(self.expression.replace('§', '(' + str(prevval) + ')'), globals(), variables)
 
 
-class SeqCommandVacuum(SeqCommand):
+class SeqCommandWaitVacuum(SeqCommand):
     command = 'wait_vacuum'
     cmd_regex = r'wait_vacuum\s+(?P<pressure>' + RE_FLOAT_OR_EXPRESSION + ')'
     pressure = ''
@@ -826,13 +1209,13 @@ class SeqCommandSetTemp(SeqCommand):
 
     def execute(self, credo, prevval, variables):
         self._parse_expressions(credo, prevval, variables)
-        logger.info('Setting temperature to ' + str(self.setpoint) + ' C')
+        self.info('Setting temperature to ' + str(self.setpoint) + ' C')
         credo.get_equipment('haakephoenix').set_setpoint(
             float(self.setpoint), verify=True)
 
     def simulate(self, credo, prevval, variables):
         self._parse_expressions(credo, prevval, variables)
-        logger.info(
+        self.info(
             'Simulating: setting temperature to ' + str(self.setpoint) + ' C')
 
 
@@ -879,8 +1262,8 @@ class SeqCommandWaitTemp(SeqCommand):
 
     def simulate(self, credo, prevval, variables):
         self._parse_expressions(credo, prevval, variables)
-        logger.info('Simulating: waiting until temperature is nearer to the setpoint than ' +
-                    str(self.delta) + ' in the interval of ' + str(self.time) + ' seconds')
+        self.info('Simulating: waiting until temperature is nearer to the setpoint than ' +
+                  str(self.delta) + ' in the interval of ' + str(self.time) + ' seconds')
 
 
 class SeqCommandStartStopCirculator(SeqCommand):
@@ -892,13 +1275,15 @@ class SeqCommandStartStopCirculator(SeqCommand):
     def execute(self, credo, prevval, variables):
         if self.state.lower() == 'start':
             credo.get_equipment('haakephoenix').start_circulation()
+            self.info('Started circulator')
         elif self.state.lower() == 'stop':
             credo.get_equipment('haakephoenix').stop_circulation()
+            self.info('Stopped circulator')
         else:
             raise SequenceError('Invalid circulator state: ' + self.state)
 
     def simulate(self, credo, prevval, variables):
-        logger.info('Simulating: circulator ' + self.state)
+        self.info('Simulating: circulator ' + self.state)
 
 
 class SequenceInterpreter(GObject.GObject):
@@ -1091,6 +1476,8 @@ class SAXSTerminal(ToolDialog):
         self._terminal = Vte.Terminal()
         self._terminal.set_input_enabled(True)
         self._terminal.connect('commit', self.on_terminal_commit)
+        self._terminal.connect(
+            'selection-changed', self.on_terminal_selection_changed)
         cmd_classes = [cls for cls in SeqCommand.__subclasses__()]
         newclasses = cmd_classes
         while newclasses:
@@ -1100,7 +1487,7 @@ class SAXSTerminal(ToolDialog):
         self._commands = [cls()
                           for cls in cmd_classes if cls.command is not None]
         self._history = []
-        self._historyindex = 0
+        self._historyindex = None
         self._currentline = ''
         self._cursorpos = 0
         self._promptidx = 0
@@ -1111,6 +1498,8 @@ class SAXSTerminal(ToolDialog):
         self._insertmode = True
         self._vars = {'__breakpoint__': False}
         self._prevval = None
+        self._waspulseorprogress = False
+        self._command_is_running = False
         self.show_all()
         self.hide()
 
@@ -1121,6 +1510,13 @@ class SAXSTerminal(ToolDialog):
         self._promptidx += 1
 
     def on_terminal_commit(self, term, text, length):
+        if self._command_is_running:
+            if text == '\x03':  # Ctrl-C
+                self.kill_command()
+                return True
+            else:
+                # do nothing.
+                return True
         # treat special characters. Each branch should return if the input
         # character is not to be echoed back to the user.
         if text == '\x1b[2~':  # insert
@@ -1139,7 +1535,10 @@ class SAXSTerminal(ToolDialog):
         elif text == '\x1b[A':  # up
             if not self._history:
                 return True
-            self._historyindex = max(self._historyindex - 1, 0)
+            if self._historyindex is None:
+                self._historyindex = len(self._history) - 1
+            else:
+                self._historyindex = max(self._historyindex - 1, 0)
             origlength = len(self._currentline)
             origpos = self._cursorpos
             self._currentline = self._history[self._historyindex]
@@ -1173,11 +1572,22 @@ class SAXSTerminal(ToolDialog):
                 self._cursorpos -= 1
             else:
                 return True
+        elif text == '\x03':  # break, as in Ctrl-C
+            text = ''
+            self._currentline = ''
+            self._cursorpos = 0
+        elif text == '\x16':
+            text = ''
+            self._terminal.paste_clipboard(self)
         elif text == '\r':  # enter
             term.feed(b'\r\n')
-            self._terminal.set_input_enabled(False)
+            self._command_is_running = True
             # execute the line
-            self.execute_line(self._currentline)
+            try:
+                self.execute_line(self._currentline)
+            except:
+                self._command_is_running = False
+                raise
             return True
         else:  # insert character
             if text.isprintable() and not text.startswith('\x1b['):
@@ -1190,6 +1600,7 @@ class SAXSTerminal(ToolDialog):
                 self._cursorpos += len(text)
             else:
                 print(repr(text))
+                text = ''
 #        print(self._currentline, '(%d)' % len(self._currentline))
 #        print('_' * self._cursorpos + '^' + '_' *
 #              (len(self._currentline) - self._cursorpos), '(%d)' % self._cursorpos)
@@ -1214,9 +1625,16 @@ class SAXSTerminal(ToolDialog):
             b'\x1b[D' * (len(self._currentline.encode('utf-8')) - self._cursorpos))
         return True
 
+    def kill_command(self):
+        try:
+            self._currentcommand._kill = True
+        except AttributeError:
+            pass
+
     def execute_line(self, commandline):
         self._history.append(commandline)
         self._historyindex = len(self._history) - 1
+        self._waspulseorprogress = False
         if commandline.strip().lower() == 'exit':
             self.destroy()
             return True
@@ -1240,10 +1658,25 @@ class SAXSTerminal(ToolDialog):
             self._cmdconn = [self._currentcommand.connect('pulse', self.on_pulse),
                              self._currentcommand.connect(
                                  'progress', self.on_progress),
-                             self._currentcommand.connect('return', self.on_return), ]
+                             self._currentcommand.connect(
+                                 'return', self.on_return),
+                             self._currentcommand.connect(
+                                 'info', self.on_info),
+                             ]
             GLib.idle_add(self._currentcommand.execute_command,
                           self.credo, self._prevval, self._vars, False)
         pass
+
+    def on_info(self, command, text):
+        text = text.replace('\n\r', '<lfcr_n8aevee4tycbv_scramble_yvyeyxd>')
+        text = text.replace('\r\n', '<crlf_n8aevee4tycbv_scramble_yvyeyxd>')
+        text = text.replace('\n', '\n\r')
+        text.replace('<lfcr_n8aevee4tycbv_scramble_yvyeyxd>', '\n\r')
+        text.replace('<crlf_n8aevee4tycbv_scramble_yvyeyxd>', '\r\n')
+        if self._waspulseorprogress:
+            self._terminal.feed(b'\n\r')
+        self._terminal.feed(text.encode('utf-8') + b'\n\r')
+        self._waspulseorprogress = False
 
     def on_return(self, command, result, status=None, auxdata=None):
         try:
@@ -1258,8 +1691,10 @@ class SAXSTerminal(ToolDialog):
                 self._terminal.feed(b'\x1b[1;31m')
             self._terminal.feed(str(result).encode('utf-8'))
             self._terminal.feed(b'\x1b[0m')
+        if status == 'KILL':
+            self._terminal.feed('*command killed*'.encode('utf-8'))
         self._terminal.feed(b'\r\n')
-        self._terminal.set_input_enabled(True)
+        self._command_is_running = False
         self._put_prompt()
         self._currentline = ''
         self._cursorpos = 0
@@ -1268,14 +1703,19 @@ class SAXSTerminal(ToolDialog):
 
     def on_pulse(self, command, text):
         self._terminal.feed(b'\r' + text.encode('utf-8') + b': ' +
-                            b' ' * self._pulsecounter + b'.' + ' ' * (4 - self._pulsecounter))
+                            b' ' * self._pulsecounter + b'.' + b' ' * (4 - self._pulsecounter))
         self._pulsecounter = (self._pulsecounter + 1) % 5
+        self._waspulseorprogress = True
         return True
 
     def on_progress(self, command, text, proportion):
         self._terminal.feed(b'\r' + text.encode('utf-8') +
                             b': ' + ('%5.2f %%' % (proportion * 100)).encode('utf-8'))
+        self._waspulseorprogress = True
         return True
+
+    def on_terminal_selection_changed(self, term):
+        term.copy_primary()
 
 
 class SAXSSequence(ToolDialog):
