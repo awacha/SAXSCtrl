@@ -49,7 +49,7 @@ class SubSystemExposure(SubSystem):
     dwelltime = GObject.property(
         type=float, minimum=0.003, default=0.003, blurb='Dwell time between exposures (sec)')
     nimages = GObject.property(
-        type=int, minimum=1, default=1, blurb='Number of images to take (sec)', maximum=20)
+        type=int, minimum=1, default=1, blurb='Number of images to take (sec)', maximum=2000)
     operate_shutter = GObject.property(
         type=bool, default=True, blurb='Open/close shutter')
     cbf_file_timeout = GObject.property(

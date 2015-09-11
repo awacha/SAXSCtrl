@@ -341,10 +341,16 @@ class Scan(ToolDialog):
             self.lazystop_button.set_sensitive(False)
             self.entrytable.set_sensitive(True)
             self._progress_frame.hide()
-            self._scangraph.is_recording = False
+            if hasattr(self, '_scangraph'):
+                self._scangraph.is_recording = False
         return True
 
     def _scan_report(self, subsys, scan):
+        if not hasattr(self, '_scangraph'):
+            return
+        if not self._scangraph.is_visible():
+            del self._scangraph
+            return
         self._scangraph.redraw_scan()
         self._progressbar.set_fraction(
             len(self.credo.subsystems['Scan'].currentscan) / self.step_entry.get_value())

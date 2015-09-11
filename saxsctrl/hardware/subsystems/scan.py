@@ -249,6 +249,9 @@ class SubSystemScan(SubSystem):
         return ScanDevice.possible_devices(self.credo())
 
     def prepare(self, header_template={}, mask=None):
+        # acquire without blocking
+        if not self.credo()._busyflag.acquire(False):
+            raise SubSystemError('Cannot start scan: instrument is busy.')
         if self.scandevice is None:
             self._init_scan_device()
         logger.debug('Initializing scan.')
@@ -394,7 +397,12 @@ class SubSystemScan(SubSystem):
     def _start_exposure(self):
         logger.debug('Starting exposure in scan sequence.')
         if (self._current_step == 0) and self._original_shuttermode and not self.operate_shutter:
-            self.credo().get_equipment('genix').shutter_open()
+            try:
+                self.credo().get_equipment('genix').shutter_open()
+            except GenixError:
+                self.emit(
+                    'scan-fail', 'Shutter error: ' + traceback.format_exc())
+                self.emit('scan-end', False)
             logger.debug(
                 'Opened shutter before starting of the first exposure.')
         fsnwillbe = self.credo().subsystems['Exposure'].start(
@@ -440,6 +448,7 @@ class SubSystemScan(SubSystem):
                 logger.warning(
                     'Error closing shutter: ' + traceback.format_exc())
         logger.info('Scan #%d finished.' % self.currentscan.fsn)
+        self.credo()._busyflag.release()
         if Notify.is_initted():
             if status:
                 n = Notify.Notification.new(

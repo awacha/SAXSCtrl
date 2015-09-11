@@ -12,6 +12,7 @@ import configparser
 import pkg_resources
 import dateutil
 import traceback
+import multiprocessing
 
 from . import subsystems
 from ..utils import objwithgui
@@ -137,6 +138,8 @@ class Credo(objwithgui.ObjWithGUI):
             self, offline=self.offline)
         logger.debug('All Credo subsystems initialized.')
         self._OWG_parts = list(self.subsystems.values())
+
+        self._busyflag = multiprocessing.Lock()
 
         # load state: this will load the state information of all the
         # subsystems as well.

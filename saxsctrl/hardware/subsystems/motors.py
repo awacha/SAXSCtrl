@@ -53,6 +53,10 @@ class SubSystemMotors(SubSystem):
         if self.is_idle():
             self.emit('idle')
 
+    def stop_all(self):
+        for mot in self:
+            mot.stop()
+
     def get_motors(self):
         mots = []
         for md in [dr for dr in self.credo().subsystems['Equipments'].get_motor_drivers() if self.credo().subsystems['Equipments'].is_connected(dr)]:

@@ -1,6 +1,6 @@
 from .widgets import ToolDialog
 from .instrumentstatus import InstrumentStatus, InstrumentStatusLabel
-from ..hardware.instruments.genix import GenixStatus, InstrumentError
+from ..hardware.instruments.genix import GenixStatus, InstrumentError, GenixError
 from gi.repository import Gtk, GLib
 import logging
 logger = logging.getLogger(__name__)
@@ -21,6 +21,11 @@ class GenixTools(Gtk.Frame):
         grid.attach(l, 0, row, 1, 1)
         self._shutterswitch = Gtk.Switch()
         grid.attach(self._shutterswitch, 1, row, 1, 1)
+        try:
+            self._shutterswitch.set_state(
+                self.credo.subsystems['Equipments'].get('genix').shutter_state())
+        except GenixError:
+            pass
         self._shutterswitch.connect('state-set', self.on_shutter_switch)
 
         row += 1

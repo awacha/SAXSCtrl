@@ -43,7 +43,8 @@ def start_saxsctrl():
         os.mkdir('log')
     except OSError:
         pass
-    if 'ONLINE' in [x.upper() for x in sys.argv]:
+    isonline = 'ONLINE' in [x.upper() for x in sys.argv]
+    if isonline:
         handler = logging.handlers.TimedRotatingFileHandler(
             os.path.expanduser('log/SAXSCtrl.log'), 'D')
     else:
@@ -59,9 +60,18 @@ def start_saxsctrl():
     logger.info('SAXSCtrl started')
     pb = itheme.load_icon('saxsctrl_icon', 256, 0)
     Gtk.Window.set_default_icon(pb)
-    root = widgets.root.RootWindow()
-    root.show_all()
-    Gtk.main()
-    root.destroy()
-    gc.collect()
+
+    if isonline and os.path.isfile('/run/user/%d/SAXSCtrl.pid' % os.geteuid()):
+        md = Gtk.MessageDialog(parent=None, flags=None, type=Gtk.MessageType.ERROR,
+                               buttons=Gtk.ButtonsType.CLOSE, message_format='Another instance of this program is running')
+        md.run()
+    elif isonline:
+        with open('/run/user/%d/SAXSCtrl.pid' % os.geteuid(), 'w') as f:
+            f.write(str(os.getpid()))
+
+        root = widgets.root.RootWindow()
+        root.show_all()
+        Gtk.main()
+        root.destroy()
+        gc.collect()
     logger.info('Ending main program.')

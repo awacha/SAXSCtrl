@@ -1,5 +1,5 @@
 from gi.repository import GObject
-from .subsystem import SubSystem, SubSystemException
+from .subsystem import SubSystem, SubSystemException, SubSystemError
 from ..instruments import genix
 import os
 import logging
@@ -76,6 +76,10 @@ class SubSystemTransmission(SubSystem):
                 self._mask = sastool.classes.SASMask(self.mask)
 
     def execute(self):
+        # acquire without blocking
+        if not self.credo()._busyflag.acquire(False):
+            raise SubSystemError(
+                'Cannot start transmission measurement: instrument is busy')
         self._kill = False
         mot = self.credo().subsystems['Motors'].get(self.beamstop_motor)
         g = self.credo().get_equipment('genix')
@@ -224,6 +228,7 @@ class SubSystemTransmission(SubSystem):
                     'Not touching the beamstop: it has been moved since we moved it out.')
         else:
             logger.info('Beamstop left as is.')
+        self.credo()._busyflag.release()
 
     def do_dark(self, mean, std, n):
         logger.debug(

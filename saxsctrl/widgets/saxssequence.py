@@ -340,6 +340,7 @@ class SeqCommandChangeSample(SeqCommand):
             return False
         self._parse_expressions(credo, prevval, variables)
         self._kill = False
+        self._subsysmot = credo.subsystems['Motors']
         try:
             credo.subsystems['Samples'].set(self.title)
         except Exception as exc:
@@ -364,13 +365,14 @@ class SeqCommandChangeSample(SeqCommand):
             self.emit('return', None, 'KILL', None)
         else:
             self.emit('return', self.title, 'OK', None)
+        del self._subsysmot
         self.info('Sample %s is now in the beam.' % self.title)
 
     def _handler(self):
         self.limited_emit(
             'pulse', 'Moving sample %s into the beam' % self.title)
         if self._kill:
-            self._motor.stop()
+            self._subsysmot.stop_all()
         return not self._kill
 
     def simulate(self, credo, prevval, variables):
@@ -557,6 +559,7 @@ class SeqCommandScan(SeqCommand):
         else:
             self.emit(
                 'return', None, 'KILL', 'Scan %d ended abnormally.' % scan.currentscan.fsn)
+        self._scangraph.is_recording = False
 
     def on_scan_report(self, scan, currentscan):
         if self._kill:
@@ -641,6 +644,7 @@ class SeqCommandScanRel(SeqCommand):
         else:
             self.emit(
                 'return', None, 'KILL', 'Scan %d ended abnormally.' % scan.currentscan.fsn)
+        self._scangraph.is_recording = False
 
     def on_scan_report(self, scan, currentscan):
         if self._kill:
@@ -1663,9 +1667,16 @@ class SAXSTerminal(ToolDialog):
                              self._currentcommand.connect(
                                  'info', self.on_info),
                              ]
-            GLib.idle_add(self._currentcommand.execute_command,
+            GLib.idle_add(self._execute_idle, self._currentcommand,
                           self.credo, self._prevval, self._vars, False)
         pass
+
+    def _execute_idle(self, command, *args):
+        try:
+            command.execute_command(*args)
+        except Exception as exc:
+            self._terminal.feed(b'\x1b[1;31m%s\x1b[0m' % str(exc))
+        return False
 
     def on_info(self, command, text):
         text = text.replace('\n\r', '<lfcr_n8aevee4tycbv_scramble_yvyeyxd>')
